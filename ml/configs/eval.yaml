@@ -1,0 +1,12 @@
+# @package _global_
+# Evaluation configuration
+
+metrics:
+  - intent_accuracy
+  - slot_f1
+  - schema_valid_rate
+  - latency_ms
+
+output_dir: experiments/eval_results/
+batch_size: 8
+max_new_tokens: 256
