@@ -1,0 +1,65 @@
+# =============================================================================
+# NORA – pyproject.toml
+# PEP 517/518 build configuration + tool settings
+# =============================================================================
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+# ---------------------------------------------------------------------------
+# Project metadata
+# ---------------------------------------------------------------------------
+[project]
+name = "nora"
+version = "0.1.0"
+description = "NORA – Neuromorphic Omnidirectional Robotic Assistant"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+# TODO(nora): populate runtime dependencies as packages are added
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4.4",
+    "black>=24.4",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff – linter configuration
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# E/W – pycodestyle  |  F – pyflakes  |  I – isort  |  N – pep8-naming
+select = ["E", "F", "I", "N", "W"]
+# TODO(nora): add project-specific ignores here
+ignore = []
+
+# ---------------------------------------------------------------------------
+# Black – formatter configuration
+# ---------------------------------------------------------------------------
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+# ---------------------------------------------------------------------------
+# Mypy – type checking configuration
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.10"
+strict = false
+ignore_missing_imports = true
+# TODO(nora): tighten mypy settings per-package as stubs are added
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["core/tests", "ml/tests"]
+addopts = "-v --tb=short"

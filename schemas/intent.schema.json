@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://nora-robot.dev/schemas/intent.json",
+  "title": "Intent",
+  "description": "Structured intent extracted from a natural language command",
+  "type": "object",
+  "required": ["version", "command_id", "raw_text", "action", "confidence"],
+  "properties": {
+    "version": {"type": "string", "const": "1.0"},
+    "command_id": {"type": "string", "format": "uuid"},
+    "raw_text": {"type": "string"},
+    "action": {"type": "string", "enum": ["pick", "place", "move_to_pose", "open_gripper", "close_gripper", "go_home", "unknown"]},
+    "target_object": {"type": ["string", "null"], "default": null},
+    "target_location": {"type": ["string", "null"], "default": null},
+    "parameters": {"type": "object", "additionalProperties": true},
+    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+  },
+  "additionalProperties": false
+}

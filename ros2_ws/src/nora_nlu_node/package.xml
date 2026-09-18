@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>nora_nlu_node</name>
+  <version>0.1.0</version>
+  <description>Natural-language understanding node for NORA — parses voice/text commands into structured intents.</description>
+  <maintainer email="nora@example.com">NORA Team</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- ROS 2 runtime deps -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>nora_interfaces</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <!--
+    Python library dependencies (install via pip / rosdep):
+      transformers>=4.30    — HuggingFace model inference (local_parser backend)
+      torch>=2.0            — PyTorch for HF models
+      numpy                 — array utilities
+  -->
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

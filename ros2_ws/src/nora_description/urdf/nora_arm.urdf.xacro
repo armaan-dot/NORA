@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  nora_arm.urdf.xacro
+  6-DOF NORA arm description using primitive geometries (no external meshes).
+  Macro layout:
+    world -> base_link -> link1 -> link2 -> link3 -> link4 -> link5 -> link6 -> gripper_link
+-->
+<robot name="nora_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===================================================================
+       Includes
+  ==================================================================== -->
+  <xacro:include filename="$(find nora_description)/urdf/materials.xacro"/>
+  <xacro:include filename="$(find nora_description)/urdf/ros2_control.xacro"/>
+
+  <!-- ===================================================================
+       Properties
+  ==================================================================== -->
+  <xacro:property name="joint_effort"   value="100.0"/>
+  <xacro:property name="joint_velocity" value="1.0"/>
+  <xacro:property name="joint_lower"    value="${-pi}"/>
+  <xacro:property name="joint_upper"    value="${pi}"/>
+
+  <!-- Simple diagonal inertia helper -->
+  <xacro:macro name="simple_inertia" params="mass ixx iyy izz">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixx="${ixx}" ixy="0.0" ixz="0.0"
+               iyy="${iyy}" iyz="0.0"
+               izz="${izz}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ===================================================================
+       World / Base
+  ==================================================================== -->
+  <link name="world"/>
+
+  <joint name="world_to_base" type="fixed">
+    <parent link="world"/>
+    <child  link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- base_link: large cylinder as the mounting base -->
+  <link name="base_link">
+    <xacro:simple_inertia mass="2.0" ixx="0.02" iyy="0.02" izz="0.01"/>
+    <visual>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.08" length="0.10"/></geometry>
+      <material name="dark_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.08" length="0.10"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ===================================================================
+       Link 1 — shoulder yaw
+  ==================================================================== -->
+  <joint name="joint1" type="revolute">
+    <parent link="base_link"/>
+    <child  link="link1"/>
+    <origin xyz="0 0 0.10" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${joint_lower}" upper="${joint_upper}"
+           effort="${joint_effort}" velocity="${joint_velocity}"/>
+  </joint>
+
+  <link name="link1">
+    <xacro:simple_inertia mass="1.0" ixx="0.01" iyy="0.01" izz="0.005"/>
+    <visual>
+      <origin xyz="0 0 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.07 0.07 0.15"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.075" rpy="0 0 0"/>
+      <geometry><box size="0.07 0.07 0.15"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ===================================================================
+       Link 2 — shoulder pitch
+  ==================================================================== -->
+  <joint name="joint2" type="revolute">
+    <parent link="link1"/>
+    <child  link="link2"/>
+    <origin xyz="0 0 0.15" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="${joint_lower}" upper="${joint_upper}"
+           effort="${joint_effort}" velocity="${joint_velocity}"/>
+  </joint>
+
+  <link name="link2">
+    <xacro:simple_inertia mass="1.0" ixx="0.01" iyy="0.005" izz="0.01"/>
+    <visual>
+      <origin xyz="0 0 0.10" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.04" length="0.20"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.10" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.04" length="0.20"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ===================================================================
+       Link 3 — elbow pitch
+  ==================================================================== -->
+  <joint name="joint3" type="revolute">
+    <parent link="link2"/>
+    <child  link="link3"/>
+    <origin xyz="0 0 0.20" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="${joint_lower}" upper="${joint_upper}"
+           effort="${joint_effort}" velocity="${joint_velocity}"/>
+  </joint>
+
+  <link name="link3">
+    <xacro:simple_inertia mass="1.0" ixx="0.008" iyy="0.004" izz="0.008"/>
+    <visual>
+      <origin xyz="0 0 0.09" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.035" length="0.18"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.09" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.035" length="0.18"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ===================================================================
+       Link 4 — forearm roll
+  ==================================================================== -->
+  <joint name="joint4" type="revolute">
+    <parent link="link3"/>
+    <child  link="link4"/>
+    <origin xyz="0 0 0.18" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${joint_lower}" upper="${joint_upper}"
+           effort="${joint_effort}" velocity="${joint_velocity}"/>
+  </joint>
+
+  <link name="link4">
+    <xacro:simple_inertia mass="0.8" ixx="0.005" iyy="0.005" izz="0.003"/>
+    <visual>
+      <origin xyz="0 0 0.07" rpy="0 0 0"/>
+      <geometry><box size="0.06 0.06 0.14"/></geometry>
+      <material name="dark_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.07" rpy="0 0 0"/>
+      <geometry><box size="0.06 0.06 0.14"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ===================================================================
+       Link 5 — wrist pitch
+  ==================================================================== -->
+  <joint name="joint5" type="revolute">
+    <parent link="link4"/>
+    <child  link="link5"/>
+    <origin xyz="0 0 0.14" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="${joint_lower}" upper="${joint_upper}"
+           effort="${joint_effort}" velocity="${joint_velocity}"/>
+  </joint>
+
+  <link name="link5">
+    <xacro:simple_inertia mass="0.5" ixx="0.003" iyy="0.003" izz="0.002"/>
+    <visual>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.03" length="0.10"/></geometry>
+      <material name="silver"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.05" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.03" length="0.10"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ===================================================================
+       Link 6 — wrist roll
+  ==================================================================== -->
+  <joint name="joint6" type="revolute">
+    <parent link="link5"/>
+    <child  link="link6"/>
+    <origin xyz="0 0 0.10" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${joint_lower}" upper="${joint_upper}"
+           effort="${joint_effort}" velocity="${joint_velocity}"/>
+  </joint>
+
+  <link name="link6">
+    <xacro:simple_inertia mass="0.3" ixx="0.001" iyy="0.001" izz="0.001"/>
+    <visual>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.025" length="0.06"/></geometry>
+      <material name="dark_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.025" length="0.06"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ===================================================================
+       Gripper
+  ==================================================================== -->
+  <joint name="gripper_joint" type="revolute">
+    <parent link="link6"/>
+    <child  link="gripper_link"/>
+    <origin xyz="0 0 0.06" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0.0" upper="0.08"
+           effort="50.0" velocity="0.5"/>
+  </joint>
+
+  <link name="gripper_link">
+    <xacro:simple_inertia mass="0.2" ixx="0.0005" iyy="0.0005" izz="0.0005"/>
+    <visual>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+      <geometry><box size="0.05 0.10 0.08"/></geometry>
+      <material name="orange"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+      <geometry><box size="0.05 0.10 0.08"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ===================================================================
+       ros2_control integration (defined in ros2_control.xacro)
+  ==================================================================== -->
+  <xacro:nora_ros2_control name="NorArmSystem"/>
+
+</robot>

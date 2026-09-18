@@ -1,0 +1,7 @@
+# ScoreAffordances.srv — score a list of skills against an Intent
+# Request
+nora_interfaces/Intent intent
+string[] skill_names
+---
+# Response
+nora_interfaces/AffordanceScore[] scores

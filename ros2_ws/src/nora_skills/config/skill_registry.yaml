@@ -1,0 +1,46 @@
+skills:
+  - name: pick
+    action_server: /nora/skills/pick
+    description: Pick up a target object
+    preconditions: [object_detected, arm_not_holding_object]
+    effects: [arm_holding_object]
+    params:
+      target_object: string
+      grasp_pose: pose
+
+  - name: place
+    action_server: /nora/skills/place
+    description: Place held object at target location
+    preconditions: [arm_holding_object, location_reachable]
+    effects: [object_at_location, arm_not_holding_object]
+    params:
+      target_location: string
+
+  - name: move_to_pose
+    action_server: /nora/skills/move_to_pose
+    description: Move arm to a named pose
+    preconditions: [pose_reachable]
+    effects: [arm_at_pose]
+    params:
+      pose_name: string
+
+  - name: open_gripper
+    action_server: /nora/skills/open_gripper
+    description: Open gripper
+    preconditions: []
+    effects: [gripper_open]
+    params: {}
+
+  - name: close_gripper
+    action_server: /nora/skills/close_gripper
+    description: Close gripper
+    preconditions: [gripper_open]
+    effects: [gripper_closed]
+    params: {}
+
+  - name: go_home
+    action_server: /nora/skills/go_home
+    description: Return arm to home position
+    preconditions: []
+    effects: [arm_at_home]
+    params: {}

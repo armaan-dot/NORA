@@ -1,0 +1,50 @@
+# nora_moveit_config/config/joint_limits.yaml
+#
+# Joint velocity and acceleration limits used by MoveIt trajectory generation.
+# Units: velocity  → rad/s
+#        acceleration → rad/s²
+#
+# These are conservative defaults — tune to your actual motor specs.
+
+joint_limits:
+  joint1:
+    has_velocity_limits: true
+    max_velocity: 1.5708          # π/2 rad/s  ≈ 90 °/s
+    has_acceleration_limits: true
+    max_acceleration: 3.1416      # π rad/s²
+
+  joint2:
+    has_velocity_limits: true
+    max_velocity: 1.5708
+    has_acceleration_limits: true
+    max_acceleration: 3.1416
+
+  joint3:
+    has_velocity_limits: true
+    max_velocity: 1.5708
+    has_acceleration_limits: true
+    max_acceleration: 3.1416
+
+  joint4:
+    has_velocity_limits: true
+    max_velocity: 2.0944          # 2π/3 rad/s ≈ 120 °/s
+    has_acceleration_limits: true
+    max_acceleration: 4.1888
+
+  joint5:
+    has_velocity_limits: true
+    max_velocity: 2.0944
+    has_acceleration_limits: true
+    max_acceleration: 4.1888
+
+  joint6:
+    has_velocity_limits: true
+    max_velocity: 2.0944
+    has_acceleration_limits: true
+    max_acceleration: 4.1888
+
+  gripper_joint:
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0

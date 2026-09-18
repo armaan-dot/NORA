@@ -1,0 +1,10 @@
+# ExecuteSkill.action — execute a single skill call
+# Goal
+nora_interfaces/SkillCall skill_call
+---
+# Result
+bool success
+string message
+---
+# Feedback
+string status
