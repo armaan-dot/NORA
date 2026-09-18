@@ -1,0 +1,12 @@
+# ExecuteIntent.action — execute a full parsed intent end-to-end
+# Goal
+nora_interfaces/Intent intent
+---
+# Result
+bool success
+string message
+nora_interfaces/SkillCall[] executed_skills
+---
+# Feedback
+string current_skill
+float32 progress    # [0.0, 1.0]

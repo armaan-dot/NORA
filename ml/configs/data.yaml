@@ -1,0 +1,11 @@
+# @package _global_
+# Data configuration
+
+data_dir: data/
+train_file: processed/train.jsonl
+val_file: processed/val.jsonl
+test_file: processed/test.jsonl
+max_length: 512
+
+# Path to the shared JSON schema for intent validation
+schema_path: ../../schemas/intent.schema.json

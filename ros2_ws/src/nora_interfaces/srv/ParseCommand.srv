@@ -1,0 +1,8 @@
+# ParseCommand.srv — parse a raw natural-language string into an Intent
+# Request
+string raw_text
+---
+# Response
+nora_interfaces/Intent intent
+bool success
+string error_msg

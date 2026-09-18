@@ -1,512 +1,333 @@
+<div align="center">
+
 # NORA
-NORA - Natural Language Orchestrated Robotic Agent
 
-# NORA — Natural-Language Orchestrated Robotic Agent
+### Natural Language Orchestrated Robotics Agent
 
-> An embodied AI system that allows robots to understand natural human language, plan multi-step tasks, interact with their environment, and autonomously execute those tasks through ROS 2.
+*Plain English → Structured Intent → Affordance Scoring → Robot Arm*
 
-## Overview
+[![ROS 2 Humble](https://img.shields.io/badge/ROS%202-Humble-blue?logo=ros)](https://docs.ros.org/en/humble/)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![CI](https://github.com/your-org/nora/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/nora/actions/workflows/ci.yml)
 
-NORA is an AI-powered robotics framework designed to bridge the gap between **human language and physical robot actions**.
-
-Instead of requiring users to provide low-level commands such as:
-
-```text
-navigate_to(2.4, 1.8)
-```
-
-the user can give the robot a natural instruction:
-
-> **"Get me the cup of water."**
-
-NORA interprets the instruction, determines the required sequence of actions, uses perception to understand the environment, and executes the resulting plan through ROS 2.
-
-The long-term goal is to create a general-purpose **language-to-action interface for autonomous robots**.
+</div>
 
 ---
 
-## Example
+## What is NORA?
 
-### User
+NORA is a robotics framework that lets you control a robot arm by talking to it the way you'd talk to a person.
 
-```text
-Get me the cup of water.
+Instead of writing low-level motion code, you give it a command like:
+
+```
+"Pick up the red cube and put it on the plate."
 ```
 
-### NORA
+NORA figures out what that means, checks whether it's physically possible, picks the right sequence of actions, and sends them to a ROS 2 arm — all without you specifying a single joint angle.
 
-```text
-1. Locate the cup
-2. Locate the water source
-3. Navigate to the cup
-4. Grasp the cup
-5. Navigate to the water source
-6. Fill the cup
-7. Navigate back to the user
-8. Hand the cup to the user
-```
+The system is built around three ideas:
 
-### Execution
+1. **Language is the interface.** A fine-tuned language model converts free-form text into a structured intent JSON that the rest of the system can act on. The model is a swappable component behind a clean interface; you can run a mock rule-based parser during development and drop in a real fine-tuned model when you're ready.
 
-```text
-Natural Language
-       ↓
-      LLM
-       ↓
-Task Decomposition
-       ↓
-Action Planner
-       ↓
-Perception ────────┐
-Navigation ────────┤
-Manipulation ──────┤
-       ↓            │
-      ROS 2 ◄───────┘
-       ↓
-     Robot
-```
+2. **Actions are scored before they're executed.** Inspired by SayCan, every candidate skill is evaluated against two questions — *is this action useful given the command?* and *is it physically feasible right now?* — before the orchestrator commits to a plan. This keeps the robot from attempting grasps out of reach or placing objects in occupied spots.
+
+3. **ROS 2 is the backbone.** Everything that touches the arm goes through standard ROS 2 interfaces: action servers for long-running skills, services for synchronous queries, and topics for state. MoveIt 2 handles motion planning; Gazebo and NVIDIA Isaac Sim are the simulation targets.
 
 ---
 
-## Key Features
+## Pipeline
 
-### Natural Language Understanding
-
-NORA accepts unrestricted, human-style instructions rather than predefined robot commands.
-
-Examples:
-
-```text
-"Bring me the red cup."
-
-"Can you get me some water?"
-
-"I'm thirsty. Get me a glass of water."
-
-"Take the box from the table and put it near the door."
 ```
-
-The system converts these instructions into structured robot tasks.
-
-### Task Decomposition
-
-Complex instructions are broken into smaller executable actions.
-
-```text
-High-Level Goal
-      ↓
-Task Planner
-      ↓
-Subtasks
-      ↓
-ROS 2 Actions
-```
-
-### Environmental Grounding
-
-The robot does not simply assume that objects exist.
-
-NORA can query perception systems to determine:
-
-* What objects are present
-* Where objects are located
-* Where the robot is
-* Where the user is
-* Whether an action succeeded
-
-### Closed-Loop Execution
-
-NORA continuously monitors execution and can re-plan when something goes wrong.
-
-```text
-Plan
- ↓
-Execute
- ↓
-Observe
- ↓
-Success?
- ├── Yes → Continue
- └── No  → Re-plan
-```
-
-For example:
-
-```text
-Attempt to grasp cup
-        ↓
-Grasp failed
-        ↓
-Perception detects failure
-        ↓
-Planner generates new approach
-        ↓
-Retry
-```
-
-### Memory
-
-The system can maintain useful information about the environment and previous interactions.
-
-Examples:
-
-```text
-"The cups are usually in the kitchen."
-
-"The water dispenser is beside the refrigerator."
-
-"The user prefers the blue cup."
-```
-
-### Safety Layer
-
-The LLM does not directly control motors.
-
-All generated actions pass through a validation and safety layer before reaching the robot.
-
-```text
-LLM
- ↓
-Structured Action
- ↓
-Validation / Safety
- ↓
-ROS 2
- ↓
-Robot
+Human text
+    │
+    ▼
+┌─────────────────────┐
+│   NLU Node          │  ParseCommand service
+│   (LLM / Mock)      │  → Intent JSON
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  Affordance Node    │  ScoreAffordances service
+│  usefulness × feas. │  → ranked AffordanceScore[]
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│   Orchestrator      │  ExecuteIntent action server
+│   (state machine)   │  → skill sequence
+└──────────┬──────────┘
+           │
+    ┌──────┴──────┐
+    ▼             ▼
+ pick          move_to_pose        ... (skill action servers)
+    │
+    ▼
+┌──────────────────────┐
+│  MoveIt 2 / ROS 2    │
+│  joint_trajectory    │
+└──────────────────────┘
+           │
+           ▼
+    NORA Arm (Gazebo / Isaac / Physical)
 ```
 
 ---
 
-# System Architecture
+## Repository Layout
 
-```text
-                    ┌──────────────┐
-                    │    USER      │
-                    └──────┬───────┘
-                           │
-                    Natural Language
-                           │
-                           ▼
-                 ┌──────────────────┐
-                 │   Language Model │
-                 │                  │
-                 │ Intent           │
-                 │ Reasoning        │
-                 │ Planning         │
-                 └────────┬─────────┘
-                          │
-                    Task Plan
-                          │
-                          ▼
-                 ┌──────────────────┐
-                 │  Action Planner  │
-                 └────────┬─────────┘
-                          │
-          ┌───────────────┼────────────────┐
-          ▼               ▼                ▼
-   ┌────────────┐  ┌────────────┐  ┌──────────────┐
-   │ Perception │  │ Navigation │  │ Manipulation │
-   │            │  │            │  │              │
-   │ Vision/VLM │  │   Nav2     │  │   MoveIt 2   │
-   └─────┬──────┘  └─────┬──────┘  └──────┬───────┘
-         │               │                │
-         └───────────────┼────────────────┘
-                         ▼
-                    ┌─────────┐
-                    │  ROS 2  │
-                    └────┬────┘
-                         │
-                         ▼
-                       Robot
+```
+nora/
+├── schemas/                     # Single source of truth for all data contracts
+│   ├── intent.schema.json       #   Intent: action, object, location, confidence
+│   ├── skill_registry.schema.json
+│   └── affordance_score.schema.json
+│
+├── core/                        # Pure Python, zero ROS dependency
+│   └── nora_core/               #   Intent models, affordance fusion, planner, interfaces
+│
+├── ros2_ws/src/
+│   ├── nora_interfaces/         # All ROS 2 msgs / srvs / actions
+│   ├── nora_description/        # URDF/xacro 6-DOF arm + gripper
+│   ├── nora_gazebo/             # Tabletop world, Gazebo launch
+│   ├── nora_isaac/              # Isaac Sim bridge (stub)
+│   ├── nora_moveit_config/      # SRDF, kinematics, OMPL, controllers
+│   ├── nora_control/            # ros2_control YAML, controller launch
+│   ├── nora_nlu_node/           # NLU ROS node (mock + fine-tuned backends)
+│   ├── nora_affordance/         # Affordance scoring node + combiner
+│   ├── nora_skills/             # Primitive skill action servers
+│   ├── nora_orchestrator/       # State machine, skill sequencing, replanning
+│   ├── nora_perception/         # Mock object-pose publisher (replaceable)
+│   └── nora_bringup/            # Launch files: sim, full stack, demo
+│
+├── ml/                          # Fine-tuning blueprint (LoRA / QLoRA, TRL)
+│   ├── configs/                 #   Hydra: model, training, data, eval
+│   ├── src/nora_nlu/            #   Dataset, models, training, inference, eval
+│   └── data/examples/           #   seed_commands.jsonl — 15 labelled examples
+│
+├── sim/
+│   ├── gazebo/                  # Extra worlds and models
+│   ├── isaac/                   # USD scenes, Isaac ROS 2 bridge notes
+│   └── benchmarks/              # task_suite.yaml + run_benchmark.py
+│
+├── docs/                        # Architecture, schema docs, setup guide, roadmap
+├── docker/                      # Dockerfile.ros, Dockerfile.ml, docker-compose.yml
+└── scripts/                     # setup_ubuntu.sh, build.sh, run_demo.sh, …
 ```
 
 ---
 
-# Technology Stack
+## Getting Started
 
-## AI
+### Prerequisites
 
-* Python
-* PyTorch
-* Hugging Face Transformers
-* Open-source LLM
-* LoRA / QLoRA
-* Vision-Language Models
+- Ubuntu 22.04
+- ROS 2 Humble
+- Python 3.10+
+- Gazebo (Classic or Harmonic)
+- MoveIt 2
 
-## Robotics
+```bash
+# Install ROS 2 Humble + dependencies
+bash scripts/setup_ubuntu.sh
+bash scripts/install_ros.sh
 
-* ROS 2
-* Nav2
-* MoveIt 2
-* TF2
-* ROS 2 Actions
-* ROS 2 Services
-* ROS 2 Topics
-
-## Simulation
-
-* Gazebo
-* Isaac Sim
-* RViz
-* Foxglove
-
-## Hardware
-
-The system is initially designed to operate in simulation but can eventually be deployed to a physical mobile manipulator or humanoid robot.
-
----
-
-# Project Roadmap
-
-## Phase 1 — Language → Structured Actions
-
-Build the basic language interface.
-
-```text
-"Move forward two meters"
-            ↓
-{
-  "action": "move",
-  "distance": 2.0
-}
+# Install Python dev dependencies
+pip install -e ".[dev]"
+pip install -e core/
 ```
 
-Support basic actions such as:
+### Build the ROS 2 workspace
 
-* Move
-* Rotate
-* Stop
-* Navigate
-* Pick
-* Place
+```bash
+make build-ros
+source ros2_ws/install/setup.bash
+```
 
----
+### Run the mock demo
 
-## Phase 2 — ROS 2 Integration
+The mock demo runs the complete pipeline without a GPU or a physical arm. The mock NLU parser uses keyword rules; the mock perception node publishes fixed object poses.
 
-Connect structured actions to ROS 2.
+```bash
+make demo-mock
+```
 
-```text
-LLM
- ↓
-JSON Action
- ↓
-ROS 2 Node
- ↓
-/cmd_vel
-/Nav2
-/MoveIt
+You'll see:
+
+```
+=== NORA Mock Demo ===
+Command: pick up the red cube
+Intent: {'action': 'pick', 'target_object': 'red_cube', 'confidence': 0.85, ...}
+  Affordance [pick]:          usefulness=0.85  feasibility=0.90  combined=0.878
+  Affordance [place]:         usefulness=0.20  feasibility=0.90  combined=0.422
+  Affordance [go_home]:       usefulness=0.20  feasibility=0.90  combined=0.422
+  Affordance [open_gripper]:  usefulness=0.20  feasibility=0.90  combined=0.422
+Skill Plan: ['pick', 'place', 'go_home']
+=== Demo Complete ===
+```
+
+### Run all checks
+
+```bash
+make check   # lint + pytest (core + ml) + colcon build + colcon test
+```
+
+### Launch the Gazebo simulation
+
+```bash
+make build-ros
+ros2 launch nora_bringup sim_gazebo.launch.py
+```
+
+### Launch the full stack
+
+```bash
+ros2 launch nora_bringup full_stack.launch.py
 ```
 
 ---
 
-## Phase 3 — Task Planning
+## Intent Schema
 
-Allow the model to decompose complex instructions.
-
-```text
-"Take the red box to the table."
-
-        ↓
-
-Find red box
-        ↓
-Navigate to box
-        ↓
-Grasp box
-        ↓
-Navigate to table
-        ↓
-Place box
-```
-
----
-
-## Phase 4 — Perception
-
-Integrate computer vision and object detection.
-
-```text
-Camera
-  ↓
-Vision Model
-  ↓
-Object Detection
-  ↓
-World State
-  ↓
-LLM Planner
-```
-
-The planner can now reason about the actual environment.
-
----
-
-## Phase 5 — Closed-Loop Autonomy
-
-Introduce feedback and recovery.
-
-```text
-Plan
- ↓
-Execute
- ↓
-Observe
- ↓
-Evaluate
- ↓
-Re-plan if necessary
-```
-
----
-
-## Phase 6 — Custom Robot Language Model
-
-Fine-tune an open-source model using a custom dataset containing:
-
-```text
-Natural Language
-        ↓
-Intent
-        ↓
-Task Plan
-        ↓
-Structured Robot Actions
-```
-
-Example:
+Every command is translated into an Intent JSON object. This schema is the contract between the NLU, affordance scorer, orchestrator, and ML training pipeline.
 
 ```json
 {
-  "instruction": "Bring me the red cup",
-  "plan": [
-    "find_object(red_cup)",
-    "navigate_to(red_cup)",
-    "grasp(red_cup)",
-    "navigate_to(user)",
-    "hand_over(red_cup)"
-  ]
+  "version": "1.0",
+  "command_id": "550e8400-e29b-41d4-a716-446655440001",
+  "raw_text": "pick up the red cube",
+  "action": "pick",
+  "target_object": "red_cube",
+  "target_location": null,
+  "parameters": {},
+  "confidence": 0.92
 }
 ```
 
----
+Supported actions: `pick`, `place`, `move_to_pose`, `open_gripper`, `close_gripper`, `go_home`, `unknown`.
 
-# Research Questions
-
-The project will investigate:
-
-* How effectively can an LLM convert natural language into executable robot plans?
-* How well does a specialized model perform compared with a general-purpose LLM?
-* How can ambiguous instructions be resolved?
-* How can language models use real-time environmental information?
-* How should failed actions be detected and recovered from?
-* How can LLM-generated actions be safely validated before execution?
-* How much can model size be reduced while maintaining reliable robot control?
+Full schema: [`schemas/intent.schema.json`](schemas/intent.schema.json). Documentation: [`docs/intent_schema.md`](docs/intent_schema.md).
 
 ---
 
-# Evaluation
+## Affordance Scoring
 
-The system will be evaluated using:
+For each candidate skill, NORA computes:
 
-### Language Understanding
-
-* Intent accuracy
-* Parameter extraction accuracy
-* Ambiguity detection
-
-### Planning
-
-* Task decomposition accuracy
-* Valid action sequences
-* Number of unnecessary actions
-
-### Robotics
-
-* Task completion rate
-* Navigation success
-* Manipulation success
-* Recovery success
-
-### AI Performance
-
-* Inference latency
-* Model size
-* GPU/CPU requirements
-* Fine-tuned vs. base-model performance
-
----
-
-# Repository Structure
-
-```text
-NORA/
-│
-├── llm/
-│   ├── models/
-│   ├── prompts/
-│   ├── training/
-│   └── inference/
-│
-├── planner/
-│   ├── task_planner/
-│   ├── action_validator/
-│   └── memory/
-│
-├── perception/
-│   ├── object_detection/
-│   └── vision/
-│
-├── ros2/
-│   ├── nodes/
-│   ├── actions/
-│   ├── services/
-│   └── interfaces/
-│
-├── simulation/
-│   ├── gazebo/
-│   └── isaac_sim/
-│
-├── datasets/
-│
-├── experiments/
-│
-├── tests/
-│
-└── README.md
+```
+combined_score = usefulness^w_u × feasibility^w_f
 ```
 
+where:
+- **usefulness** — how well the skill serves the stated intent (LLM-scored)
+- **feasibility** — whether the skill can physically succeed right now (IK reachability + collision check + object state)
+- **w_u, w_f** — configurable weights (default 0.6 / 0.4)
+
+The orchestrator runs the highest-scoring feasible skill first. If it fails, the replanning hook kicks in.
+
+Weights live in [`ros2_ws/src/nora_affordance/config/weights.yaml`](ros2_ws/src/nora_affordance/config/weights.yaml).
+Full explanation: [`docs/affordance_scoring.md`](docs/affordance_scoring.md).
+
 ---
 
-# Long-Term Vision
+## NLU Backends
 
-The ultimate goal of NORA is to move from:
+The `nora_nlu_node` wraps any NLU implementation behind a single interface:
 
-```text
-Human
-  ↓
-Predefined Commands
-  ↓
-Robot
+```python
+class IntentParser(ABC):
+    def parse(self, text: str) -> dict: ...
 ```
 
-to:
+| Backend | When to use |
+|---------|-------------|
+| `MockRuleBasedParser` | Development, CI, offline testing |
+| `LocalFineTunedParser` | After fine-tuning with `ml/` (LoRA checkpoint) |
 
-```text
-Human
-  ↓
-Natural Language
-  ↓
-AI Reasoning
-  ↓
-World Understanding
-  ↓
-Task Planning
-  ↓
-ROS 2
-  ↓
-Autonomous Robot
+Switch backends via the `backend` ROS 2 parameter in [`config/nlu.yaml`](ros2_ws/src/nora_nlu_node/config/nlu.yaml).
+
+---
+
+## ML Fine-Tuning
+
+The `ml/` directory is a self-contained blueprint for fine-tuning a small LLM (Qwen-2.5-1.5B, Llama-3.2-1B, or similar) on robot command→intent pairs using LoRA/QLoRA and the TRL SFTTrainer.
+
+```bash
+cd ml/
+make generate-data   # generate 200 synthetic command→intent pairs
+make train           # run LoRA fine-tuning (requires GPU)
+make evaluate        # intent accuracy, slot F1, schema-valid rate, latency
+make export          # merge LoRA weights into a single checkpoint
 ```
 
-NORA aims to provide a general interface through which humans can communicate with robots **the same way they communicate with other people**.
+Training data format matches [`schemas/intent.schema.json`](schemas/intent.schema.json). Seed examples: [`ml/data/examples/seed_commands.jsonl`](ml/data/examples/seed_commands.jsonl).
+
+---
+
+## Development
+
+```bash
+# Lint + format
+make lint
+make format
+
+# Run unit tests
+make test-core   # pytest core/tests/
+make test-ml     # pytest ml/tests/
+
+# Pre-commit hooks
+pre-commit install
+pre-commit run --all-files
+```
+
+### Docker
+
+```bash
+# ROS 2 environment
+docker compose up ros
+
+# ML training environment (GPU)
+docker compose up ml
+```
+
+Dev container config for VS Code: [`docker/.devcontainer/devcontainer.json`](docker/.devcontainer/devcontainer.json).
+
+---
+
+## Roadmap
+
+| Phase | Focus | Status |
+|-------|-------|--------|
+| 1 | Monorepo skeleton, schemas, core library, CI | ✅ Done |
+| 2 | ROS 2 interface layer, mock end-to-end demo | ✅ Done |
+| 3 | Real MoveIt 2 motion planning, Gazebo grasping | 🔧 In progress |
+| 4 | Fine-tuned NLU model, full ML pipeline | ⬜ Planned |
+| 5 | Real perception (depth camera, object detection) | ⬜ Planned |
+| 6 | Closed-loop replanning, failure recovery | ⬜ Planned |
+| 7 | NVIDIA Isaac Sim, physical arm deployment | ⬜ Planned |
+
+Detailed roadmap: [`docs/roadmap.md`](docs/roadmap.md).
+
+---
+
+## Architecture
+
+Full architecture writeup: [`docs/architecture.md`](docs/architecture.md)
+Setup guide (Ubuntu 22.04): [`docs/setup_linux.md`](docs/setup_linux.md)
+
+---
+
+## Contributing
+
+1. Fork the repo and create a feature branch
+2. Run `pre-commit install` so hooks run on each commit
+3. Make sure `make check` passes before opening a PR
+4. Keep commits scoped — one logical change per commit
+
+---
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).

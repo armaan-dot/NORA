@@ -1,0 +1,5 @@
+# @package model
+model_name_or_path: meta-llama/Llama-3.2-1B-Instruct
+torch_dtype: bfloat16
+use_flash_attention: false
+trust_remote_code: false

@@ -1,0 +1,11 @@
+defaults:
+  - model: qwen_small
+  - train: lora
+  - data: data
+  - eval: eval
+  - _self_
+
+# ── Shared project settings ────────────────────────────────────────────────────
+project_name: nora-nlu
+seed: 42
+output_dir: experiments/runs/${now:%Y-%m-%d_%H-%M-%S}

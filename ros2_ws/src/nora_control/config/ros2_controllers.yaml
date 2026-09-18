@@ -1,0 +1,48 @@
+# nora_control/config/ros2_controllers.yaml
+#
+# ros2_control controller configuration for the NORA arm.
+# Loaded by the controller_manager at startup.
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz — must match your hardware interface publish rate
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    gripper_controller:
+      type: position_controllers/GripperActionController
+
+# ── Arm trajectory controller ─────────────────────────────────────────────────
+arm_controller:
+  ros__parameters:
+    joints:
+      - joint1
+      - joint2
+      - joint3
+      - joint4
+      - joint5
+      - joint6
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    # Allow receiving goal trajectories before the controller is activated.
+    allow_partial_joints_goal: false
+    # Interpolation method: splines or none.
+    interpolation_method: splines
+    open_loop_control: false
+
+# ── Gripper action controller ─────────────────────────────────────────────────
+gripper_controller:
+  ros__parameters:
+    joint: gripper_joint
+    action_monitor_rate: 20.0   # Hz
+    allow_stalling: false
+    stall_velocity_threshold: 0.001
+    stall_timeout: 1.0
+    max_velocity: 0.5           # rad/s — tune to hardware

@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SkillRegistry",
+  "type": "object",
+  "required": ["skills"],
+  "properties": {
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "action_server", "preconditions", "effects", "params"],
+        "properties": {
+          "name": {"type": "string"},
+          "action_server": {"type": "string"},
+          "description": {"type": "string"},
+          "preconditions": {"type": "array", "items": {"type": "string"}},
+          "effects": {"type": "array", "items": {"type": "string"}},
+          "params": {"type": "object", "additionalProperties": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

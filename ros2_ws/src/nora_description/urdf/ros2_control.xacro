@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ros2_control.xacro — ros2_control hardware interface stub for the NORA arm.
+
+  Defines a <ros2_control> block for a joint_trajectory_controller with
+  PositionJointInterface for all 6 arm joints and the gripper joint.
+
+  # TODO(nora): Replace mock hardware plugin with real driver once available.
+  # TODO(nora): Add velocity/effort command interfaces as needed.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="nora_ros2_control" params="name">
+
+    <ros2_control name="${name}" type="system">
+
+      <!-- ----------------------------------------------------------------
+           Hardware plugin (mock for simulation; swap for real driver)
+      ---------------------------------------------------------------- -->
+      <hardware>
+        <!-- TODO(nora): replace with actual driver plugin, e.g.
+             <plugin>nora_hardware/NoraArmHardware</plugin> -->
+        <plugin>mock_components/GenericSystem</plugin>
+      </hardware>
+
+      <!-- ----------------------------------------------------------------
+           Arm joints — position command + state interfaces
+      ---------------------------------------------------------------- -->
+      <joint name="joint1">
+        <command_interface name="position">
+          <param name="min">${-pi}</param>
+          <param name="max">${pi}</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <joint name="joint2">
+        <command_interface name="position">
+          <param name="min">${-pi}</param>
+          <param name="max">${pi}</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <joint name="joint3">
+        <command_interface name="position">
+          <param name="min">${-pi}</param>
+          <param name="max">${pi}</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <joint name="joint4">
+        <command_interface name="position">
+          <param name="min">${-pi}</param>
+          <param name="max">${pi}</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <joint name="joint5">
+        <command_interface name="position">
+          <param name="min">${-pi}</param>
+          <param name="max">${pi}</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <joint name="joint6">
+        <command_interface name="position">
+          <param name="min">${-pi}</param>
+          <param name="max">${pi}</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <!-- ----------------------------------------------------------------
+           Gripper joint
+      ---------------------------------------------------------------- -->
+      <joint name="gripper_joint">
+        <command_interface name="position">
+          <param name="min">0.0</param>
+          <param name="max">0.08</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+    </ros2_control>
+
+  </xacro:macro>
+
+</robot>

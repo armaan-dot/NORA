@@ -1,0 +1,20 @@
+# nora_nlu_node/config/nlu.yaml
+#
+# ROS 2 parameter file for the NLU node.
+# Load with: ros2 run nora_nlu_node nora_nlu_node --ros-args --params-file nlu.yaml
+
+nlu_node:
+  ros__parameters:
+    # NLU backend to use.
+    # Options:
+    #   "mock"  — rule-based keyword parser (no ML, always available)
+    #   "local" — local HuggingFace fine-tuned model (requires model_path)
+    backend: mock
+
+    # Absolute path to the local HuggingFace model directory.
+    # Only used when backend == "local".
+    # Example: /home/nora/models/nora-nlu-v1
+    model_path: ""
+
+    # Intents with confidence below this threshold will trigger a warning.
+    confidence_threshold: 0.5

@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AffordanceScore",
+  "type": "object",
+  "required": ["skill_name", "usefulness", "feasibility", "combined_score"],
+  "properties": {
+    "skill_name": {"type": "string"},
+    "usefulness": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "feasibility": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "combined_score": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "breakdown": {
+      "type": "object",
+      "properties": {
+        "reachability": {"type": "number"},
+        "collision_free": {"type": "number"},
+        "object_state": {"type": "number"}
+      }
+    }
+  }
+}
