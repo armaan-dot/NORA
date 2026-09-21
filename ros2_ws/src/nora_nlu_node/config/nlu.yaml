@@ -16,5 +16,11 @@ nlu_node:
     # Example: /home/nora/models/nora-nlu-v1
     model_path: ""
 
+    # Local Ollama settings, used only when backend == "ollama".
+    # Download the model first: ollama pull qwen2.5:1.5b
+    ollama_model: "qwen2.5:1.5b"
+    ollama_host: "http://localhost:11434"
+    ollama_timeout_seconds: 30.0
+
     # Intents with confidence below this threshold will trigger a warning.
     confidence_threshold: 0.5

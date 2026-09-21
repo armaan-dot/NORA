@@ -25,6 +25,7 @@ from rclpy.node import Node
 from nora_nlu_node.intent_parser import IntentParser
 from nora_nlu_node.mock_parser import MockRuleBasedParser
 from nora_nlu_node.local_parser import LocalFineTunedParser
+from nora_nlu_node.ollama_parser import OllamaParser
 
 # TODO(nora): Replace these stubs with actual message/service imports once
 #             nora_interfaces is built and installed:
@@ -43,8 +44,9 @@ class NLUNode(Node):
 
     Backends
     --------
-    mock  — :class:`~nora_nlu_node.mock_parser.MockRuleBasedParser`
-    local — :class:`~nora_nlu_node.local_parser.LocalFineTunedParser`
+mock  — :class:`~nora_nlu_node.mock_parser.MockRuleBasedParser`
+local — :class:`~nora_nlu_node.local_parser.LocalFineTunedParser`
+ollama — :class:`~nora_nlu_node.ollama_parser.OllamaParser`
     """
 
     def __init__(self) -> None:
@@ -53,6 +55,9 @@ class NLUNode(Node):
         # ── Declare parameters ─────────────────────────────────────────────────
         self.declare_parameter("backend", "mock")
         self.declare_parameter("model_path", "")
+        self.declare_parameter("ollama_model", "qwen2.5:1.5b")
+        self.declare_parameter("ollama_host", "http://localhost:11434")
+        self.declare_parameter("ollama_timeout_seconds", 30.0)
         self.declare_parameter("confidence_threshold", 0.5)
 
         backend: str = self.get_parameter("backend").get_parameter_value().string_value
@@ -64,7 +69,13 @@ class NLUNode(Node):
         )
 
         # ── Instantiate parser backend ─────────────────────────────────────────
-        self._parser: IntentParser = self._build_parser(backend, model_path)
+        self._parser: IntentParser = self._build_parser(
+            backend,
+            model_path,
+            self.get_parameter("ollama_model").value,
+            self.get_parameter("ollama_host").value,
+            self.get_parameter("ollama_timeout_seconds").value,
+        )
         self.get_logger().info(f"NLUNode started with backend='{backend}'")
 
         # ── Publisher ──────────────────────────────────────────────────────────
@@ -148,14 +159,26 @@ class NLUNode(Node):
         return intent_dict
 
     @staticmethod
-    def _build_parser(backend: str, model_path: str) -> IntentParser:
+    def _build_parser(
+        backend: str,
+        model_path: str,
+        ollama_model: str = "qwen2.5:1.5b",
+        ollama_host: str = "http://localhost:11434",
+        ollama_timeout_seconds: float = 30.0,
+    ) -> IntentParser:
         """Factory: return the appropriate parser for *backend*."""
         if backend == "mock":
             return MockRuleBasedParser()
         if backend == "local":
             return LocalFineTunedParser(model_path=model_path)
+        if backend == "ollama":
+            return OllamaParser(
+                model=ollama_model,
+                host=ollama_host,
+                timeout_seconds=float(ollama_timeout_seconds),
+            )
         raise ValueError(
-            f"Unknown NLU backend '{backend}'. Valid options: 'mock', 'local'."
+            f"Unknown NLU backend '{backend}'. Valid options: 'mock', 'local', 'ollama'."
         )
 
 

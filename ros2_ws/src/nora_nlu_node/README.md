@@ -25,6 +25,7 @@ Voice / Text Input
 |---|---|---|
 | `mock` | `MockRuleBasedParser` | Simulation, unit tests, demos — no ML required |
 | `local` | `LocalFineTunedParser` | On-robot inference with a fine-tuned HuggingFace model |
+| `ollama` | `OllamaParser` | Local Ollama model with schema-constrained intent output |
 
 ## Building
 
@@ -43,14 +44,21 @@ ros2 run nora_nlu_node nora_nlu_node \
 # Local model backend
 ros2 run nora_nlu_node nora_nlu_node \
   --ros-args -p backend:=local -p model_path:=/path/to/model
+
+# Ollama backend (after: ollama pull qwen2.5:1.5b)
+ros2 run nora_nlu_node nora_nlu_node \
+  --ros-args -p backend:=ollama -p ollama_model:=qwen2.5:1.5b
 ```
 
 ## Parameters
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `backend` | string | `mock` | NLU backend: `mock` or `local` |
+| `backend` | string | `mock` | NLU backend: `mock`, `local`, or `ollama` |
 | `model_path` | string | `""` | Path to local HF model dir (local backend) |
+| `ollama_model` | string | `qwen2.5:1.5b` | Local Ollama model name |
+| `ollama_host` | string | `http://localhost:11434` | Ollama server URL |
+| `ollama_timeout_seconds` | float | `30.0` | Maximum local inference time |
 | `confidence_threshold` | float | `0.5` | Log warning if confidence is below this |
 
 ## Topics & Services

@@ -133,6 +133,11 @@ motion execution, collision/reachability integration, and closed-loop recovery
 remain in progress. The interface and layer boundaries above describe the
 target integration path, while these limitations describe the present runtime.
 
+The NLU package also includes an Ollama backend. When selected, it calls a
+local Ollama model with a restricted response schema, then validates the model
+output and owns the command metadata locally. See its package README for the
+startup command and ROS parameters.
+
 ## Repository map
 
 ```text
