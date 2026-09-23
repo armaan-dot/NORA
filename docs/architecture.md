@@ -239,8 +239,10 @@ If a skill fails during execution, the Orchestrator re-queries the Affordance Sc
 
 ### 5. Skill Library
 
-**Package:** `ros2_ws/src/nora_skills`  
-**Key Classes:** `BaseSkill`, concrete skill implementations
+**Packages:**
+- `ros2_ws/src/nora_skills` (Python implementation for rapid prototyping and mock testing)
+- `ros2_ws/src/nora_skills_cpp` (High-performance C++ implementation with native MoveIt 2 `MoveGroupInterface` integration)
+**Key Classes:** `BaseSkill`, concrete skill implementations (`MoveToPoseSkill`, `PickSkill`, `PlaceSkill`, `GoHomeSkill`, `GripperSkill`)
 
 #### Skill Lifecycle
 
