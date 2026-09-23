@@ -15,6 +15,7 @@
 
   <!-- Runtime deps — every nora sub-package -->
   <exec_depend>nora_skills</exec_depend>
+  <exec_depend>nora_skills_cpp</exec_depend>
   <exec_depend>nora_orchestrator</exec_depend>
   <exec_depend>nora_perception</exec_depend>
   <exec_depend>nora_interfaces</exec_depend>

@@ -1,0 +1,12 @@
+nora_skills_cpp_node:
+  ros__parameters:
+    planning_group: "arm"
+    gripper_group: "gripper"
+    velocity_scaling: 0.3
+    acceleration_scaling: 0.3
+    pre_grasp_z_offset: 0.10
+    lift_z_offset: 0.15
+    pre_place_z_offset: 0.15
+    goal_position_tolerance: 0.005
+    goal_orientation_tolerance: 0.05
+
