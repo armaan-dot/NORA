@@ -5,14 +5,7 @@
 
 nlu_node:
   ros__parameters:
-    # NLU backend to use.
-    # Options:
-    #   "mock"  — rule-based keyword parser (no ML, always available)
-    #   "local" — local HuggingFace fine-tuned model (requires model_path)
-    backend: mock
-
     # Absolute path to the local HuggingFace model directory.
-    # Only used when backend == "local".
     # Example: /home/nora/models/nora-nlu-v1
     model_path: ""
 
