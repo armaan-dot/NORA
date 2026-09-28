@@ -3,17 +3,16 @@ nora_nlu_node/nlu_node.py
 ──────────────────────────
 ROS 2 node: NLUNode
 
-Subscribes to nothing by default.  Exposes:
+Subscribes to nothing by default. Exposes:
   - Service  ``/nora/parse_command``  (nora_interfaces/srv/ParseCommand)
   - Publisher ``/nora/intent``         (nora_interfaces/msg/Intent)
 
-On each service call the node runs the configured NLU backend, publishes the
-resulting Intent, and returns it in the service response.
+On each service call the node runs the local NLU model, publishes the resulting
+Intent, and returns it in the service response.
 
 ROS Parameters
 --------------
-backend              : str  = "mock"   — "mock" | "local"
-model_path           : str  = ""       — path to HF model dir (local backend)
+model_path           : str             — path to the local Hugging Face model
 confidence_threshold : float = 0.5     — intents below this are flagged low-confidence
 """
 
@@ -21,18 +20,11 @@ from __future__ import annotations
 
 import rclpy
 from rclpy.node import Node
+from nora_interfaces.msg import Intent
+from nora_interfaces.srv import ParseCommand
 
 from nora_nlu_node.intent_parser import IntentParser
-from nora_nlu_node.mock_parser import MockRuleBasedParser
 from nora_nlu_node.local_parser import LocalFineTunedParser
-
-# TODO(nora): Replace these stubs with actual message/service imports once
-#             nora_interfaces is built and installed:
-#
-#   from nora_interfaces.msg import Intent
-#   from nora_interfaces.srv import ParseCommand
-#
-# Until then the node uses plain dicts internally and logs the intent.
 
 _TOPIC_INTENT = "/nora/intent"
 _SERVICE_PARSE = "/nora/parse_command"
@@ -41,21 +33,16 @@ _SERVICE_PARSE = "/nora/parse_command"
 class NLUNode(Node):
     """ROS 2 node that converts text commands into structured Intent messages.
 
-    Backends
-    --------
-    mock  — :class:`~nora_nlu_node.mock_parser.MockRuleBasedParser`
-    local — :class:`~nora_nlu_node.local_parser.LocalFineTunedParser`
+    The model-backed parser is loaded during node startup.
     """
 
     def __init__(self) -> None:
         super().__init__("nlu_node")
 
         # ── Declare parameters ─────────────────────────────────────────────────
-        self.declare_parameter("backend", "mock")
         self.declare_parameter("model_path", "")
         self.declare_parameter("confidence_threshold", 0.5)
 
-        backend: str = self.get_parameter("backend").get_parameter_value().string_value
         model_path: str = self.get_parameter("model_path").get_parameter_value().string_value
         self._confidence_threshold: float = (
             self.get_parameter("confidence_threshold")
@@ -63,28 +50,16 @@ class NLUNode(Node):
             .double_value
         )
 
-        # ── Instantiate parser backend ─────────────────────────────────────────
-        self._parser: IntentParser = self._build_parser(backend, model_path)
-        self.get_logger().info(f"NLUNode started with backend='{backend}'")
+        # ── Load the model before advertising the service ─────────────────────
+        self._parser: IntentParser = LocalFineTunedParser(model_path=model_path)
+        self.get_logger().info(f"NLUNode loaded model from '{model_path}'")
 
         # ── Publisher ──────────────────────────────────────────────────────────
-        # TODO(nora): Replace std_msgs/String with nora_interfaces/msg/Intent
-        #             once the interface package is available.
-        from std_msgs.msg import String
-
-        self._intent_pub = self.create_publisher(String, _TOPIC_INTENT, 10)
+        self._intent_pub = self.create_publisher(Intent, _TOPIC_INTENT, 10)
 
         # ── Service ────────────────────────────────────────────────────────────
-        # TODO(nora): Swap out std_srvs for nora_interfaces/srv/ParseCommand.
-        #   self._parse_srv = self.create_service(
-        #       ParseCommand, _SERVICE_PARSE, self._handle_parse_command
-        #   )
-        #
-        # Placeholder: expose a simple string service for now.
-        from std_srvs.srv import Trigger
-
         self._parse_srv = self.create_service(
-            Trigger, _SERVICE_PARSE, self._handle_parse_trigger
+            ParseCommand, _SERVICE_PARSE, self._handle_parse_command
         )
         self.get_logger().info(
             f"ParseCommand service ready at '{_SERVICE_PARSE}' "
@@ -93,34 +68,20 @@ class NLUNode(Node):
 
     # ── Service handlers ───────────────────────────────────────────────────────
 
-    def _handle_parse_trigger(self, request, response):  # noqa: ANN001
-        """Placeholder handler — replace with ParseCommand once interfaces exist.
-
-        TODO(nora): Replace Trigger with ParseCommand service type and read
-                    request.text to get the command string.
-        """
-        sample_text = "pick up the red cube"  # TODO(nora): read from request.text
-        intent_dict = self._run_parser(sample_text)
-        response.success = intent_dict["action"] != "unknown"
-        response.message = str(intent_dict)
-        return response
-
     def _handle_parse_command(self, request, response):  # noqa: ANN001
-        """Full handler for nora_interfaces/srv/ParseCommand.
-
-        TODO(nora): Uncomment and adapt once ParseCommand is defined.
-        """
-        intent_dict = self._run_parser(request.text)
-
-        # Build Intent message
-        # intent_msg = Intent()
-        # intent_msg.action = intent_dict["action"]
-        # intent_msg.target_object = intent_dict["target_object"]
-        # intent_msg.confidence = intent_dict["confidence"]
-        # intent_msg.raw_text = intent_dict["raw_text"]
-
-        # self._intent_pub.publish(intent_msg)
-        # response.intent = intent_msg
+        """Parse a command, publish the intent, and return it to the caller."""
+        try:
+            if not request.raw_text.strip():
+                raise ValueError("raw_text must not be empty")
+            intent_dict = self._run_parser(request.raw_text)
+            intent_msg = self._to_ros_intent(intent_dict)
+            response.intent = intent_msg
+            response.success = intent_msg.action != "unknown"
+            response.error_msg = "" if response.success else "Unable to identify a supported action"
+        except Exception as exc:
+            response.success = False
+            response.error_msg = str(exc)
+            self.get_logger().error(f"Could not parse command: {exc}")
         return response
 
     # ── Internal helpers ───────────────────────────────────────────────────────
@@ -139,24 +100,23 @@ class NLUNode(Node):
                 f"{self._confidence_threshold}) — intent may be unreliable."
             )
 
-        # Publish as string until Intent msg is available
-        from std_msgs.msg import String
-
-        msg = String()
-        msg.data = str(intent_dict)
+        msg = self._to_ros_intent(intent_dict)
         self._intent_pub.publish(msg)
         return intent_dict
 
     @staticmethod
-    def _build_parser(backend: str, model_path: str) -> IntentParser:
-        """Factory: return the appropriate parser for *backend*."""
-        if backend == "mock":
-            return MockRuleBasedParser()
-        if backend == "local":
-            return LocalFineTunedParser(model_path=model_path)
-        raise ValueError(
-            f"Unknown NLU backend '{backend}'. Valid options: 'mock', 'local'."
-        )
+    def _to_ros_intent(intent_dict: dict) -> Intent:
+        msg = Intent()
+        msg.version = intent_dict["version"]
+        msg.command_id = intent_dict["command_id"]
+        msg.raw_text = intent_dict["raw_text"]
+        msg.action = intent_dict["action"]
+        msg.target_object = intent_dict.get("target_object") or ""
+        msg.target_location = intent_dict.get("target_location") or ""
+        import json
+        msg.parameters_json = json.dumps(intent_dict.get("parameters", {}))
+        msg.confidence = float(intent_dict["confidence"])
+        return msg
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
