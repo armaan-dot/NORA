@@ -9,10 +9,14 @@ All concrete parsers must subclass :class:`IntentParser` and implement
 .. code-block:: python
 
     {
-        "action": str,           # e.g. "pick", "place", "go_home"
-        "target_object": str,    # e.g. "red cube" (may be empty)
-        "confidence": float,     # 0.0 – 1.0
-        "raw_text": str,         # original input text
+        "version": "1.0",
+        "command_id": str,
+        "action": str,
+        "target_object": str | None,
+        "target_location": str | None,
+        "parameters": dict,
+        "confidence": float,
+        "raw_text": str,
     }
 """
 
@@ -40,7 +44,6 @@ class IntentParser(ABC):
         Returns
         -------
         dict
-            A dict with keys: ``action``, ``target_object``, ``confidence``,
-            ``raw_text``.  See module docstring for the full schema.
+            A dictionary conforming to the NORA intent schema.
         """
         ...
