@@ -11,20 +11,17 @@ Voice / Text Input
  ┌─────────────┐    ParseCommand srv    ┌──────────────────┐
  │  NLU Client │ ──────────────────────▶│   NLUNode        │
  └─────────────┘                        │                  │
-                                        │  IntentParser ◀──┤ backend param
-                                        │  (mock | local)  │
+                                        │  LocalFineTunedParser
                                         └────────┬─────────┘
                                                  │ /nora/intent  (Intent msg)
                                                  ▼
                                         Downstream nodes
 ```
 
-## Backends
+## Model
 
-| Backend | Class | When to use |
-|---|---|---|
-| `mock` | `MockRuleBasedParser` | Simulation, unit tests, demos — no ML required |
-| `local` | `LocalFineTunedParser` | On-robot inference with a fine-tuned HuggingFace model |
+The node loads a fine-tuned Hugging Face text-generation model at startup. Set
+`model_path` to the directory containing the exported model and tokenizer.
 
 ## Building
 
@@ -36,21 +33,15 @@ source install/setup.bash
 ## Running
 
 ```bash
-# Mock backend (default)
 ros2 run nora_nlu_node nora_nlu_node \
-  --ros-args --params-file config/nlu.yaml
-
-# Local model backend
-ros2 run nora_nlu_node nora_nlu_node \
-  --ros-args -p backend:=local -p model_path:=/path/to/model
+  --ros-args -p model_path:=/path/to/model
 ```
 
 ## Parameters
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `backend` | string | `mock` | NLU backend: `mock` or `local` |
-| `model_path` | string | `""` | Path to local HF model dir (local backend) |
+| `model_path` | string | `""` | Path to local HF model directory |
 | `confidence_threshold` | float | `0.5` | Log warning if confidence is below this |
 
 ## Topics & Services
@@ -60,16 +51,8 @@ ros2 run nora_nlu_node nora_nlu_node \
 | `/nora/intent` | `nora_interfaces/msg/Intent` | Publish |
 | `/nora/parse_command` | `nora_interfaces/srv/ParseCommand` | Service |
 
-## Running Tests
-
-```bash
-pytest src/nora_nlu_node/test/ -v
-```
-
 ## TODOs
 
-- [ ] **TODO(nora):** Replace `std_msgs/String` publisher with `nora_interfaces/msg/Intent` once the interface package is ready.
-- [ ] **TODO(nora):** Replace `std_srvs/Trigger` service with `nora_interfaces/srv/ParseCommand`.
-- [ ] **TODO(nora):** Implement `LocalFineTunedParser._label_to_action()` label map once model training is complete.
+- [ ] **TODO(nora):** Add model warm-up and GPU/device parameters.
 - [ ] **TODO(nora):** Add Whisper ASR node that feeds transcribed text into this service.
 - [ ] **TODO(nora):** Add `cloud_parser.py` backend for OpenAI / Gemini API-based NLU.
