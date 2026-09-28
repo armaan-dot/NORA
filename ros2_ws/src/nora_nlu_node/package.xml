@@ -12,14 +12,7 @@
   <!-- ROS 2 runtime deps -->
   <exec_depend>rclpy</exec_depend>
   <exec_depend>nora_interfaces</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-
-  <!--
-    Python library dependencies (install via pip / rosdep):
-      transformers>=4.30    — HuggingFace model inference (local_parser backend)
-      torch>=2.0            — PyTorch for HF models
-      numpy                 — array utilities
-  -->
+  <!-- Install the model runtime with: pip install transformers torch -->
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
