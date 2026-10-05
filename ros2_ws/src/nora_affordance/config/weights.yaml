@@ -1,0 +1,6 @@
+affordance_node:
+  ros__parameters:
+    usefulness_weight: 0.6
+    feasibility_weight: 0.4
+    llm_model_name: "gpt-4"
+    llm_api_key: ""
