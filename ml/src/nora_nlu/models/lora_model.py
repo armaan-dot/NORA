@@ -12,7 +12,7 @@ from typing import Optional
 #             guard with try/except for import-time safety in non-GPU envs.
 try:
     import torch
-    from peft import PeftModel, get_peft_model, LoraConfig, TaskType  # noqa: F401
+    from peft import LoraConfig, PeftModel, TaskType, get_peft_model  # noqa: F401
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig  # noqa: F401
 
     _DEPS_AVAILABLE = True

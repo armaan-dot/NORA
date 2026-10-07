@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import pytest
-
 from nora_core.affordance.scoring import AffordanceScore
 from nora_core.intent import Intent
 from nora_core.planner import Planner, SkillPlan
-
 
 # ---------------------------------------------------------------------------
 # Helpers

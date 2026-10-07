@@ -19,7 +19,7 @@ SYSTEM_PROMPT: str = (
     "Your task is to parse a natural language robot command and output a "
     "single valid JSON object conforming to the NORA intent schema.\n\n"
     "The JSON must have these fields:\n"
-    "  version        (string, always \"1.0\")\n"
+    '  version        (string, always "1.0")\n'
     "  command_id     (UUID v4 string)\n"
     "  raw_text       (the original instruction, verbatim)\n"
     "  action         (one of: pick, place, move_to_pose, open_gripper, close_gripper, go_home)\n"
@@ -32,6 +32,7 @@ SYSTEM_PROMPT: str = (
 
 
 # ── Prompt builders ─────────────────────────────────────────────────────────────
+
 
 def build_training_prompt(instruction: str, intent_json: dict) -> str:
     """Build a full supervised fine-tuning prompt (input + expected output).

@@ -13,11 +13,10 @@ import json
 from pathlib import Path
 from typing import Optional
 
-import jsonschema
 from jsonschema import Draft7Validator, ValidationError
 
-
 # ── Schema loading ──────────────────────────────────────────────────────────────
+
 
 def _find_schema() -> dict:
     """Locate and load ``intent.schema.json``.
@@ -52,8 +51,7 @@ def _find_schema() -> dict:
                 return json.load(fh)
 
     raise FileNotFoundError(
-        "Could not locate intent.schema.json. "
-        "Expected at NORA/schemas/intent.schema.json"
+        "Could not locate intent.schema.json. " "Expected at NORA/schemas/intent.schema.json"
     )
 
 
@@ -71,6 +69,7 @@ def _get_validator() -> Draft7Validator:
 
 
 # ── Public API ──────────────────────────────────────────────────────────────────
+
 
 def validate_intent(intent_dict: dict) -> bool:
     """Validate a single intent dict against the NORA intent JSON schema.

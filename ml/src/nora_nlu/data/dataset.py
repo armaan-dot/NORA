@@ -86,7 +86,11 @@ class NLUDataset:
 
     def __repr__(self) -> str:
         loaded = self.hf_dataset is not None
-        n = len(self.hf_dataset) if loaded else "?"
+        n: int | str
+        if self.hf_dataset is None:
+            n = "?"
+        else:
+            n = len(self.hf_dataset)
         return f"NLUDataset(path={self.path!r}, loaded={loaded}, n={n})"
 
 

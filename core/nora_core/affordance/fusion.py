@@ -10,8 +10,6 @@ respectively, and must sum to ``1.0``.
 
 from __future__ import annotations
 
-import math
-
 _WEIGHT_SUM_TOLERANCE = 1e-9
 
 
@@ -93,14 +91,11 @@ class WeightedProductFusion:
         if usefulness == 0.0 or feasibility == 0.0:
             return 0.0
 
-        return (usefulness ** self._w_u) * (feasibility ** self._w_f)
+        return (usefulness**self._w_u) * (feasibility**self._w_f)
 
     # ------------------------------------------------------------------
     # Dunder helpers
     # ------------------------------------------------------------------
 
     def __repr__(self) -> str:
-        return (
-            f"WeightedProductFusion("
-            f"usefulness={self._w_u}, feasibility={self._w_f})"
-        )
+        return f"WeightedProductFusion(" f"usefulness={self._w_u}, feasibility={self._w_f})"

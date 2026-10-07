@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from nora_core.intent import Action, Intent
-
+from pydantic import ValidationError
 
 # ---------------------------------------------------------------------------
 # Fixtures

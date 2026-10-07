@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from nora_core.intent import Intent
 from nora_core.affordance.scoring import AffordanceScore
+from nora_core.intent import Intent
 
 _DEFAULT_TOP_K = 5
 

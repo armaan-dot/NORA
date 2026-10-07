@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 
 import pytest
-
 from nora_core.affordance.fusion import WeightedProductFusion
 
 
@@ -41,13 +40,13 @@ class TestCustomWeights:
     def test_usefulness_heavy_weights(self) -> None:
         fusion = WeightedProductFusion({"usefulness": 0.8, "feasibility": 0.2})
         result = fusion.fuse(0.5, 0.9)
-        expected = (0.5 ** 0.8) * (0.9 ** 0.2)
+        expected = (0.5**0.8) * (0.9**0.2)
         assert result == pytest.approx(expected, rel=1e-6)
 
     def test_feasibility_heavy_weights(self) -> None:
         fusion = WeightedProductFusion({"usefulness": 0.3, "feasibility": 0.7})
         result = fusion.fuse(0.6, 0.7)
-        expected = (0.6 ** 0.3) * (0.7 ** 0.7)
+        expected = (0.6**0.3) * (0.7**0.7)
         assert result == pytest.approx(expected, rel=1e-6)
 
     def test_result_is_always_between_zero_and_one(self) -> None:
