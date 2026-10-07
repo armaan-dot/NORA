@@ -13,17 +13,32 @@ import random
 import uuid
 from typing import Optional
 
-
 # ── Action templates ────────────────────────────────────────────────────────────
 
 _OBJECTS = [
-    "red_cube", "blue_sphere", "green_block", "yellow_gear", "white_box",
-    "metal_cylinder", "plastic_cone", "rubber_ball", "steel_rod", "glass_plate",
+    "red_cube",
+    "blue_sphere",
+    "green_block",
+    "yellow_gear",
+    "white_box",
+    "metal_cylinder",
+    "plastic_cone",
+    "rubber_ball",
+    "steel_rod",
+    "glass_plate",
 ]
 
 _LOCATIONS = [
-    "shelf", "table", "tray", "conveyor_belt", "bin", "platform",
-    "storage_area", "assembly_zone", "drop_zone", "workbench",
+    "shelf",
+    "table",
+    "tray",
+    "conveyor_belt",
+    "bin",
+    "platform",
+    "storage_area",
+    "assembly_zone",
+    "drop_zone",
+    "workbench",
 ]
 
 _PICK_TEMPLATES = [
