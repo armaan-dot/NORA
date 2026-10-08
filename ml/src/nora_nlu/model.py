@@ -153,19 +153,7 @@ class NLUModel:
         if not raw_text:
             return self._format_intent(raw_text, "unknown", None, None, {}, 0.0)
 
-        # 1. Check Commonsense Association first
-        for keyword, mapped in _COMMONSENSE_MAP.items():
-            if re.search(rf"\b{keyword}\b", lower):
-                return self._format_intent(
-                    raw_text=raw_text,
-                    action=mapped["action"],
-                    target_object=mapped["target_object"],
-                    target_location=mapped.get("target_location"),
-                    parameters={},
-                    confidence=0.96,
-                )
-
-        # 2. Extract Coordinates for move_to_pose if present
+        # 1. Check for coordinates in move_to_pose
         coord_match = re.search(
             r"(?:x\s*=\s*|coordinates\s+)?([-\d\.]+)[,\s]+(?:y\s*=\s*)?([-\d\.]+)[,\s]+(?:z\s*=\s*)?([-\d\.]+)",
             lower,
@@ -185,6 +173,28 @@ class NLUModel:
                 )
             except ValueError:
                 pass
+
+        # 2. Check for explicit known objects mentioned directly
+        explicit_obj = None
+        for obj in sorted(self.known_objects, key=len, reverse=True):
+            clean_obj = obj.replace("_", " ")
+            if re.search(rf"\b{clean_obj}\b", lower):
+                explicit_obj = obj
+                break
+
+        # 3. Check Indirect Commonsense (only if no explicit complex object matched)
+        if explicit_obj is None:
+            for keyword, mapped in _COMMONSENSE_MAP.items():
+                if re.search(rf"\b{keyword}\b", lower):
+                    return self._format_intent(
+                        raw_text=raw_text,
+                        action=mapped["action"],
+                        target_object=mapped["target_object"],
+                        target_location=mapped.get("target_location"),
+                        parameters={},
+                        confidence=0.96,
+                    )
+
 
         # 3. Action classification via feature likelihoods
         tokens = self._tokenize(raw_text)

@@ -14,23 +14,71 @@ from typing import Any
 import uuid
 
 _OBJECTS = [
-    # Primitive & Lab Objects
-    "red_cube", "blue_cube", "green_cube", "yellow_cube", "black_cube",
-    "white_box", "small_box", "large_box", "cardboard_box",
-    "blue_sphere", "red_sphere", "green_block", "yellow_gear",
-    "metal_cylinder", "plastic_cone", "rubber_ball", "cylinder", "cone", "ball",
-    # Kitchen & Everyday items
-    "glass", "cup", "mug", "coffee_cup", "tea_cup",
-    "bottle", "water_bottle", "soda_can", "can",
-    "water", "drink", "coffee", "tea", "beverage",
-    "snack", "apple", "banana", "food",
-    "plate", "bowl", "fork", "spoon", "sponge", "towel", "napkin",
+    # Beverages & Drinkware
+    "water_glass", "glass", "glass_cup", "coffee_mug", "mug", "paper_cup", "plastic_cup", "tea_cup",
+    "water_bottle", "thermos", "tumbler", "coke", "pepsi", "sprite", "soda_can", "energy_drink",
+    "juice_box", "milk_carton", "coffee_cup", "sports_drink", "sparkling_water", "beer_can", "tea_bag",
+    "coffee_pod", "juice_bottle", "protein_shake", "straw", "coaster", "lid", "drink_can", "wine_glass",
+    "drink", "water",
+
+    # Containers & Organization
+    "trash_bin", "recycle_bin", "pencil_holder", "pen_cup", "desk_organizer", "storage_box",
+    "cardboard_box", "shoebox", "bowl", "plate", "tray", "basket", "tupperware", "lunch_box", "jar",
+    "tin_can", "paper_bag", "plastic_bag", "tote_bag", "backpack", "pouch", "pencil_case", "card_holder",
+    "file_organizer", "magazine_holder", "drawer_box", "bucket", "small_crate", "cup_holder", "phone_stand",
+
+    # Stationery & Office Supplies
+    "pen", "ballpoint_pen", "gel_pen", "fountain_pen", "pencil", "mechanical_pencil", "marker",
+    "whiteboard_marker", "permanent_marker", "highlighter", "crayon", "colored_pencil", "eraser",
+    "pencil_sharpener", "ruler", "protractor", "compass_tool", "set_square", "tape", "masking_tape",
+    "duct_tape", "tape_dispenser", "stapler", "staples_box", "staple_remover", "hole_punch", "paper_clip",
+    "binder_clip", "rubber_band", "push_pin", "thumbtack", "glue_stick", "glue_bottle", "scissors",
+    "box_cutter", "sticky_notes", "notebook", "notepad", "sketchbook", "textbook", "book", "magazine",
+    "paper", "index_cards", "folder", "binder", "envelope", "clipboard", "whiteboard_eraser", "calendar",
+
+    # Electronics & Gadgets
+    "phone", "smartphone", "tablet", "laptop", "keyboard", "mouse", "mouse_pad", "webcam", "headphones",
+    "earbuds", "earbud_case", "charger", "phone_charger", "power_bank", "usb_cable", "usb_drive", "sd_card",
+    "hdmi_cable", "power_adapter", "extension_cord", "calculator", "remote", "tv_remote", "game_controller",
+    "speaker", "smartwatch", "watch", "camera", "microphone", "flashlight", "batteries", "aa_battery",
+    "light_bulb", "desk_lamp", "alarm_clock", "router", "hard_drive", "raspberry_pi", "arduino_board",
+    "breadboard", "jumper_wire", "multimeter", "soldering_iron", "led", "resistor", "motor", "servo",
+    "sensor_module", "circuit_board", "vr_headset",
+
     # Tools & Hardware
-    "tool", "wrench", "screwdriver", "pliers",
-    "bolt", "nut", "screw", "bracket", "part", "wire", "circuit_board",
-    # Waste & Domestic
-    "trash", "garbage", "waste", "rubbish",
-    "jacket", "cloth", "pen", "marker", "book",
+    "screwdriver", "phillips_screwdriver", "flathead_screwdriver", "hex_key", "allen_key", "wrench",
+    "adjustable_wrench", "pliers", "needle_nose_pliers", "wire_cutters", "wire_stripper", "hammer",
+    "tape_measure", "utility_knife", "level_tool", "clamp", "bolt", "nut", "screw", "washer", "zip_tie",
+    "cable_tie", "sandpaper", "file_tool", "drill_bit", "tweezers", "magnifying_glass", "spring", "gear",
+    "bearing", "bracket", "spool_of_wire", "hot_glue_gun", "allen_wrench_set", "toolbox", "screw_box",
+    "oil_can", "spray_can", "paint_brush", "paint_tube",
+
+    # Food & Snacks
+    "apple", "banana", "orange", "lemon", "pear", "grapes", "peach", "mango", "strawberry", "tomato",
+    "cucumber", "carrot", "snack", "snack_bar", "granola_bar", "chocolate_bar", "candy", "gum", "mint_box",
+    "chips_bag", "cookie", "cracker", "biscuit_pack", "sandwich", "bread", "donut", "muffin",
+    "instant_noodles", "cereal_box", "yogurt_cup", "sauce_packet", "salt_shaker", "pepper_shaker",
+    "sugar_packet", "honey_jar", "peanut_butter_jar", "egg", "popcorn_bag", "nuts_pack", "dried_fruit_pack",
+
+    # Personal Care & Everyday Carry
+    "keys", "key_ring", "wallet", "glasses", "sunglasses", "hand_sanitizer", "lip_balm", "hand_cream",
+    "tissue_box", "tissue_pack", "wet_wipes", "comb", "hairbrush", "hair_tie", "toothbrush", "toothpaste",
+    "deodorant", "perfume", "mirror", "id_card", "credit_card", "coin", "banknote", "hat", "cap", "jacket",
+    "scarf", "glove", "sock", "shoe", "umbrella", "towel", "napkin", "face_mask", "handkerchief",
+    "earplugs", "sticker", "badge", "lanyard", "stress_ball",
+
+    # Cleaning & Trash
+    "trash", "garbage", "wrapper", "crumpled_paper", "used_tissue", "empty_can", "empty_bottle", "sponge",
+    "dish_cloth", "cleaning_cloth", "spray_bottle", "soap_bottle", "paper_towel", "broom_small", "dustpan",
+    "lint_roller", "trash_bag", "cotton_swab", "microfiber_cloth", "screen_cleaner",
+
+    # Toys, Primitives & Decor
+    "ball", "tennis_ball", "ping_pong_ball", "golf_ball", "rubber_ball", "foam_ball", "rubber_duck",
+    "toy_car", "lego_brick", "building_block", "wooden_block", "dice", "playing_cards", "puzzle_piece",
+    "action_figure", "plush_toy", "yo_yo", "fidget_spinner", "rubiks_cube", "chess_piece", "marble",
+    "red_cube", "blue_cube", "blue_sphere", "red_sphere", "green_block", "green_cylinder", "yellow_block",
+    "yellow_gear", "white_box", "cone", "orange_cone", "cylinder", "plant_pot", "small_plant", "figurine",
+    "trophy", "picture_frame", "candle", "vase",
 ]
 
 _LOCATIONS = [

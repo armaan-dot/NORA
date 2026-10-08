@@ -107,19 +107,7 @@ class LocalMLParser(IntentParser):
         if not raw_text:
             return self._format_intent(raw_text, "unknown", None, None, {}, 0.0)
 
-        # 1. Commonsense Mapping
-        for kw, mapped in _COMMONSENSE_MAP.items():
-            if re.search(rf"\b{kw}\b", lower):
-                return self._format_intent(
-                    raw_text=raw_text,
-                    action=mapped["action"],
-                    target_object=mapped["target_object"],
-                    target_location=mapped.get("target_location"),
-                    parameters={},
-                    confidence=0.96,
-                )
-
-        # 2. Coordinates detection
+        # 1. Coordinates detection
         coord_m = re.search(
             r"(?:x\s*=\s*|coordinates\s+)?([-\d\.]+)[,\s]+(?:y\s*=\s*)?([-\d\.]+)[,\s]+(?:z\s*=\s*)?([-\d\.]+)",
             lower,
@@ -139,6 +127,28 @@ class LocalMLParser(IntentParser):
                 )
             except ValueError:
                 pass
+
+        # 2. Check for explicit known objects mentioned directly
+        explicit_obj = None
+        if self.model_data:
+            for obj in sorted(self.model_data.get("known_objects", []), key=len, reverse=True):
+                clean_obj = obj.replace("_", " ")
+                if re.search(rf"\b{clean_obj}\b", lower):
+                    explicit_obj = obj
+                    break
+
+        # 3. Commonsense Mapping (only if no explicit object was named)
+        if explicit_obj is None:
+            for kw, mapped in _COMMONSENSE_MAP.items():
+                if re.search(rf"\b{kw}\b", lower):
+                    return self._format_intent(
+                        raw_text=raw_text,
+                        action=mapped["action"],
+                        target_object=mapped["target_object"],
+                        target_location=mapped.get("target_location"),
+                        parameters={},
+                        confidence=0.96,
+                    )
 
         # 3. Statistical model scoring if weights are loaded
         if self.model_data:
