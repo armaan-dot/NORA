@@ -9,7 +9,6 @@
 [![ROS 2 Humble](https://img.shields.io/badge/ROS%202-Humble-blue?logo=ros)](https://docs.ros.org/en/humble/)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![CI](https://github.com/your-org/nora/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/nora/actions/workflows/ci.yml)
 
 </div>
 
