@@ -88,36 +88,30 @@ nora/
 │   ├── skill_registry.schema.json
 │   └── affordance_score.schema.json
 │
-├── core/                        # Pure Python, zero ROS dependency
-│   └── nora_core/               #   Intent models, affordance fusion, planner, interfaces
+├── core/                        # Pure Python, zero ROS dependency (SayCan affordance, intent, planner)
+│   ├── nora_core/               #   Intent models, affordance fusion & SayCan, planner, interfaces
+│   └── tests/                   #   Unit tests for affordance workflow, SayCan, and planner
 │
 ├── ros2_ws/src/
 │   ├── nora_interfaces/         # All ROS 2 msgs / srvs / actions
-│   ├── nora_description/        # URDF/xacro 6-DOF arm + gripper
+│   ├── nora_description/        # URDF/xacro 6-DOF arm (1.01m reach, 5.8kg mass, 80mm stroke)
 │   ├── nora_gazebo/             # Tabletop world, Gazebo launch
-│   ├── nora_isaac/              # Isaac Sim bridge (stub)
 │   ├── nora_moveit_config/      # SRDF, kinematics, OMPL, controllers
 │   ├── nora_control/            # ros2_control YAML, controller launch
-│   ├── nora_nlu_node/           # NLU ROS node (mock + fine-tuned backends)
+│   ├── nora_nlu_node/           # NLU ROS node (statistical local model backend)
 │   ├── nora_affordance/         # Affordance scoring node + combiner
 │   ├── nora_skills/             # Primitive skill action servers
 │   ├── nora_orchestrator/       # State machine, skill sequencing, replanning
-│   ├── nora_perception/         # Mock object-pose publisher (replaceable)
 │   └── nora_bringup/            # Launch files: sim, full stack, demo
 │
-├── ml/                          # Fine-tuning blueprint (LoRA / QLoRA, TRL)
-│   ├── configs/                 #   Hydra: model, training, data, eval
-│   ├── src/nora_nlu/            #   Dataset, models, training, inference, eval
-│   └── data/examples/           #   seed_commands.jsonl — 15 labelled examples
+├── ml/                          # Statistical NLU model, dataset & training (340+ known items)
+│   ├── models/                  #   Pre-trained weights: nora_nlu_model.json
+│   ├── src/nora_nlu/            #   Dataset generator, feature likelihood model, inference
+│   └── tests/                   #   Model verification tests
 │
-├── sim/
-│   ├── gazebo/                  # Extra worlds and models
-│   ├── isaac/                   # USD scenes, Isaac ROS 2 bridge notes
-│   └── benchmarks/              # task_suite.yaml + run_benchmark.py
-│
-├── docs/                        # Architecture, schema docs, setup guide, roadmap
-├── docker/                      # Dockerfile.ros, Dockerfile.ml, docker-compose.yml
-└── scripts/                     # setup_ubuntu.sh, build.sh, run_demo.sh, …
+├── schemas/                     # Strict JSON schemas (intent, affordance_score, skill_registry)
+├── docs/                        # Architecture, affordance scoring (SayCan), setup guide
+└── check_affordance.py          # Interactive SayCan & Affordance workflow CLI inspector
 ```
 
 ---

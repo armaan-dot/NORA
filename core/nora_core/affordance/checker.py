@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 from nora_core.affordance.environment import WorldState
+from nora_core.affordance.saycan import SayCanPlan, SayCanPlanner
 from nora_core.affordance.workflow import AffordanceWorkflow, WorkflowResult
 
 
@@ -199,6 +200,52 @@ def run_test_suite() -> None:
         time.sleep(0.05)
 
 
+def check_saycan(query: str, state_preset: str = "default") -> SayCanPlan:
+    """Run Google Research SayCan sequential planning loop and display steps."""
+    if state_preset == "holding":
+        world = WorldState.with_held_object("water_glass")
+    elif state_preset == "unreachable":
+        world = WorldState.with_unreachable_object("water_glass")
+    elif state_preset == "obstructed":
+        world = WorldState.with_obstructed_object("water_glass")
+    else:
+        world = WorldState.default()
+
+    planner = SayCanPlanner()
+    plan = planner.plan(query, initial_world_state=world)
+
+    print("\n" + "=" * 76)
+    print("  GOOGLE RESEARCH SAYCAN LONG-HORIZON PLANNING")
+    print("=" * 76)
+    print(f"\n[INSTRUCTION]: \"{query}\"")
+    print(f"Initial State: Gripper={world.robot.gripper_state}, Held={world.robot.held_object or 'None'}")
+    print("\nSayCan Sequential Execution Steps:")
+    print("-" * 76)
+
+    headers = ["Step", "Selected Option", "LLM P(a|q)", "Affordance V(a|s)", "Combined S(a)", "Feasible"]
+    alignments = [">", "<", ">", ">", ">", "<"]
+    table_rows = []
+
+    for idx, s in enumerate(plan.steps, 1):
+        table_rows.append([
+            idx,
+            s.option.description,
+            f"{s.language_prob:.3f}",
+            f"{s.affordance_val:.3f}",
+            f"{s.combined_score:.3f}",
+            "YES" if s.feasible else "NO",
+        ])
+
+    print(format_table(headers, table_rows, alignments))
+    print(f"\nFinal Outcome: {'Goal Satisfied (done)' if plan.completed else 'Plan Truncated'}")
+    if plan.final_world_state:
+        r = plan.final_world_state.robot
+        print(f"Final Robot State: Gripper={r.gripper_state}, Held={r.held_object or 'None'}")
+    print("=" * 76 + "\n")
+
+    return plan
+
+
 def main() -> None:
     """CLI entry point for checking affordance scores."""
     parser = argparse.ArgumentParser(description="Check NORA Affordance Scores and Workflow.")
@@ -213,6 +260,11 @@ def main() -> None:
         choices=["default", "holding", "unreachable", "obstructed"],
         default="default",
         help="Physical world state preset (default: 'default')",
+    )
+    parser.add_argument(
+        "--saycan",
+        action="store_true",
+        help="Run multi-step Google Research SayCan sequential planner",
     )
     parser.add_argument(
         "--no-execute",
@@ -235,6 +287,8 @@ def main() -> None:
 
     if args.test:
         run_test_suite()
+    elif args.saycan:
+        check_saycan(query=args.utterance, state_preset=args.state)
     else:
         check_affordance(
             utterance=args.utterance,
