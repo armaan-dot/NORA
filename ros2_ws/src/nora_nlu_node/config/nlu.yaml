@@ -5,8 +5,10 @@
 
 nlu_node:
   ros__parameters:
-    # Absolute path to the local HuggingFace model directory.
-    # Example: /home/nora/models/nora-nlu-v1
+    # Backend selection: "ml" (trained ML model) or "mock" (rule-based fallback)
+    backend: "ml"
+
+    # Optional explicit path to model JSON. If empty, auto-detects bundled nora_nlu_model.json.
     model_path: ""
 
     # Intents with confidence below this threshold will trigger a warning.

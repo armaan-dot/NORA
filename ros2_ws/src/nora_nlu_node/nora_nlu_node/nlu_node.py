@@ -7,42 +7,44 @@ Subscribes to nothing by default. Exposes:
   - Service  ``/nora/parse_command``  (nora_interfaces/srv/ParseCommand)
   - Publisher ``/nora/intent``         (nora_interfaces/msg/Intent)
 
-On each service call the node runs the local NLU model, publishes the resulting
-Intent, and returns it in the service response.
+On each service call the node runs the configured NLU backend (trained ML model
+or mock), publishes the resulting Intent, and returns it in the service response.
 
 ROS Parameters
 --------------
-model_path           : str             — path to the local Hugging Face model
-confidence_threshold : float = 0.5     — intents below this are flagged low-confidence
+backend              : str = "ml"       — backend type: "ml" | "mock"
+model_path           : str = ""         — path to local ML model JSON or HuggingFace dir
+confidence_threshold : float = 0.5      — intents below this are flagged low-confidence
 """
 
 from __future__ import annotations
 
+import json
 import rclpy
 from rclpy.node import Node
 from nora_interfaces.msg import Intent
 from nora_interfaces.srv import ParseCommand
 
 from nora_nlu_node.intent_parser import IntentParser
-from nora_nlu_node.local_parser import LocalFineTunedParser
+from nora_nlu_node.local_parser import LocalMLParser
+from nora_nlu_node.mock_parser import MockIntentParser
 
 _TOPIC_INTENT = "/nora/intent"
 _SERVICE_PARSE = "/nora/parse_command"
 
 
 class NLUNode(Node):
-    """ROS 2 node that converts text commands into structured Intent messages.
-
-    The model-backed parser is loaded during node startup.
-    """
+    """ROS 2 node that converts text commands into structured Intent messages."""
 
     def __init__(self) -> None:
         super().__init__("nlu_node")
 
         # ── Declare parameters ─────────────────────────────────────────────────
+        self.declare_parameter("backend", "ml")
         self.declare_parameter("model_path", "")
         self.declare_parameter("confidence_threshold", 0.5)
 
+        backend: str = self.get_parameter("backend").get_parameter_value().string_value.lower()
         model_path: str = self.get_parameter("model_path").get_parameter_value().string_value
         self._confidence_threshold: float = (
             self.get_parameter("confidence_threshold")
@@ -50,9 +52,13 @@ class NLUNode(Node):
             .double_value
         )
 
-        # ── Load the model before advertising the service ─────────────────────
-        self._parser: IntentParser = LocalFineTunedParser(model_path=model_path)
-        self.get_logger().info(f"NLUNode loaded model from '{model_path}'")
+        # ── Instantiate selected parser ────────────────────────────────────────
+        if backend == "mock":
+            self._parser: IntentParser = MockIntentParser()
+            self.get_logger().info("Using rule-based MockIntentParser")
+        else:
+            self._parser = LocalMLParser(model_path=model_path)
+            self.get_logger().info(f"Loaded local ML NLU model (model_path='{model_path}')")
 
         # ── Publisher ──────────────────────────────────────────────────────────
         self._intent_pub = self.create_publisher(Intent, _TOPIC_INTENT, 10)
@@ -63,7 +69,7 @@ class NLUNode(Node):
         )
         self.get_logger().info(
             f"ParseCommand service ready at '{_SERVICE_PARSE}' "
-            f"(confidence_threshold={self._confidence_threshold})"
+            f"(backend='{backend}', confidence_threshold={self._confidence_threshold})"
         )
 
     # ── Service handlers ───────────────────────────────────────────────────────
@@ -91,7 +97,7 @@ class NLUNode(Node):
         intent_dict = self._parser.parse(text)
         self.get_logger().info(
             f"Parsed intent: action={intent_dict['action']!r} "
-            f"object={intent_dict['target_object']!r} "
+            f"object={intent_dict.get('target_object')!r} "
             f"confidence={intent_dict['confidence']:.2f}"
         )
         if intent_dict["confidence"] < self._confidence_threshold:
@@ -113,7 +119,6 @@ class NLUNode(Node):
         msg.action = intent_dict["action"]
         msg.target_object = intent_dict.get("target_object") or ""
         msg.target_location = intent_dict.get("target_location") or ""
-        import json
         msg.parameters_json = json.dumps(intent_dict.get("parameters", {}))
         msg.confidence = float(intent_dict["confidence"])
         return msg

@@ -41,6 +41,9 @@ select = ["E", "F", "I", "N", "W"]
 # TODO(nora): add project-specific ignores here
 ignore = []
 
+[tool.ruff.lint.isort]
+known-first-party = ["nora_core", "nora_nlu"]
+
 # ---------------------------------------------------------------------------
 # Black – formatter configuration
 # ---------------------------------------------------------------------------

@@ -1,4 +1,15 @@
-"""NORA NLU — ML fine-tuning package."""
+"""nora_nlu — Natural Language Understanding package for NORA.
 
-__version__ = "0.1.0"
-__all__ = ["__version__"]
+Exports NLUModel, NLUParser, and dataset utilities.
+"""
+
+from nora_nlu.dataset import generate_dataset, load_seed_commands
+from nora_nlu.inference import NLUParser
+from nora_nlu.model import NLUModel
+
+__all__ = [
+    "NLUModel",
+    "NLUParser",
+    "generate_dataset",
+    "load_seed_commands",
+]

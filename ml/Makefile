@@ -1,16 +1,13 @@
-.PHONY: generate-data train evaluate export test
-
-generate-data:
-	python scripts/generate_synthetic_data.py
+.PHONY: train evaluate test clean
 
 train:
-	bash scripts/train.sh
+	python train.py
 
 evaluate:
-	bash scripts/evaluate.sh
-
-export:
-	bash scripts/export_merged_model.sh
+	python evaluate.py
 
 test:
 	pytest tests/ -v
+
+clean:
+	find . -type d -name "__pycache__" -exec rm -rf {} +

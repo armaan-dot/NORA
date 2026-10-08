@@ -10,8 +10,6 @@ respectively, and must sum to ``1.0``.
 
 from __future__ import annotations
 
-import math
-
 _WEIGHT_SUM_TOLERANCE = 1e-9
 
 

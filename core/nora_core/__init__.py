@@ -8,9 +8,9 @@ Example
 """
 
 from nora_core.intent import Intent
-from nora_core.skills import SkillRegistry
-from nora_core.interfaces import IntentParser, AffordanceScorer
+from nora_core.interfaces import AffordanceScorer, IntentParser
 from nora_core.planner import Planner
+from nora_core.skills import SkillRegistry
 
 __all__ = [
     "Intent",

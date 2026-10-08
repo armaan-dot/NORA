@@ -1,9 +1,9 @@
 # =============================================================================
-# NORA – Continuous Integration
+# NORA – Development CI
 # Triggered on push/PR to main
 # =============================================================================
 
-name: CI
+name: Development CI
 
 on:
   push:

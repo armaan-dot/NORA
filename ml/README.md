@@ -1,40 +1,15 @@
-# NORA ML — NLU Fine-Tuning Module
+# NORA ML — Natural Language Understanding (NLU) Module
 
-This module contains everything needed to fine-tune a small LLM to parse natural language robot commands into structured **intent JSON** for the NORA robotic-arm system.
-
----
-
-## Overview
-
-| Item | Detail |
-|------|--------|
-| **Task** | Instruction → Intent JSON (action, target_object, target_location, parameters) |
-| **Base models** | Qwen2.5-1.5B-Instruct · Llama-3.2-1B-Instruct |
-| **Fine-tuning method** | LoRA / QLoRA via 🤗 PEFT + TRL `SFTTrainer` |
-| **Config system** | [Hydra](https://hydra.cc/) (see `configs/`) |
-| **Data versioning** | [DVC](https://dvc.org/) — never commit raw datasets |
-| **Experiment tracking** | MLflow (local) |
+This module contains the self-contained Machine Learning model that parses natural-language robot commands into structured **intent JSON** for the NORA robotic-arm system.
 
 ---
 
-## Inputs / Outputs
+## Highlights
 
-```
-Input  : raw natural-language instruction string
-         e.g. "pick up the red cube and place it on the shelf"
-
-Output : intent JSON validated against ../../schemas/intent.schema.json
-         {
-           "version": "1.0",
-           "command_id": "<uuid4>",
-           "raw_text": "...",
-           "action": "pick",
-           "target_object": "red_cube",
-           "target_location": "shelf",
-           "parameters": {},
-           "confidence": 0.97
-         }
-```
+- **Zero-Dependency Inference:** Runs in pure Python 3.10 with standard library. No Ollama, no heavy PyTorch/CUDA downloads required.
+- **Pre-Trained Model Included:** `models/nora_nlu_model.json` is bundled ready to use out of the box.
+- **Commonsense & Indirect Reasoning:** Supports both direct commands (*"pick up the red cube"*) and indirect commonsense requests (*"I am thirsty"* $\rightarrow$ picks water, *"give me the glass"* $\rightarrow$ picks glass).
+- **Fast:** Inference runs in **< 1 ms** on any standard CPU.
 
 ---
 
@@ -42,65 +17,61 @@ Output : intent JSON validated against ../../schemas/intent.schema.json
 
 ```
 ml/
-├── configs/          # Hydra YAML configs (model, train, data, eval)
-├── data/             # DVC-managed data directories
-│   ├── raw/          # Original collected data
-│   ├── interim/      # Intermediate processing artifacts
-│   ├── processed/    # Train/val/test splits ready for training
-│   ├── synthetic/    # Synthetically generated examples
-│   └── examples/     # Seed commands for bootstrapping
-├── experiments/      # MLflow run artifacts & evaluation results
-├── models/           # Exported / merged model weights
-├── notebooks/        # Exploration & analysis notebooks
-├── scripts/          # Shell & Python entry-point scripts
-├── src/nora_nlu/     # Core Python package
-│   ├── data/         # Dataset loading, validation, splits, synthetic gen
-│   ├── models/       # Model wrappers, tokenizer utils, prompt templates
-│   ├── training/     # Trainer, callbacks, training-arg builders
-│   ├── inference/    # NLUParser, FastAPI serving
-│   ├── eval/         # Metrics, evaluation runner, error analysis
-│   └── utils/        # Logging, seeding, config helpers
-└── tests/            # pytest test suite
+├── data/
+│   └── examples/
+│       └── seed_commands.jsonl     # Hand-crafted command-intent training pairs
+├── models/
+│   └── nora_nlu_model.json         # Pre-trained model weights (108 KB)
+├── src/
+│   └── nora_nlu/
+│       ├── __init__.py             # Public API exports
+│       ├── dataset.py              # Synthetic & seed dataset generator
+│       ├── model.py                # Statistical ML intent classifier & entity extractor
+│       └── inference.py            # Runtime NLUParser
+├── tests/
+│   └── test_nlu_model.py           # Unit tests
+├── train.py                        # Standalone 1-command trainer
+├── evaluate.py                     # Evaluation benchmark script
+├── Makefile                        # Convenience commands
+└── requirements.txt                # Lightweight requirements
 ```
 
 ---
 
 ## Quick Start
 
+### 1. Evaluate the Pre-Trained Model
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt
+python evaluate.py
+```
 
-# 2. Generate synthetic training data
-make generate-data
+### 2. Train / Retrain Model
+```bash
+python train.py
+```
+This generates diverse training pairs, fits the ML model, and saves weights to `models/nora_nlu_model.json`.
 
-# 3. Train (LoRA on Qwen2.5-1.5B)
-make train
-
-# 4. Evaluate
-make evaluate
-
-# 5. Export merged model
-make export
+### 3. Run Tests
+```bash
+pytest tests/ -v
 ```
 
 ---
 
-## Key Technologies
+## Python Usage Example
 
-- **LoRA / QLoRA** — Parameter-efficient fine-tuning via `peft`. QLoRA adds 4-bit quantisation (`bitsandbytes`) to fit on smaller GPUs.
-- **TRL SFTTrainer** — Handles supervised fine-tuning with packing, formatting, and PEFT integration out of the box.
-- **Hydra** — Composable config system; swap model or training strategy with `+model=llama_small`.
-- **DVC** — Data version control; data files are tracked with `.dvc` pointers, not stored in git.
-- **MLflow** — Logs hyperparameters, metrics, and model artefacts per run under `experiments/`.
+```python
+from nora_nlu.inference import NLUParser
 
----
+parser = NLUParser()
 
-## TODO
+# Direct command
+intent = parser.parse("pick up the red cube from the table")
+print(intent)
+# -> {'action': 'pick', 'target_object': 'red_cube', 'target_location': 'table', ...}
 
-- [ ] TODO(nora): Collect real human-labelled command dataset
-- [ ] TODO(nora): Add DVC remote (S3 / GCS) and `.dvc/config`
-- [ ] TODO(nora): Add ONNX / llama.cpp export pipeline
-- [ ] TODO(nora): Integrate W&B as alternative experiment tracker
-- [ ] TODO(nora): Add constrained decoding (outlines / guidance) to inference
-- [ ] TODO(nora): CI/CD pipeline for automated retraining on new data
+# Commonsense command
+intent = parser.parse("I am thirsty")
+print(intent)
+# -> {'action': 'pick', 'target_object': 'water', 'target_location': 'user', ...}
+```

@@ -8,7 +8,7 @@
     Provides launch files for simulation, full-stack, and demo scenarios.
   </description>
 
-  <maintainer email="nora@example.com">NORA Team</maintainer>
+  <maintainer email="nora.robotics@gmail.com">NORA Team</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
