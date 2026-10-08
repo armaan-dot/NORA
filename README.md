@@ -27,6 +27,10 @@ Instead of writing low-level motion code, you give it a command like:
 
 NORA figures out what that means, checks whether it's physically possible, picks the right sequence of actions, and sends them to a ROS 2 arm — all without you specifying a single joint angle.
 
+Final Aim :
+User : I'm thirsty 
+NORA : Gives him water (If available on the desk)
+
 The system is built around three ideas:
 
 1. **Language is the interface.** A fine-tuned language model converts free-form text into a structured intent JSON that the rest of the system can act on. The model is a swappable component behind a clean interface; you can run a mock rule-based parser during development and drop in a real fine-tuned model when you're ready.
