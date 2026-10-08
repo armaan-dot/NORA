@@ -23,7 +23,7 @@ def main() -> None:
 
     # 1. Generate dataset (including direct and commonsense examples)
     print("1. Generating dataset with direct & commonsense intents...")
-    dataset = generate_dataset(num_samples=600, seed=42)
+    dataset = generate_dataset(num_samples=5000, seed=42)
     print(f"   Total training examples generated: {len(dataset)}")
 
     # Split 80/20 train/val
