@@ -34,17 +34,18 @@ These two dimensions are fused into a single **combined score**, which is used t
 
 ## Motivation: SayCan-Inspired Design
 
-The design is inspired by **SayCan** (Ahn et al., 2022, Google Robotics). SayCan's central insight is that language model probabilities alone are insufficient for robotic manipulation — a skill can be *linguistically plausible* but *physically impossible* given the current robot state (e.g., "pick up the object" is impossible if the object is not visible).
+The design implements the **SayCan** framework (Ahn et al., 2022, Google Research / Everyday Robots). SayCan's central insight is that language model probabilities alone are insufficient for robotic manipulation — a skill can be *linguistically plausible* but *physically impossible* given the current robot state (e.g., "pick up the object" is impossible if the object is not visible or already held).
 
-SayCan proposes multiplying the language model probability of a skill (usefulness) with a value function representing physical feasibility (can the robot do it?). This product prevents the system from selecting semantically attractive but physically infeasible skills.
+SayCan multiplies the language model probability of a skill (task grounding) with a value function representing physical feasibility (world grounding).
 
-NORA generalizes this with:
+- **Official Google Research Repository:** [google-research/saycan](https://github.com/google-research/google-research/tree/master/saycan)
+- **Paper & Demonstrations:** [say-can.github.io](https://say-can.github.io/)
 
-1. **Pluggable usefulness models**: The usefulness score can come from a rule-based keyword match (Phase 1), a fine-tuned classifier (Phase 2), or a full language model scoring the skill given the utterance (Phase 3+).
-
-2. **Pluggable feasibility models**: Feasibility can be a binary reachability check (Phase 1), a learned value function from RL rollouts (Phase 3), or a physics-based simulation check (Phase 4).
-
-3. **Configurable fusion weights**: Operators can tune how much each dimension contributes via `nora_config.yaml`.
+NORA includes a dedicated, dependency-free implementation in `nora_core.affordance.saycan`:
+1. **Option Space Generation:** Discrete parameterized skills (`pick up <object>`, `place <object> on <location>`, `open/close gripper`, `done`).
+2. **Task Grounding ($P(a | \text{query})$):** Semantic language likelihood matching.
+3. **World Grounding ($V(a | s)$):** Value function evaluating reachability, obstacle clearance, and gripper state.
+4. **Long-Horizon Sequential Loop:** Selects $a_t^* = \arg\max_a P(a | \text{query}) \times V(a | s_t)$, executes, updates state, and continues until `done`.
 
 ---
 
