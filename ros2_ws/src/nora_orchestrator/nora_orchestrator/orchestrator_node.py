@@ -231,13 +231,17 @@ class OrchestratorNode(Node):
         # Graceful fallback heuristic when service is offline
         self.get_logger().info("[Orchestrator] Using calculated heuristic affordance scores.")
         action = intent.get("action", "pick")
+        is_loop = bool(
+            intent.get("parameters", {}).get("is_loop")
+            or action in ("clean_table", "rerack_table", "loop_task")
+        )
         base_scores = {
-            "pick": 0.95 if action in ("pick", "clean_table") else 0.25,
-            "place": 0.92 if action in ("place", "clean_table") else 0.15,
-            "move_to_pose": 0.75,
-            "open_gripper": 0.70 if ("open" in action or action == "clean_table") else 0.20,
+            "pick": 0.95 if (is_loop or action == "pick") else 0.25,
+            "place": 0.92 if (is_loop or action == "place") else 0.15,
+            "move_to_pose": 0.85 if is_loop else 0.75,
+            "open_gripper": 0.75 if (is_loop or "open" in action) else 0.20,
             "close_gripper": 0.60 if "close" in action else 0.20,
-            "go_home": 0.95 if action in ("go_home", "clean_table") else 0.30,
+            "go_home": 0.95 if (is_loop or action == "go_home") else 0.30,
         }
         return {k: v for k, v in base_scores.items() if v >= self._score_threshold}
 
@@ -264,19 +268,36 @@ class OrchestratorNode(Node):
         action = intent.get("action", "pick")
         target_obj = intent.get("target_object") or "item"
         target_loc = intent.get("target_location") or "target"
+        params = intent.get("parameters", {})
+        is_loop = bool(params.get("is_loop") or action in ("clean_table", "rerack_table", "loop_task"))
 
-        if action == "clean_table":
-            clutter_objects = ["red_cube", "blue_cylinder", "green_sphere"]
+        if is_loop:
+            targets = params.get("loop_targets") or params.get("objects") or ["red_cube", "blue_cylinder", "green_sphere"]
+            count = params.get("loop_count", len(targets))
+            source = params.get("source", "tray" if action == "rerack_table" else "table")
+            destination = params.get("destination", "table" if action == "rerack_table" else "tray")
+
+            execution_items = [targets[i % len(targets)] for i in range(count)]
             plan = []
-            for obj in clutter_objects:
-                plan.extend([
-                    {"skill": "move_to_pose", "params": {"pose_name": "pre_grasp", "target": obj}},
-                    {"skill": "open_gripper", "params": {"stroke_mm": 80}},
-                    {"skill": "pick", "params": {"target_object": obj}},
-                    {"skill": "move_to_pose", "params": {"pose_name": "approach_target", "target": "tray"}},
-                    {"skill": "place", "params": {"target_location": "tray", "target_object": obj}},
-                    {"skill": "open_gripper", "params": {"stroke_mm": 80}},
-                ])
+            for item in execution_items:
+                if source == "tray":
+                    plan.extend([
+                        {"skill": "move_to_pose", "params": {"pose_name": "approach_target", "target": "tray"}},
+                        {"skill": "open_gripper", "params": {"stroke_mm": 80}},
+                        {"skill": "pick", "params": {"target_object": item, "from_tray": True}},
+                        {"skill": "move_to_pose", "params": {"pose_name": "pre_grasp", "target": item}},
+                        {"skill": "place", "params": {"target_location": "table", "target_object": item}},
+                        {"skill": "open_gripper", "params": {"stroke_mm": 80}},
+                    ])
+                else:
+                    plan.extend([
+                        {"skill": "move_to_pose", "params": {"pose_name": "pre_grasp", "target": item}},
+                        {"skill": "open_gripper", "params": {"stroke_mm": 80}},
+                        {"skill": "pick", "params": {"target_object": item}},
+                        {"skill": "move_to_pose", "params": {"pose_name": "handover" if destination == "user" else "approach_target", "target": destination}},
+                        {"skill": "place", "params": {"target_location": destination, "target_object": item}},
+                        {"skill": "open_gripper", "params": {"stroke_mm": 80}},
+                    ])
             plan.append({"skill": "go_home", "params": {}})
             return plan
         elif action == "pick":

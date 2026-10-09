@@ -443,7 +443,8 @@ class RosBridgeService {
       } else if (step.skill === 'place') {
         const obj = this.normalizeObjectName(step.targetObject || intent.target_object);
         if (obj) {
-          const dest = (step.params?.target_location || intent.target_location) === 'user' ? 'user' : 'tray';
+          const targetLoc = step.params?.target_location || intent.target_location;
+          const dest = targetLoc === 'user' ? 'user' : targetLoc === 'table' ? 'table' : 'tray';
           this.emitObjectEvent({ name: obj, state: dest });
           this.emitLog({
             level: 20,
@@ -514,7 +515,29 @@ class RosBridgeService {
       }
     }
 
-    // 3. Semantic keyword extraction for physical robot tasks
+    // 3. Dynamic Loop Detection for ANY repetitive or multi-object command
+    const loop = this.detectLoopIntent(text);
+    if (loop) {
+      return {
+        version: '1.0',
+        command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
+        raw_text: text,
+        action: loop.actionName,
+        target_object: loop.targets.join(', '),
+        target_location: loop.destination,
+        parameters: {
+          is_loop: true,
+          loop_targets: loop.targets,
+          loop_count: loop.count,
+          source: loop.source,
+          destination: loop.destination,
+          sub_action: 'pick_and_place'
+        },
+        confidence: 0.98
+      };
+    }
+
+    // 4. Reset table items
     if (lower.includes('reset items') || lower.includes('reset objects') || lower.includes('reset table')) {
       return {
         version: '1.0',
@@ -525,27 +548,6 @@ class RosBridgeService {
         target_location: null,
         parameters: {},
         confidence: 1.0
-      };
-    }
-    if (
-      lower.includes('clean table') ||
-      lower.includes('clean up the table') ||
-      lower.includes('clear table') ||
-      lower.includes('clear the table') ||
-      lower.includes('tidy table') ||
-      lower.includes('clean up')
-    ) {
-      return {
-        version: '1.0',
-        command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
-        raw_text: text,
-        action: 'clean_table',
-        target_object: 'all_objects',
-        target_location: 'tray',
-        parameters: {
-          objects: ['red_cube', 'blue_cylinder', 'green_sphere']
-        },
-        confidence: 0.98
       };
     }
     if (lower.includes('thirsty') || lower.includes('water') || lower.includes('drink')) {
@@ -693,6 +695,143 @@ class RosBridgeService {
     };
   }
 
+  public detectLoopIntent(text: string): {
+    isLoop: boolean;
+    targets: Array<'red_cube' | 'blue_cylinder' | 'green_sphere' | 'water'>;
+    count: number;
+    source: 'table' | 'tray';
+    destination: 'tray' | 'table' | 'user';
+    actionName: string;
+  } | null {
+    const lower = text.toLowerCase().trim();
+
+    // 1. Loop trigger indicators
+    const isClean =
+      lower.includes('clean table') ||
+      lower.includes('clean up the table') ||
+      lower.includes('clear table') ||
+      lower.includes('clear the table') ||
+      lower.includes('clear workspace') ||
+      lower.includes('tidy table') ||
+      lower.includes('empty table') ||
+      lower.includes('clean up');
+
+    const isRerack =
+      lower.includes('re rack') ||
+      lower.includes('rerack') ||
+      lower.includes('re-rack') ||
+      lower.includes('rack table') ||
+      lower.includes('rack objects') ||
+      lower.includes('rack items') ||
+      lower.includes('put back all') ||
+      lower.includes('return objects to table') ||
+      lower.includes('return items to table');
+
+    const hasLoopKeyword =
+      lower.includes('loop') ||
+      lower.includes('repeat') ||
+      lower.includes('again') ||
+      lower.includes('iterate') ||
+      lower.includes('continuously') ||
+      lower.includes('batch');
+
+    const hasQuantifier =
+      lower.includes('all') ||
+      lower.includes('every') ||
+      lower.includes('each') ||
+      lower.includes('both') ||
+      lower.includes('everything') ||
+      lower.includes('all objects') ||
+      lower.includes('all items') ||
+      lower.includes('all blocks') ||
+      lower.includes('all cylinders') ||
+      lower.includes('all spheres');
+
+    // 2. Count extraction (e.g. "3 times", "twice", "repeat 2 times")
+    let count: number | null = null;
+    const countMatch = lower.match(/(?:repeat|run|do\s+this|loop|pick\s+and\s+place)?\s*(\d+)\s*(?:times|x|iterations)/i);
+    if (countMatch) {
+      count = parseInt(countMatch[1], 10);
+    } else if (lower.includes('twice') || lower.includes('2 times') || lower.includes('two times')) {
+      count = 2;
+    } else if (lower.includes('thrice') || lower.includes('3 times') || lower.includes('three times')) {
+      count = 3;
+    } else if (lower.includes('4 times') || lower.includes('four times')) {
+      count = 4;
+    } else if (lower.includes('both')) {
+      count = 2;
+    }
+
+    // 3. Multi-object detection
+    const extractedTargets: Array<'red_cube' | 'blue_cylinder' | 'green_sphere' | 'water'> = [];
+    if (lower.includes('cube') || lower.includes('red')) extractedTargets.push('red_cube');
+    if (lower.includes('cylinder') || lower.includes('blue')) extractedTargets.push('blue_cylinder');
+    if (lower.includes('sphere') || lower.includes('green') || lower.includes('ball')) extractedTargets.push('green_sphere');
+    if (lower.includes('water') || lower.includes('drink') || lower.includes('glass') || lower.includes('cup')) extractedTargets.push('water');
+
+    const hasMultipleObjects = extractedTargets.length >= 2;
+
+    // Check if this command requires a loop
+    const requiresLoop =
+      isClean ||
+      isRerack ||
+      hasLoopKeyword ||
+      hasQuantifier ||
+      count !== null ||
+      hasMultipleObjects;
+
+    if (!requiresLoop) {
+      return null;
+    }
+
+    // Determine targets
+    let finalTargets = extractedTargets;
+    if (finalTargets.length === 0) {
+      // Default to the 3 main tabletop objects
+      finalTargets = ['red_cube', 'blue_cylinder', 'green_sphere'];
+    }
+
+    // Determine count
+    const finalCount = count !== null ? Math.max(1, count) : finalTargets.length;
+
+    // Determine source and destination
+    let source: 'table' | 'tray' = 'table';
+    let destination: 'tray' | 'table' | 'user' = 'tray';
+
+    if (
+      isRerack ||
+      lower.includes('from tray') ||
+      lower.includes('from storage') ||
+      lower.includes('to table') ||
+      lower.includes('onto table')
+    ) {
+      source = 'tray';
+      destination = 'table';
+    } else if (
+      lower.includes('user') ||
+      lower.includes('give me') ||
+      lower.includes('hand me') ||
+      lower.includes('bring me')
+    ) {
+      source = 'table';
+      destination = 'user';
+    } else {
+      source = 'table';
+      destination = 'tray';
+    }
+
+    const actionName = isRerack ? 'rerack_table' : isClean ? 'clean_table' : 'loop_task';
+
+    return {
+      isLoop: true,
+      targets: finalTargets,
+      count: finalCount,
+      source,
+      destination,
+      actionName
+    };
+  }
+
   private computeLocalAffordances(intent: Intent): AffordanceScore[] {
     const candidateSkills = [
       'pick',
@@ -720,6 +859,10 @@ class RosBridgeService {
         .sort((a, b) => b.combined_score - a.combined_score);
     }
 
+    const isLoopAction =
+      Boolean(intent.parameters?.is_loop) ||
+      ['clean_table', 'rerack_table', 'loop_task'].includes(intent.action);
+
     const results: AffordanceScore[] = candidateSkills.map((skill) => {
       let usefulness = 0.15;
       let reachability = 0.92;
@@ -728,11 +871,11 @@ class RosBridgeService {
 
       if (skill === intent.action) {
         usefulness = 0.95;
-      } else if (intent.action === 'clean_table') {
+      } else if (isLoopAction) {
         if (skill === 'pick') usefulness = 0.96;
         else if (skill === 'place') usefulness = 0.92;
-        else if (skill === 'move_to_pose') usefulness = 0.82;
-        else if (skill === 'open_gripper') usefulness = 0.70;
+        else if (skill === 'move_to_pose') usefulness = 0.85;
+        else if (skill === 'open_gripper') usefulness = 0.75;
         else if (skill === 'go_home') usefulness = 0.85;
         else usefulness = 0.40;
       } else if (intent.action === 'reset_table') {
@@ -769,25 +912,97 @@ class RosBridgeService {
     return results;
   }
 
-  private generatePlanSteps(intent: Intent): PlanStep[] {
+  private buildGeneralizedLoopPlan(intent: Intent): PlanStep[] {
     const id = () => Math.random().toString(36).substring(2, 7);
+    const loopTargets: Array<'red_cube' | 'blue_cylinder' | 'green_sphere' | 'water'> =
+      intent.parameters?.loop_targets && intent.parameters.loop_targets.length > 0
+        ? intent.parameters.loop_targets
+        : ['red_cube', 'blue_cylinder', 'green_sphere'];
 
-    if (intent.action === 'clean_table') {
-      const items: Array<'red_cube' | 'blue_cylinder' | 'green_sphere'> = [
-        'red_cube',
-        'blue_cylinder',
-        'green_sphere'
-      ];
-      const plan: PlanStep[] = [];
-      items.forEach((item, index) => {
-        const loopLabel = `Loop ${index + 1}/3: Clear ${item}`;
+    const count: number = intent.parameters?.loop_count || loopTargets.length;
+    const source: 'table' | 'tray' =
+      intent.parameters?.source || (intent.action === 'rerack_table' ? 'tray' : 'table');
+    const destination: 'tray' | 'table' | 'user' =
+      intent.parameters?.destination || (intent.action === 'rerack_table' ? 'table' : 'tray');
+
+    // Build execution items array repeating or slicing as needed
+    const executionItems: Array<'red_cube' | 'blue_cylinder' | 'green_sphere' | 'water'> = [];
+    for (let i = 0; i < count; i++) {
+      executionItems.push(loopTargets[i % loopTargets.length]);
+    }
+
+    const plan: PlanStep[] = [];
+    executionItems.forEach((item, index) => {
+      const friendlyName = item.replace('_', ' ');
+      const actionVerb = source === 'tray' ? 'Re-rack' : destination === 'user' ? 'Deliver' : 'Clear';
+      const loopLabel = `Loop ${index + 1}/${executionItems.length}: ${actionVerb} ${friendlyName}`;
+
+      if (source === 'tray') {
+        plan.push(
+          {
+            id: id(),
+            skill: 'move_to_pose',
+            params: { pose_name: 'approach_target', target: 'tray' },
+            status: 'pending',
+            detail: `[${loopLabel}] Move above storage tray for ${friendlyName}`,
+            loopGroup: loopLabel,
+            targetObject: item
+          },
+          {
+            id: id(),
+            skill: 'open_gripper',
+            params: { stroke_mm: 80 },
+            status: 'pending',
+            detail: `[${loopLabel}] Open gripper fingers`,
+            loopGroup: loopLabel,
+            targetObject: item
+          },
+          {
+            id: id(),
+            skill: 'pick',
+            params: { target_object: item, from_tray: true },
+            status: 'pending',
+            detail: `[${loopLabel}] Grip ${friendlyName} from storage tray`,
+            loopGroup: loopLabel,
+            targetObject: item
+          },
+          {
+            id: id(),
+            skill: 'move_to_pose',
+            params: { pose_name: 'pre_grasp', target: item },
+            status: 'pending',
+            detail: `[${loopLabel}] Transfer ${friendlyName} back to tabletop station`,
+            loopGroup: loopLabel,
+            targetObject: item
+          },
+          {
+            id: id(),
+            skill: 'place',
+            params: { target_location: 'table', target_object: item },
+            status: 'pending',
+            detail: `[${loopLabel}] Place ${friendlyName} on tabletop staging spot`,
+            loopGroup: loopLabel,
+            targetObject: item
+          },
+          {
+            id: id(),
+            skill: 'open_gripper',
+            params: { stroke_mm: 80 },
+            status: 'pending',
+            detail: `[${loopLabel}] Release grip from ${friendlyName}`,
+            loopGroup: loopLabel,
+            targetObject: item
+          }
+        );
+      } else {
+        const isUserDest = destination === 'user';
         plan.push(
           {
             id: id(),
             skill: 'move_to_pose',
             params: { pose_name: 'pre_grasp', target: item },
             status: 'pending',
-            detail: `[${loopLabel}] Align end-effector above ${item}`,
+            detail: `[${loopLabel}] Align end-effector above ${friendlyName}`,
             loopGroup: loopLabel,
             targetObject: item
           },
@@ -805,25 +1020,28 @@ class RosBridgeService {
             skill: 'pick',
             params: { target_object: item },
             status: 'pending',
-            detail: `[${loopLabel}] Descend and grasp ${item}`,
+            detail: `[${loopLabel}] Descend and grasp ${friendlyName}`,
             loopGroup: loopLabel,
             targetObject: item
           },
           {
             id: id(),
             skill: 'move_to_pose',
-            params: { pose_name: 'approach_target', target: 'tray' },
+            params: {
+              pose_name: isUserDest ? 'handover' : 'approach_target',
+              target: destination
+            },
             status: 'pending',
-            detail: `[${loopLabel}] Transfer ${item} towards tray bin`,
+            detail: `[${loopLabel}] Transfer ${friendlyName} towards ${destination}`,
             loopGroup: loopLabel,
             targetObject: item
           },
           {
             id: id(),
             skill: 'place',
-            params: { target_location: 'tray', target_object: item },
+            params: { target_location: destination, target_object: item },
             status: 'pending',
-            detail: `[${loopLabel}] Deposit ${item} neatly inside tray`,
+            detail: `[${loopLabel}] Deposit ${friendlyName} inside ${destination}`,
             loopGroup: loopLabel,
             targetObject: item
           },
@@ -832,21 +1050,34 @@ class RosBridgeService {
             skill: 'open_gripper',
             params: { stroke_mm: 80 },
             status: 'pending',
-            detail: `[${loopLabel}] Release grip from ${item}`,
+            detail: `[${loopLabel}] Release grip from ${friendlyName}`,
             loopGroup: loopLabel,
             targetObject: item
           }
         );
-      });
-      plan.push({
-        id: id(),
-        skill: 'go_home',
-        params: {},
-        status: 'pending',
-        detail: 'Final: All tabletop items cleared into tray. Retract arm to home transit pose.',
-        loopGroup: 'Final Retract'
-      });
-      return plan;
+      }
+    });
+
+    plan.push({
+      id: id(),
+      skill: 'go_home',
+      params: {},
+      status: 'pending',
+      detail: `Final: Loop sequence completed (${executionItems.length} iterations). Retract arm to home transit pose.`,
+      loopGroup: 'Final Retract'
+    });
+
+    return plan;
+  }
+
+  private generatePlanSteps(intent: Intent): PlanStep[] {
+    const id = () => Math.random().toString(36).substring(2, 7);
+
+    if (
+      Boolean(intent.parameters?.is_loop) ||
+      ['clean_table', 'rerack_table', 'loop_task'].includes(intent.action)
+    ) {
+      return this.buildGeneralizedLoopPlan(intent);
     }
 
     if (intent.action === 'reset_table') {
@@ -984,7 +1215,14 @@ class RosBridgeService {
 
     // Map table objects to shoulder yaw (joint1)
     let yaw = -0.58; // default towards water glass at (0.24, -0.18)
-    if (poseName === 'approach_target' || skill === 'place' || targetObj.includes('tray') || targetObj.includes('bin')) {
+    const isTrayAction =
+      step.params?.from_tray ||
+      poseName === 'approach_target' ||
+      (skill === 'place' && step.params?.target_location !== 'table') ||
+      targetObj.includes('tray') ||
+      targetObj.includes('bin');
+
+    if (isTrayAction) {
       yaw = 0.0; // towards storage tray at (0.42, 0.0)
     } else if (targetObj.includes('cube') || targetObj.includes('red')) {
       yaw = 2.40; // towards red cube at (-0.25, 0.22)
@@ -1014,7 +1252,8 @@ class RosBridgeService {
     }
 
     if (skill === 'place') {
-      return [0.0, -0.70, 1.20, 0.0, -0.50, 0.0, 0.07];
+      const isPlaceTable = step.params?.target_location === 'table';
+      return [isPlaceTable ? curr[0] : 0.0, -0.70, 1.20, 0.0, -0.50, 0.0, 0.07];
     }
 
     if (skill === 'open_gripper') {
@@ -1117,3 +1356,4 @@ class RosBridgeService {
 }
 
 export const rosService = new RosBridgeService();
+

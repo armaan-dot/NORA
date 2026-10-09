@@ -131,3 +131,4 @@ export const LogTerminal: React.FC<LogTerminalProps> = ({ logs, onClearLogs }) =
     </div>
   );
 };
+

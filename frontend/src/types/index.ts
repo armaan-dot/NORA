@@ -72,3 +72,4 @@ export interface ObjectStateEvent {
   name: 'red_cube' | 'blue_cylinder' | 'green_sphere' | 'water';
   state: 'table' | 'held' | 'tray' | 'user';
 }
+

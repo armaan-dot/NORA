@@ -38,6 +38,29 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
             🧹 Clean table (Loop)
           </button>
           <button
+            className="chip-btn chip-highlight"
+            disabled={isBusy}
+            onClick={() => handleChipClick('re rack the table')}
+          >
+            🔄 Re-rack table (Loop)
+          </button>
+          <button
+            className="chip-btn chip-highlight"
+            disabled={isBusy}
+            onClick={() => handleChipClick('pick and place twice')}
+            title="Generalized count-based loop"
+          >
+            🔁 Repeat twice (Loop)
+          </button>
+          <button
+            className="chip-btn chip-highlight"
+            disabled={isBusy}
+            onClick={() => handleChipClick('move both cube and cylinder to tray')}
+            title="Generalized multi-object conjunction loop"
+          >
+            📦 Both cube & cylinder (Loop)
+          </button>
+          <button
             className="chip-btn"
             disabled={isBusy}
             onClick={() => handleChipClick('I am thirsty')}
@@ -125,3 +148,4 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
     </div>
   );
 };
+
