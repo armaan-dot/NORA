@@ -3,7 +3,8 @@ import type {
   Intent,
   AffordanceScore,
   PlanStep,
-  OrchestratorFsmState
+  OrchestratorFsmState,
+  GuardrailEvent
 } from '../types';
 import {
   BrainCircuit,
@@ -13,7 +14,9 @@ import {
   Clock,
   ChevronDown,
   ChevronUp,
-  AlertCircle
+  AlertCircle,
+  ShieldAlert,
+  Info
 } from 'lucide-react';
 
 interface ProcessTabProps {
@@ -22,6 +25,8 @@ interface ProcessTabProps {
   affordances: AffordanceScore[];
   plan: PlanStep[];
   activeStepId?: string;
+  pipelineError?: string;
+  guardrailEvent?: GuardrailEvent | null;
 }
 
 export const ProcessTab: React.FC<ProcessTabProps> = ({
@@ -29,7 +34,9 @@ export const ProcessTab: React.FC<ProcessTabProps> = ({
   intent,
   affordances,
   plan,
-  activeStepId
+  activeStepId,
+  pipelineError,
+  guardrailEvent
 }) => {
   const [showRawIntent, setShowRawIntent] = useState(false);
 
@@ -280,16 +287,55 @@ export const ProcessTab: React.FC<ProcessTabProps> = ({
           </div>
         ) : (
           <div className="process-card-content">
-            {isFailed || intent?.action === 'unknown' ? (
-              <div className="task-failed-banner">
-                <AlertCircle size={22} className="icon-red" />
-                <div>
-                  <strong>SayCan Guardrail Triggered: Command Rejected</strong>
-                  <p>
-                    The input <em>"{intent?.raw_text}"</em> does not map to any supported physical robotics skill (action is <code>unknown</code>).
-                    All candidate skills scored below the physical affordance threshold (0.30).
-                    The arm safely remains in idle position to prevent ungrounded actions.
+            {guardrailEvent || isFailed || intent?.action === 'unknown' || intent?.action === 'impossible' || intent?.action === 'guardrail_test' ? (
+              <div className="guardrail-block-panel">
+                <div className="guardrail-block-header">
+                  <div className="guardrail-badge-wrap">
+                    <ShieldAlert size={22} className="guardrail-shield-icon" />
+                    <div>
+                      <span className="guardrail-kicker">SAYCAN GUARDRAIL INTERLOCK</span>
+                      <h4 className="guardrail-headline">
+                        {guardrailEvent?.title || 'SayCan Guardrail Triggered: Command Rejected'}
+                      </h4>
+                    </div>
+                  </div>
+                  <span className="guardrail-pill-blocked">BLOCKED</span>
+                </div>
+
+                <div className="guardrail-block-body">
+                  <p className="guardrail-explanation">
+                    {guardrailEvent?.reason ||
+                      pipelineError ||
+                      `The input "${intent?.raw_text}" does not map to any actionable physical robotics skill. All candidate skills scored below the physical affordance threshold (0.30). The arm safely remains in idle home position.`}
                   </p>
+
+                  <div className="guardrail-stats-grid">
+                    <div className="guardrail-stat-item">
+                      <span className="stat-label">Affordance Score</span>
+                      <strong className="stat-val text-red">
+                        {affordances.length > 0 ? affordances[0].combined_score.toFixed(3) : '0.000'}
+                      </strong>
+                    </div>
+                    <div className="guardrail-stat-item">
+                      <span className="stat-label">Safety Threshold</span>
+                      <strong className="stat-val text-amber">0.300</strong>
+                    </div>
+                    <div className="guardrail-stat-item">
+                      <span className="stat-label">Physical Action</span>
+                      <strong className="stat-val text-cyan">Interlocked (Safe Home)</strong>
+                    </div>
+                    <div className="guardrail-stat-item">
+                      <span className="stat-label">Refusal Feedback</span>
+                      <strong className="stat-val text-emerald">Head Shake &amp; Speech</strong>
+                    </div>
+                  </div>
+
+                  <div className="guardrail-info-box">
+                    <Info size={14} className="icon-cyan" />
+                    <span>
+                      SayCan safety policy: The robot arm only executes skills when (Usefulness) × (Physical Feasibility) ≥ 0.30.
+                    </span>
+                  </div>
                 </div>
               </div>
             ) : (

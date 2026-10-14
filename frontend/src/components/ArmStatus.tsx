@@ -16,6 +16,7 @@ interface ArmStatusProps {
   jointState: JointState | null;
   isConnected: boolean;
   wsUrl: string;
+  isEStopped?: boolean;
   onEmergencyStop: () => void;
   onGoHome: () => void;
 }
@@ -25,6 +26,7 @@ export const ArmStatus: React.FC<ArmStatusProps> = ({
   jointState,
   isConnected,
   wsUrl,
+  isEStopped = false,
   onEmergencyStop,
   onGoHome
 }) => {
@@ -109,12 +111,12 @@ export const ArmStatus: React.FC<ArmStatusProps> = ({
         </button>
 
         <button
-          className="btn-status-action btn-estop"
+          className={`btn-status-action btn-estop ${isEStopped ? 'estop-active' : ''}`}
           onClick={onEmergencyStop}
-          title="Emergency Stop: Abort all trajectory goals instantly"
+          title={isEStopped ? "Reset E-Stop Interlock" : "Emergency Stop: Abort all trajectory goals instantly"}
         >
-          <AlertOctagon size={15} />
-          <span>EMERGENCY STOP (E-STOP)</span>
+          <AlertOctagon size={15} className={isEStopped ? 'estop-pulse' : ''} />
+          <span>{isEStopped ? 'RESET E-STOP (RESUME)' : 'EMERGENCY STOP (E-STOP)'}</span>
         </button>
       </div>
 

@@ -57,6 +57,7 @@ export type OrchestratorFsmState =
   | 'IDLE'
   | 'PARSING'
   | 'SCORING'
+  | 'SEARCHING'
   | 'PLANNING'
   | 'EXECUTING'
   | 'RECOVERING'
@@ -68,8 +69,49 @@ export interface SeedCommandExample {
   intent: Intent;
 }
 
-export interface ObjectStateEvent {
-  name: 'red_cube' | 'blue_cylinder' | 'green_sphere' | 'water';
-  state: 'table' | 'held' | 'tray' | 'user';
+export interface ObjectPosition {
+  x: number;
+  y: number;
+  z: number;
 }
+
+export interface TabletopObject {
+  id: string;
+  name: string;
+  shape: 'box' | 'cylinder' | 'sphere' | 'glass' | 'mug' | 'apple';
+  color: string;
+  position: ObjectPosition;
+  state: 'table' | 'held' | 'tray' | 'user';
+  isCustom?: boolean;
+}
+
+export interface ObjectStateEvent {
+  name: string;
+  state: 'table' | 'held' | 'tray' | 'user';
+  position?: ObjectPosition;
+}
+
+export interface PerceptionScanEvent {
+  active: boolean;
+  targetObject?: string | null;
+  detectedPosition?: ObjectPosition | null;
+  confidence?: number;
+}
+
+export interface ArmSpeechEvent {
+  message: string;
+  subtext?: string;
+  type: 'impossible' | 'warning' | 'info';
+}
+
+export interface GuardrailEvent {
+  active: boolean;
+  title: string;
+  reason: string;
+  score: number;
+  threshold: number;
+  type: 'impossible' | 'ungrounded' | 'missing_object' | 'reachability';
+  timestamp?: number;
+}
+
 
