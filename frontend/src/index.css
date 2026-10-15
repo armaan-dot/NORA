@@ -66,6 +66,14 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+@media (max-width: 1280px) {
+  .brand-subtitle {
+    display: none;
+  }
 }
 
 .brand-logo-wrap {
@@ -159,214 +167,158 @@ body {
   border-color: var(--cyan);
 }
 
-/* Top Live Affordance Score Telemetry Widget (Sleek Single-Row Pill) */
+/* Top Live Affordance Score Telemetry Widget (Sleek Single-Sentence Pill) */
+.top-affordance-pill,
 .top-affordance-panel {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 12px;
-  height: 36px;
-  background: rgba(19, 24, 36, 0.85);
+  padding: 4px 14px;
+  height: 34px;
+  background: rgba(19, 24, 36, 0.9);
   backdrop-filter: blur(14px);
   border: 1px solid var(--border-color);
   border-radius: 20px;
   cursor: pointer;
   transition: all 0.25s ease;
   user-select: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1;
 }
 
+.top-affordance-pill:hover,
 .top-affordance-panel:hover {
   transform: translateY(-1px);
   border-color: rgba(0, 240, 255, 0.45);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
+.top-affordance-pill.status-high,
 .top-affordance-panel.status-high {
   border-color: rgba(16, 185, 129, 0.45);
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(19, 24, 36, 0.9));
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(19, 24, 36, 0.95));
   box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
 }
 
+.top-affordance-pill.status-med,
 .top-affordance-panel.status-med {
   border-color: rgba(245, 158, 11, 0.45);
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(19, 24, 36, 0.9));
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(19, 24, 36, 0.95));
   box-shadow: 0 0 12px rgba(245, 158, 11, 0.15);
 }
 
+.top-affordance-pill.status-low,
 .top-affordance-panel.status-low {
   border-color: rgba(239, 68, 68, 0.45);
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(19, 24, 36, 0.9));
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(19, 24, 36, 0.95));
   box-shadow: 0 0 12px rgba(239, 68, 68, 0.15);
 }
 
+.top-affordance-pill.status-standby,
 .top-affordance-panel.status-standby {
   border-color: rgba(0, 240, 255, 0.25);
-  background: linear-gradient(135deg, rgba(0, 240, 255, 0.08), rgba(19, 24, 36, 0.9));
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.08), rgba(19, 24, 36, 0.95));
 }
 
-.affordance-gauge-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: rgba(0, 240, 255, 0.12);
-  border: 1px solid rgba(0, 240, 255, 0.3);
+.affordance-pill-icon {
+  color: var(--cyan);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--cyan);
   flex-shrink: 0;
 }
 
-.top-affordance-panel.status-high .affordance-gauge-icon {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: rgba(16, 185, 129, 0.4);
+.top-affordance-pill.status-high .affordance-pill-icon,
+.top-affordance-panel.status-high .affordance-pill-icon {
   color: #34d399;
 }
 
-.top-affordance-panel.status-low .affordance-gauge-icon {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.4);
-  color: #f87171;
-}
-
-.affordance-label-mini {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-}
-
-.affordance-skill-tag {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--cyan);
-  font-family: var(--font-mono);
-  background: rgba(0, 240, 255, 0.08);
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-
-.affordance-score-val {
-  font-family: var(--font-mono);
-  font-size: 15px;
-  font-weight: 700;
-  color: #fff;
-  display: flex;
-  align-items: baseline;
-}
-
-.affordance-score-pct {
-  font-size: 11px;
-  font-weight: 500;
-  margin-left: 4px;
-  color: var(--cyan);
-}
-
-.affordance-score-standby {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  color: var(--cyan);
-}
-
-.affordance-state-pill {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-.affordance-state-pill.pill-grounded {
-  background: rgba(16, 185, 129, 0.2);
-  border: 1px solid rgba(16, 185, 129, 0.45);
-  color: #34d399;
-}
-
-.affordance-state-pill.pill-moderate {
-  background: rgba(245, 158, 11, 0.2);
-  border: 1px solid rgba(245, 158, 11, 0.45);
+.top-affordance-pill.status-med .affordance-pill-icon,
+.top-affordance-panel.status-med .affordance-pill-icon {
   color: #fbbf24;
 }
 
-.affordance-state-pill.pill-rejected {
-  background: rgba(239, 68, 68, 0.2);
-  border: 1px solid rgba(239, 68, 68, 0.45);
+.top-affordance-pill.status-low .affordance-pill-icon,
+.top-affordance-panel.status-low .affordance-pill-icon {
   color: #f87171;
 }
 
-.affordance-state-pill.pill-ready {
-  background: rgba(0, 240, 255, 0.15);
-  border: 1px solid rgba(0, 240, 255, 0.35);
-  color: var(--cyan);
-}
-
-.affordance-sub-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.affordance-sub-item strong {
-  color: #fff;
-}
-
-.sub-divider {
-  color: var(--text-dim);
-  font-size: 10px;
-}
-
-.affordance-topic-badge {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  background: rgba(0, 240, 255, 0.1);
-  border: 1px solid rgba(0, 240, 255, 0.25);
-  color: var(--cyan);
-  padding: 1px 6px;
-  border-radius: 4px;
+.affordance-sentence {
+  font-size: 13px;
+  font-weight: 600; /* slightly bold */
+  color: #e2e8f0;
+  letter-spacing: 0.15px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
-.icon-pulse {
-  animation: pulse-op 1.5s ease-in-out infinite;
+.affordance-sentence-val {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: #fff;
 }
 
-@keyframes pulse-op {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.9); }
+.top-affordance-pill.status-high .affordance-sentence-val,
+.top-affordance-panel.status-high .affordance-sentence-val {
+  color: #34d399;
 }
 
-.affordance-sub-placeholder {
-  font-size: 10.5px;
-  color: var(--text-dim);
-  font-style: italic;
+.top-affordance-pill.status-med .affordance-sentence-val,
+.top-affordance-panel.status-med .affordance-sentence-val {
+  color: #fbbf24;
 }
 
-.btn-info-icon {
-  background: transparent;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
+.top-affordance-pill.status-low .affordance-sentence-val,
+.top-affordance-panel.status-low .affordance-sentence-val {
+  color: #f87171;
 }
 
-.btn-info-icon:hover {
+.top-affordance-pill.status-standby .affordance-sentence-val,
+.top-affordance-panel.status-standby .affordance-sentence-val {
   color: var(--cyan);
-  background: rgba(0, 240, 255, 0.1);
+}
+
+.affordance-sentence-status {
+  font-weight: 600; /* slightly bold */
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.top-affordance-pill.status-high .affordance-sentence-status,
+.top-affordance-panel.status-high .affordance-sentence-status {
+  color: #a7f3d0;
+}
+
+.top-affordance-pill.status-med .affordance-sentence-status,
+.top-affordance-panel.status-med .affordance-sentence-status {
+  color: #fde68a;
+}
+
+.top-affordance-pill.status-low .affordance-sentence-status,
+.top-affordance-panel.status-low .affordance-sentence-status {
+  color: #fca5a5;
+}
+
+.top-affordance-pill.status-standby .affordance-sentence-status,
+.top-affordance-panel.status-standby .affordance-sentence-status {
+  color: var(--text-muted);
+}
+
+.affordance-info-hint {
+  color: var(--text-dim);
+  opacity: 0.6;
+  margin-left: 2px;
+  flex-shrink: 0;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.top-affordance-pill:hover .affordance-info-hint,
+.top-affordance-panel:hover .affordance-info-hint {
+  opacity: 1;
+  color: var(--cyan);
 }
 
 /* Affordance Formulation Popover */

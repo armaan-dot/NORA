@@ -23,8 +23,6 @@ import {
   WifiOff,
   Settings,
   Scale,
-  Sparkles,
-  ShieldCheck,
   ShieldAlert,
   Info,
   AlertOctagon,
@@ -210,7 +208,7 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Center: Live Task Affordance Score Telemetry Widget (Minimalist & Crisp) */}
+        {/* Center: Live Task Affordance Score Telemetry Widget (One sentence, slightly bold) */}
         <div
           className={`top-affordance-pill ${
             topAffordance
@@ -228,48 +226,30 @@ export const App: React.FC = () => {
             <Scale size={13} />
           </div>
 
-          <span className="affordance-pill-title">Affordance</span>
-
-          {topAffordance ? (
-            <div className="affordance-pill-values">
-              <span className="affordance-score-num">
-                {topAffordance.combined_score.toFixed(3)}
-              </span>
-              <span
-                className={`affordance-badge ${
-                  topAffordance.combined_score >= 0.70
-                    ? 'badge-grounded'
+          <span className="affordance-sentence">
+            {topAffordance ? (
+              <>
+                Affordance score:{' '}
+                <span className="affordance-sentence-val">
+                  {topAffordance.combined_score.toFixed(3)}
+                </span>{' '}
+                <span className="affordance-sentence-status">
+                  ({topAffordance.combined_score >= 0.70
+                    ? 'Grounded'
                     : topAffordance.combined_score >= 0.30
-                    ? 'badge-moderate'
-                    : 'badge-rejected'
-                }`}
-              >
-                {topAffordance.combined_score >= 0.70 ? (
-                  <>
-                    <ShieldCheck size={11} /> Grounded
-                  </>
-                ) : topAffordance.combined_score >= 0.30 ? (
-                  <>
-                    <Sparkles size={11} /> Feasible
-                  </>
-                ) : (
-                  <>
-                    <ShieldAlert size={11} /> Guardrail Block
-                  </>
-                )}
-              </span>
-              {topAffordance.skill_name && (
-                <span className="affordance-pill-skill" title={`Target Skill: ${topAffordance.skill_name}`}>
-                  {topAffordance.skill_name}
+                    ? 'Feasible'
+                    : 'Guardrail Block'}
+                  {topAffordance.skill_name ? ` • ${topAffordance.skill_name}` : ''})
                 </span>
-              )}
-            </div>
-          ) : (
-            <div className="affordance-pill-values">
-              <span className="affordance-score-standby">Ready</span>
-              <span className="affordance-badge badge-standby">τ ≥ 0.30</span>
-            </div>
-          )}
+              </>
+            ) : (
+              <>
+                Affordance score:{' '}
+                <span className="affordance-sentence-val">Ready</span>{' '}
+                <span className="affordance-sentence-status">(safety threshold τ ≥ 0.30)</span>
+              </>
+            )}
+          </span>
 
           <Info size={12} className="affordance-info-hint" />
         </div>
