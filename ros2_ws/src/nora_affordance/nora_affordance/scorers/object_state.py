@@ -25,30 +25,43 @@ class ObjectStateScorer(BaseScorer):
 
     def __init__(self, perception_topic: str = "/nora/detected_objects") -> None:
         self._perception_topic = perception_topic
+        self._detected_objects: dict[str, Any] = {}
 
-        # TODO(nora): Subscribe to perception topic and maintain a dict of
-        #             detected object states, e.g.:
-        #   self._detected_objects: dict[str, ObjectState] = {}
+    def update_detected_objects(self, objects: dict[str, Any] | list[str]) -> None:
+        """Update active detected objects from perception."""
+        if isinstance(objects, list):
+            self._detected_objects = {name.lower(): {"visible": True, "graspability": 0.95} for name in objects}
+        else:
+            self._detected_objects = {k.lower(): v for k, v in objects.items()}
 
     def score(self, intent_dict: dict, skill_name: str) -> float:
         """Score the object-state feasibility of *skill_name* for *intent_dict*.
 
-        Parameters
-        ----------
-        intent_dict:
-            Parsed intent (keys: action, target_object, confidence, raw_text).
-        skill_name:
-            Candidate skill identifier.
-
-        Returns
-        -------
-        float
-            Object-state score in ``[0.0, 1.0]``.
+        If the task requires manipulating an object (e.g. pick, deliver),
+        the target object MUST be present in detected objects. Otherwise,
+        affordance is strictly 0.0 (precondition failure).
         """
-        # TODO(nora): Check perception data for the target object, e.g.:
-        #   target = intent_dict.get("target_object", "")
-        #   obj_state = self._detected_objects.get(target)
-        #   if obj_state is None:
-        #       return 0.0  # object not detected
-        #   return obj_state.graspability_score
+        # Non-manipulation skills do not require target object on table
+        if skill_name in ("go_home", "open_gripper", "close_gripper"):
+            return 1.0
+
+        target = (intent_dict.get("target_object") or "").strip().lower()
+        if not target or target in ("none", "null", "item"):
+            return _MOCK_SCORE
+
+        # When active tabletop perception data is present:
+        if self._detected_objects:
+            # Check exact or token compatibility
+            matched = any(
+                target == obj_name or target in obj_name or obj_name in target
+                for obj_name in self._detected_objects
+            )
+            if not matched:
+                return 0.0
+
+            obj_info = self._detected_objects.get(target)
+            if isinstance(obj_info, dict) and not obj_info.get("visible", True):
+                return 0.0
+            return 0.95
+
         return _MOCK_SCORE

@@ -111,6 +111,7 @@ export interface GuardrailEvent {
   score: number;
   threshold: number;
   type: 'impossible' | 'ungrounded' | 'missing_object' | 'reachability';
+  targetObject?: string;
   timestamp?: number;
 }
 

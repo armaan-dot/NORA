@@ -4285,6 +4285,37 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.btn-failed-action-entity {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #fff;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  letter-spacing: 0.01em;
+}
+
+.btn-failed-action-entity:hover {
+  filter: brightness(1.18);
+  transform: translateY(-2px) scale(1.02);
+}
+
+.btn-failed-action-entity:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-failed-action-entity .action-emoji {
+  font-size: 17px;
+  line-height: 1;
+}
+
 .btn-failed-action-apple {
   display: inline-flex;
   align-items: center;

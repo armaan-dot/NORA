@@ -278,7 +278,22 @@ class SayCanScorer:
             if not target:
                 return 0.0
 
-            obj = world_state.get_or_create_object(target)
+            # Grounding check: target object MUST physically exist in world_state.objects!
+            # If the object is not detected/present on the tabletop, affordance is strictly 0.0.
+            target_key = target if target in world_state.objects else target.lower().replace(" ", "_")
+            if target_key not in world_state.objects:
+                # Check if any detected object matches target
+                matched_obj = None
+                for name, o in world_state.objects.items():
+                    if name.lower() == target.lower() or target.lower() in name.lower() or name.lower() in target.lower():
+                        matched_obj = o
+                        break
+                if matched_obj is None:
+                    return 0.0
+                obj = matched_obj
+            else:
+                obj = world_state.objects[target_key]
+
             if not obj.is_visible or obj.is_grasped:
                 return 0.0
             if not robot.is_reachable(*obj.position):

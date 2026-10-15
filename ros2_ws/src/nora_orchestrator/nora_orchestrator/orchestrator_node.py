@@ -235,8 +235,19 @@ class OrchestratorNode(Node):
             intent.get("parameters", {}).get("is_loop")
             or action in ("clean_table", "rerack_table", "loop_task")
         )
+        # Check target object presence if target is specified
+        target_obj = (intent.get("target_object") or "").strip().lower()
+        if target_obj and target_obj not in ("none", "null", "item", ""):
+            # If detected objects are known and target is missing, return empty scores (SayCan guardrail rejection)
+            if hasattr(self, "_detected_objects") and self._detected_objects:
+                if not any(target_obj == o.lower() or target_obj in o.lower() or o.lower() in target_obj for o in self._detected_objects):
+                    self.get_logger().warn(
+                        f"[Orchestrator] SayCan Guardrail: target object '{target_obj}' is NOT present in detected objects. Affordance score: 0.00."
+                    )
+                    return {}
+
         base_scores = {
-            "pick": 0.95 if (is_loop or action == "pick") else 0.25,
+            "pick": 0.95 if (is_loop or action in ("pick", "deliver_to_user")) else 0.25,
             "place": 0.92 if (is_loop or action == "place") else 0.15,
             "move_to_pose": 0.85 if is_loop else 0.75,
             "open_gripper": 0.75 if (is_loop or "open" in action) else 0.20,

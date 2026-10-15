@@ -100,6 +100,76 @@ export const DEFAULT_TABLETOP_OBJECTS: TabletopObject[] = [
   }
 ];
 
+export interface EntityMetadata {
+  name: string;
+  shape: TabletopObject['shape'];
+  color: string;
+  emoji: string;
+}
+
+export function getEntityMetadata(targetNameOrText: string): EntityMetadata {
+  const l = (targetNameOrText || '').toLowerCase().trim();
+
+  if (l.includes('tennis') || l.includes('racket') || l.includes('racquet') || l.includes('wimbledon')) {
+    return { name: 'Tennis Ball', shape: 'sphere', color: '#84cc16', emoji: '🎾' };
+  }
+  if (l.includes('apple') || l.includes('fruit')) {
+    return { name: 'Red Apple', shape: 'apple', color: '#e11d48', emoji: '🍎' };
+  }
+  if (l.includes('coffee') || l.includes('mug') || l.includes('latte') || l.includes('espresso') || l.includes('caffeine') || (l.includes('tired') && !l.includes('water'))) {
+    return { name: 'Coffee Mug', shape: 'mug', color: '#8B4513', emoji: '☕' };
+  }
+  if (l.includes('water') || l.includes('thirsty') || l.includes('hydrate') || (l.includes('drink') && !l.includes('coffee'))) {
+    return { name: 'Water Glass', shape: 'glass', color: '#06b6d4', emoji: '🥤' };
+  }
+  if (l.includes('banana')) {
+    return { name: 'Banana', shape: 'cylinder', color: '#facc15', emoji: '🍌' };
+  }
+  if (l.includes('orange')) {
+    return { name: 'Fresh Orange', shape: 'sphere', color: '#f97316', emoji: '🍊' };
+  }
+  if (l.includes('dice') || l.includes('die')) {
+    return { name: 'Dice', shape: 'box', color: '#f8fafc', emoji: '🎲' };
+  }
+  if (l.includes('stress ball') || l.includes('fidget')) {
+    return { name: 'Stress Ball', shape: 'sphere', color: '#ec4899', emoji: '🧘' };
+  }
+  if (l.includes('cards') || l.includes('card')) {
+    return { name: 'Playing Cards', shape: 'box', color: '#ffffff', emoji: '🃏' };
+  }
+  if (l.includes('sponge') || l.includes('clean')) {
+    return { name: 'Cleaning Sponge', shape: 'box', color: '#fde047', emoji: '🧽' };
+  }
+  if (l.includes('bottle') || l.includes('can') || l.includes('soda')) {
+    return { name: 'Soda Can', shape: 'cylinder', color: '#ef4444', emoji: '🥫' };
+  }
+  if (l.includes('box') || l.includes('package') || l.includes('storage')) {
+    return { name: 'Storage Box', shape: 'box', color: '#d97706', emoji: '📦' };
+  }
+  if (l.includes('red cube') || (l.includes('cube') && l.includes('red'))) {
+    return { name: 'Red Cube', shape: 'box', color: '#ef4444', emoji: '🟥' };
+  }
+  if (l.includes('blue cylinder') || (l.includes('cylinder') && l.includes('blue'))) {
+    return { name: 'Blue Cylinder', shape: 'cylinder', color: '#3b82f6', emoji: '🛢️' };
+  }
+  if (l.includes('green sphere') || (l.includes('sphere') && l.includes('green'))) {
+    return { name: 'Green Sphere', shape: 'sphere', color: '#10b981', emoji: '🟢' };
+  }
+  if (l.includes('cube') || l.includes('block')) {
+    return { name: 'Cube Block', shape: 'box', color: '#ef4444', emoji: '🧊' };
+  }
+  if (l.includes('cylinder') || l.includes('canister')) {
+    return { name: 'Cylinder', shape: 'cylinder', color: '#3b82f6', emoji: '🛢️' };
+  }
+  if (l.includes('sphere') || l.includes('ball')) {
+    return { name: 'Sphere Ball', shape: 'sphere', color: '#10b981', emoji: '⚽' };
+  }
+
+  // Universal fallback for any custom item:
+  const formatted = l ? l.charAt(0).toUpperCase() + l.slice(1).replace(/_/g, ' ') : 'Object';
+  return { name: formatted, shape: 'box', color: '#a855f7', emoji: '✨' };
+}
+
 export interface ActivityConcept {
   id: string;
   keywords: string[];
@@ -122,7 +192,7 @@ export const SEMANTIC_ACTIVITY_ONTOLOGY: ActivityConcept[] = [
     defaultName: 'Tennis Ball',
     shape: 'sphere',
     color: '#84cc16',
-    searchMatchers: ['tennis', 'ball', 'sphere']
+    searchMatchers: ['tennis', 'tennis ball', 'tennis_ball']
   },
   // 2. Play, Games, Boredom & Recreation
   {
@@ -130,11 +200,11 @@ export const SEMANTIC_ACTIVITY_ONTOLOGY: ActivityConcept[] = [
     keywords: [
       'play', 'game', 'bored', 'fun', 'entertain', 'play a game', 'let\'s play'
     ],
-    impliedNeed: 'play equipment or game item',
+    impliedNeed: 'tennis ball or game item',
     defaultName: 'Tennis Ball',
     shape: 'sphere',
     color: '#84cc16',
-    searchMatchers: ['tennis', 'ball', 'sphere', 'cube']
+    searchMatchers: ['tennis', 'tennis ball', 'tennis_ball', 'fidget', 'dice', 'cards']
   },
   // 3. Caffeine, Coffee & Fatigue
   {
@@ -148,7 +218,7 @@ export const SEMANTIC_ACTIVITY_ONTOLOGY: ActivityConcept[] = [
     defaultName: 'Coffee Mug',
     shape: 'mug',
     color: '#8B4513',
-    searchMatchers: ['coffee', 'mug', 'tea', 'latte']
+    searchMatchers: ['coffee', 'coffee mug', 'coffee_mug', 'latte', 'espresso']
   },
   // 4. Hydration & Thirst
   {
@@ -160,8 +230,8 @@ export const SEMANTIC_ACTIVITY_ONTOLOGY: ActivityConcept[] = [
     impliedNeed: 'glass of drinking water',
     defaultName: 'Water Glass',
     shape: 'glass',
-    color: '#38bdf8',
-    searchMatchers: ['water', 'glass', 'cup', 'drink']
+    color: '#06b6d4',
+    searchMatchers: ['water', 'water glass', 'drinking water', 'glass']
   },
   // 5. Hunger, Snacks & Fruit
   {
@@ -174,7 +244,7 @@ export const SEMANTIC_ACTIVITY_ONTOLOGY: ActivityConcept[] = [
     defaultName: 'Red Apple',
     shape: 'apple',
     color: '#e11d48',
-    searchMatchers: ['apple', 'fruit', 'snack', 'food']
+    searchMatchers: ['apple', 'red apple', 'fresh apple', 'fruit']
   },
   // 6. Packaging, Cubes & Stacking
   {
@@ -187,7 +257,7 @@ export const SEMANTIC_ACTIVITY_ONTOLOGY: ActivityConcept[] = [
     defaultName: 'Storage Box',
     shape: 'box',
     color: '#f59e0b',
-    searchMatchers: ['box', 'cube', 'package', 'block']
+    searchMatchers: ['storage box', 'box', 'cube', 'package', 'block']
   },
   // 7. Cylinders & Industrial Canisters
   {
@@ -199,7 +269,7 @@ export const SEMANTIC_ACTIVITY_ONTOLOGY: ActivityConcept[] = [
     defaultName: 'Blue Cylinder',
     shape: 'cylinder',
     color: '#3b82f6',
-    searchMatchers: ['cylinder', 'tube', 'canister']
+    searchMatchers: ['blue cylinder', 'cylinder', 'tube', 'canister']
   }
 ];
 
@@ -650,21 +720,30 @@ class RosBridgeService {
     }
 
     // Semantic category and shape nouns vs color adjectives
-    const SHAPE_NOUNS = ['apple', 'fruit', 'cube', 'box', 'block', 'cylinder', 'can', 'bottle', 'sphere', 'ball', 'orb', 'glass', 'water', 'mug', 'cup', 'coffee', 'tea'];
+    const SHAPE_NOUNS = [
+      'tennis', 'racket', 'racquet', 'apple', 'fruit', 'coffee', 'mug',
+      'cube', 'box', 'block', 'cylinder', 'can', 'bottle', 'sphere', 'ball', 'orb', 'glass', 'water'
+    ];
     const COLOR_ADJECTIVES = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'cyan', 'white', 'black', 'pink', 'brown', 'gray', 'grey'];
 
     const mentionedNouns = SHAPE_NOUNS.filter((n) => lower.includes(n));
     const mentionedColors = COLOR_ADJECTIVES.filter((c) => lower.includes(c));
 
-    // If an explicit shape/entity noun is mentioned, require noun compatibility!
-    // A color adjective alone (e.g. "red") MUST NOT match a different noun (e.g. "red cube" for "apple")!
+    // If an explicit shape/entity noun is mentioned, require strict noun compatibility!
+    // A color adjective alone (e.g. "green") MUST NOT match a different noun (e.g. "green sphere" for "tennis ball")!
     if (mentionedNouns.length > 0) {
       const matchingObjects = this.tabletopObjects.filter((obj) => {
         const objNameL = obj.name.toLowerCase();
         const objIdL = obj.id.toLowerCase();
         return mentionedNouns.some((n) => {
+          if (n === 'tennis' || n === 'racket' || n === 'racquet') {
+            return objNameL.includes('tennis') || objIdL.includes('tennis');
+          }
           if (n === 'apple' || n === 'fruit') {
             return obj.shape === 'apple' || objNameL.includes('apple') || objIdL.includes('apple') || objNameL.includes('fruit');
+          }
+          if (n === 'coffee' || n === 'mug') {
+            return obj.shape === 'mug' || objNameL.includes('coffee') || objIdL.includes('coffee') || objNameL.includes('mug');
           }
           if (n === 'cube' || n === 'box' || n === 'block') {
             return obj.shape === 'box' || objNameL.includes('cube') || objIdL.includes('cube') || objNameL.includes('box');
@@ -673,13 +752,14 @@ class RosBridgeService {
             return obj.shape === 'cylinder' || objNameL.includes('cylinder') || objIdL.includes('cylinder');
           }
           if (n === 'sphere' || n === 'ball' || n === 'orb') {
+            if (lower.includes('tennis')) {
+              return objNameL.includes('tennis') || objIdL.includes('tennis');
+            }
             return obj.shape === 'sphere' || objNameL.includes('sphere') || objIdL.includes('sphere') || objNameL.includes('ball');
           }
           if (n === 'glass' || n === 'water') {
+            if (lower.includes('coffee')) return false;
             return obj.shape === 'glass' || objNameL.includes('glass') || objIdL.includes('water') || objNameL.includes('water');
-          }
-          if (n === 'mug' || n === 'cup' || n === 'coffee' || n === 'tea') {
-            return obj.shape === 'mug' || objNameL.includes('mug') || objNameL.includes('cup') || objNameL.includes('coffee') || objNameL.includes('tea');
           }
           return false;
         });
@@ -698,8 +778,8 @@ class RosBridgeService {
         return matchingObjects[0];
       }
 
-      // Explicit noun requested (e.g. "apple"), but no object with that noun exists on table!
-      // Do NOT fall back to other objects that just happen to share a color (like red cube)!
+      // Explicit noun requested (e.g. "apple" or "tennis ball"), but no object with that noun exists on table!
+      // Do NOT fall back to other objects that just happen to share a color or shape (like green sphere for tennis ball)!
       return null;
     }
 
@@ -710,7 +790,7 @@ class RosBridgeService {
         const found = this.tabletopObjects.find((o) => {
           const nameL = o.name.toLowerCase();
           const idL = o.id.toLowerCase();
-          return nameL.includes(matcher) || idL.includes(matcher) || o.shape === matcher;
+          return nameL.includes(matcher) || idL.includes(matcher);
         });
         if (found) {
           return found;
@@ -753,12 +833,26 @@ class RosBridgeService {
       }
     }
 
-    // 3. Specific item identification (respecting semantics!)
+    // 3. Specific item identification (respecting strict semantics!)
+    if (l.includes('tennis') || l.includes('racket') || l.includes('racquet') || (l.includes('play') && l.includes('ball'))) {
+      const tennisObj = this.tabletopObjects.find(
+        (o) => o.id.toLowerCase().includes('tennis') || o.name.toLowerCase().includes('tennis')
+      );
+      return tennisObj ? tennisObj.id : 'tennis_ball';
+    }
+
     if (l.includes('apple') || l.includes('fruit')) {
       const appleObj = this.tabletopObjects.find(
         (o) => o.shape === 'apple' || o.id.toLowerCase().includes('apple') || o.name.toLowerCase().includes('apple')
       );
       return appleObj ? appleObj.id : 'apple';
+    }
+
+    if (l.includes('coffee') || (l.includes('tired') && !l.includes('water')) || (l.includes('mug') && !l.includes('water'))) {
+      const mugObj = this.tabletopObjects.find(
+        (o) => o.shape === 'mug' || o.id.toLowerCase().includes('coffee') || o.name.toLowerCase().includes('coffee')
+      );
+      return mugObj ? mugObj.id : 'coffee_mug';
     }
 
     if (l.includes('cube') || l.includes('box') || l.includes('block')) {
@@ -771,14 +865,14 @@ class RosBridgeService {
       return cylObj ? cylObj.id : 'blue_cylinder';
     }
 
-    if (l.includes('sphere') || l.includes('ball') || (l.includes('green') && !l.includes('cube') && !l.includes('apple'))) {
-      const sphereObj = this.tabletopObjects.find((o) => o.shape === 'sphere' || o.id.toLowerCase().includes('sphere'));
-      return sphereObj ? sphereObj.id : 'green_sphere';
+    if (l.includes('water') || l.includes('glass') || l.includes('drink')) {
+      const glassObj = this.tabletopObjects.find((o) => o.shape === 'glass' || o.id.toLowerCase().includes('water'));
+      return glassObj ? glassObj.id : 'water';
     }
 
-    if (l.includes('water') || l.includes('glass') || l.includes('drink') || l.includes('cup') || l.includes('mug')) {
-      const glassObj = this.tabletopObjects.find((o) => o.shape === 'glass' || o.shape === 'mug' || o.id.toLowerCase().includes('water'));
-      return glassObj ? glassObj.id : 'water';
+    if (l.includes('sphere') || (!l.includes('tennis') && l.includes('ball'))) {
+      const sphereObj = this.tabletopObjects.find((o) => o.shape === 'sphere' || o.id.toLowerCase().includes('sphere'));
+      return sphereObj ? sphereObj.id : 'green_sphere';
     }
 
     return null;
@@ -1657,7 +1751,14 @@ class RosBridgeService {
 
     if (isDirectSearch) {
       const targetObj = this.findObjectFromText(text);
-      const objId = targetObj ? targetObj.id : (this.normalizeObjectName(text) || 'item');
+      const concept = this.getConceptForText(text);
+      const normalized = this.normalizeObjectName(text);
+      const targetName = targetObj
+        ? targetObj.name
+        : (concept ? concept.defaultName : (normalized ? normalized.replace(/_/g, ' ') : 'item'));
+      const objId = targetObj
+        ? targetObj.id
+        : (concept ? (concept.id === 'tennis' ? 'tennis_ball' : concept.id === 'coffee' ? 'coffee_mug' : concept.id) : (normalized || targetName));
       return {
         version: '1.0',
         command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
@@ -1665,7 +1766,7 @@ class RosBridgeService {
         action: 'search_object',
         target_object: objId,
         target_location: null,
-        parameters: { target_name: targetObj ? targetObj.name : objId },
+        parameters: { target_name: targetName },
         confidence: 0.98
       };
     }
@@ -1679,7 +1780,14 @@ class RosBridgeService {
 
     if (isDirectPick && !lower.includes(' me') && !lower.includes('to me') && !lower.includes('give') && !lower.includes('pass') && !lower.includes('hand')) {
       const targetObj = this.findObjectFromText(text);
-      const objId = targetObj ? targetObj.id : (this.normalizeObjectName(text) || 'object');
+      const concept = this.getConceptForText(text);
+      const normalized = this.normalizeObjectName(text);
+      const targetName = targetObj
+        ? targetObj.name
+        : (concept ? concept.defaultName : (normalized ? normalized.replace(/_/g, ' ') : 'item'));
+      const objId = targetObj
+        ? targetObj.id
+        : (concept ? (concept.id === 'tennis' ? 'tennis_ball' : concept.id === 'coffee' ? 'coffee_mug' : concept.id) : (normalized || targetName));
       return {
         version: '1.0',
         command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
@@ -1687,7 +1795,7 @@ class RosBridgeService {
         action: 'pick',
         target_object: objId,
         target_location: 'table',
-        parameters: { target_name: targetObj ? targetObj.name : objId },
+        parameters: { target_name: targetName },
         confidence: 0.96
       };
     }
@@ -1703,7 +1811,14 @@ class RosBridgeService {
     if (isDirectPlace) {
       const dest = lower.includes('table') ? 'table' : lower.includes('user') ? 'user' : 'tray';
       const targetObj = this.findObjectFromText(text);
-      const objId = targetObj ? targetObj.id : (this.normalizeObjectName(text) || 'object');
+      const concept = this.getConceptForText(text);
+      const normalized = this.normalizeObjectName(text);
+      const targetName = targetObj
+        ? targetObj.name
+        : (concept ? concept.defaultName : (normalized ? normalized.replace(/_/g, ' ') : 'object'));
+      const objId = targetObj
+        ? targetObj.id
+        : (concept ? (concept.id === 'tennis' ? 'tennis_ball' : concept.id === 'coffee' ? 'coffee_mug' : concept.id) : (normalized || targetName));
       return {
         version: '1.0',
         command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
@@ -1711,7 +1826,7 @@ class RosBridgeService {
         action: 'place',
         target_object: objId,
         target_location: dest,
-        parameters: { target_name: targetObj ? targetObj.name : objId },
+        parameters: { target_name: targetName },
         confidence: 0.96
       };
     }
@@ -1767,8 +1882,12 @@ class RosBridgeService {
         };
       }
 
-      const targetName = targetObj ? targetObj.name : (concept ? concept.defaultName : (normalized || 'item'));
-      const objId = targetObj ? targetObj.id : targetName;
+      const targetName = targetObj
+        ? targetObj.name
+        : (concept ? concept.defaultName : (normalized ? normalized.replace(/_/g, ' ') : 'item'));
+      const objId = targetObj
+        ? targetObj.id
+        : (concept ? (concept.id === 'tennis' ? 'tennis_ball' : concept.id === 'coffee' ? 'coffee_mug' : concept.id) : (normalized || targetName));
 
       return {
         version: '1.0',
@@ -2052,18 +2171,16 @@ class RosBridgeService {
     let targetExistsOnTable = false;
     const targetObjName = intent.target_object;
     if (targetObjName && targetObjName !== 'null' && targetObjName !== 'none') {
-      const normName = this.normalizeObjectName(targetObjName);
-      const obj = this.tabletopObjects.find(
-        (o) =>
-          o.id === normName ||
-          o.id === targetObjName ||
-          o.name.toLowerCase() === targetObjName.toLowerCase() ||
-          (normName && o.name.toLowerCase().includes(normName.toLowerCase())) ||
-          (targetObjName && o.name.toLowerCase().includes(targetObjName.toLowerCase()))
-      );
-      if (obj) {
+      const foundObj =
+        this.findObjectFromText(targetObjName) ||
+        this.tabletopObjects.find(
+          (o) =>
+            o.id.toLowerCase() === targetObjName.toLowerCase() ||
+            o.name.toLowerCase() === targetObjName.toLowerCase()
+        );
+      if (foundObj) {
         targetExistsOnTable = true;
-        targetDistFromBase = Math.hypot(obj.position.x - this.robotBasePos.x, obj.position.z - this.robotBasePos.z);
+        targetDistFromBase = Math.hypot(foundObj.position.x - this.robotBasePos.x, foundObj.position.z - this.robotBasePos.z);
       }
     }
     const isTargetOutOfReach = targetDistFromBase !== null && targetDistFromBase > 0.64;

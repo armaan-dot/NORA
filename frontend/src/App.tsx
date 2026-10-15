@@ -4,7 +4,7 @@ import { CommandInput } from './components/CommandInput';
 import { ProcessTab } from './components/ProcessTab';
 import { LogTerminal } from './components/LogTerminal';
 import { ArmStatus } from './components/ArmStatus';
-import { rosService } from './services/rosService';
+import { rosService, getEntityMetadata, type EntityMetadata } from './services/rosService';
 import type {
   Intent,
   AffordanceScore,
@@ -64,8 +64,8 @@ export const App: React.FC = () => {
     command?: string;
     skill?: string;
     targetObject?: string;
-    isMissingApple?: boolean;
     isMissingObject?: boolean;
+    meta?: EntityMetadata;
   } | null>(null);
 
   const topAffordance = affordances.length > 0 ? affordances[0] : null;
@@ -109,23 +109,27 @@ export const App: React.FC = () => {
       if (data.stage === 'FAILED') {
         const topAff = data.affordances && data.affordances.length > 0 ? data.affordances[0] : null;
         const score = topAff ? topAff.combined_score : (data.guardrailEvent?.score ?? 0.0);
-        const target = data.intent?.target_object || data.intent?.parameters?.target_name || '';
-        const cmdLower = (data.intent?.raw_text || '').toLowerCase();
-        const targetLower = target.toLowerCase();
-        const isApple = targetLower.includes('apple') || cmdLower.includes('apple');
-        const isMissing = data.guardrailEvent?.type === 'missing_object' || (data.error?.toLowerCase().includes('not present') ?? false) || (data.error?.toLowerCase().includes('not found') ?? false);
+        const rawCmd = data.intent?.raw_text || '';
+        const target = data.intent?.parameters?.target_name || data.intent?.target_object || data.guardrailEvent?.targetObject || '';
+        const isMissing =
+          data.guardrailEvent?.type === 'missing_object' ||
+          (data.error?.toLowerCase().includes('not present') ?? false) ||
+          (data.error?.toLowerCase().includes('not found') ?? false) ||
+          (data.error?.toLowerCase().includes('object grounding') ?? false);
+
+        const meta = getEntityMetadata(target || rawCmd);
 
         setFailedTaskPopup({
           open: true,
           title: data.guardrailEvent?.title || 'Task Execution Interlocked (Affordance Failure)',
-          reason: data.error || data.guardrailEvent?.reason || 'Affordance score fell below the required safety threshold (0.300). Preconditions not met.',
+          reason: data.error || data.guardrailEvent?.reason || `Affordance score (${score.toFixed(3)}) fell below the required safety threshold (0.300). Preconditions not met.`,
           score,
           threshold: 0.30,
-          command: data.intent?.raw_text,
-          skill: topAff?.skill_name || (data.intent?.action ?? 'unknown'),
-          targetObject: target || (isApple ? 'Red Apple' : undefined),
-          isMissingApple: isApple,
-          isMissingObject: isMissing
+          command: rawCmd,
+          skill: topAff?.skill_name || (data.intent?.action ?? 'deliver_to_user'),
+          targetObject: meta.name,
+          isMissingObject: isMissing,
+          meta
         });
       } else if (data.stage === 'PARSING' || data.stage === 'EXECUTING') {
         setFailedTaskPopup(null);
@@ -135,20 +139,20 @@ export const App: React.FC = () => {
     const unGuardrail = rosService.onGuardrail((evt) => {
       setGuardrailEvent(evt);
       if (evt && evt.active) {
-        const cmdLower = (intent?.raw_text || '').toLowerCase();
-        const reasonLower = (evt.reason || '').toLowerCase();
-        const isApple = reasonLower.includes('apple') || cmdLower.includes('apple');
+        const rawCmd = intent?.raw_text || '';
+        const target = intent?.parameters?.target_name || intent?.target_object || evt.targetObject || '';
+        const meta = getEntityMetadata(target || rawCmd);
         setFailedTaskPopup({
           open: true,
           title: evt.title || 'SayCan Guardrail Triggered',
           reason: evt.reason,
           score: evt.score,
           threshold: evt.threshold,
-          command: intent?.raw_text,
-          skill: topAffordance?.skill_name || intent?.action || 'unknown',
-          targetObject: intent?.target_object || (isApple ? 'Red Apple' : undefined),
-          isMissingApple: isApple,
-          isMissingObject: evt.type === 'missing_object'
+          command: rawCmd,
+          skill: topAffordance?.skill_name || intent?.action || 'deliver_to_user',
+          targetObject: meta.name,
+          isMissingObject: evt.type === 'missing_object',
+          meta
         });
       }
     });
@@ -163,15 +167,6 @@ export const App: React.FC = () => {
     };
   }, [intent, topAffordance]);
 
-  const handleSpawnApple = () => {
-    rosService.addObject({
-      name: 'Red Apple',
-      shape: 'apple',
-      color: '#e11d48',
-      spawnZone: 'auto'
-    });
-    setFailedTaskPopup(null);
-  };
 
   const handleCommandSubmit = async (cmdText: string) => {
     setActiveTab('process');
@@ -531,29 +526,43 @@ export const App: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="failed-modal-footer">
-                {failedTaskPopup.isMissingApple ? (
+                {failedTaskPopup.meta ? (
                   <button
                     type="button"
-                    className="btn-failed-action-apple"
-                    onClick={handleSpawnApple}
-                    title="Instantly spawn a fresh Red Apple into the tabletop workspace"
+                    className="btn-failed-action-entity"
+                    style={{
+                      background: `linear-gradient(135deg, ${failedTaskPopup.meta.color}dd, ${failedTaskPopup.meta.color}99)`,
+                      borderColor: failedTaskPopup.meta.color,
+                      boxShadow: `0 0 20px ${failedTaskPopup.meta.color}44`
+                    }}
+                    onClick={() => {
+                      if (failedTaskPopup.meta) {
+                        rosService.addObject({
+                          name: failedTaskPopup.meta.name,
+                          shape: failedTaskPopup.meta.shape,
+                          color: failedTaskPopup.meta.color,
+                          spawnZone: 'auto'
+                        });
+                      }
+                      setFailedTaskPopup(null);
+                    }}
+                    title={`Instantly spawn ${failedTaskPopup.meta.name} onto tabletop workspace`}
                   >
-                    <span className="action-emoji">🍎</span>
-                    <span>Place Red Apple on Tabletop</span>
+                    <span className="action-emoji">{failedTaskPopup.meta.emoji}</span>
+                    <span>Place {failedTaskPopup.meta.name} on Tabletop</span>
                   </button>
                 ) : failedTaskPopup.isMissingObject ? (
                   <button
                     type="button"
                     className="btn-failed-action-spawn"
                     onClick={() => {
-                      if (failedTaskPopup.targetObject) {
-                        rosService.addObject({
-                          name: failedTaskPopup.targetObject,
-                          shape: 'box',
-                          color: '#eab308',
-                          spawnZone: 'auto'
-                        });
-                      }
+                      const meta = getEntityMetadata(failedTaskPopup.targetObject || '');
+                      rosService.addObject({
+                        name: meta.name,
+                        shape: meta.shape,
+                        color: meta.color,
+                        spawnZone: 'auto'
+                      });
                       setFailedTaskPopup(null);
                     }}
                     title="Spawn requested object on table"

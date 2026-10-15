@@ -234,13 +234,18 @@ _COMMONSENSE_MAP: dict[str, dict[str, Any]] = {
     "comb": {"action": "pick", "target_object": "comb", "target_location": "user"},
     "mirror": {"action": "pick", "target_object": "mirror", "target_location": "user"},
 
-    # --- Play / stress ---
+    # --- Play / sports / stress ---
     "bored": {"action": "pick", "target_object": "fidget_spinner", "target_location": "user"},
     "fidget": {"action": "pick", "target_object": "fidget_spinner", "target_location": "user"},
     "stressed": {"action": "pick", "target_object": "stress_ball", "target_location": "user"},
     "anxious": {"action": "pick", "target_object": "stress_ball", "target_location": "user"},
-    "play": {"action": "pick", "target_object": "ball", "target_location": "user"},
+    "play": {"action": "pick", "target_object": "tennis_ball", "target_location": "user"},
+    "tennis": {"action": "pick", "target_object": "tennis_ball", "target_location": "user"},
+    "racket": {"action": "pick", "target_object": "tennis_ball", "target_location": "user"},
+    "racquet": {"action": "pick", "target_object": "tennis_ball", "target_location": "user"},
+    "wimbledon": {"action": "pick", "target_object": "tennis_ball", "target_location": "user"},
     "toss": {"action": "pick", "target_object": "tennis_ball", "target_location": "user"},
+    "catch": {"action": "pick", "target_object": "tennis_ball", "target_location": "user"},
     "dice": {"action": "pick", "target_object": "dice", "target_location": "user"},
     "cards": {"action": "pick", "target_object": "playing_cards", "target_location": "user"},
 }
