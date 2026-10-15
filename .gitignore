@@ -92,3 +92,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Frontend & Node Dependencies
+node_modules/
+frontend/
