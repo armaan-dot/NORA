@@ -88,3 +88,4 @@
   <disable_collisions link1="wrist_3_link"     link2="gripper_link"   reason="Adjacent" />
 
 </robot>
+

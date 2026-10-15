@@ -72,3 +72,4 @@ joint_limits:
     has_acceleration_limits: false
     has_effort_limits: true
     max_effort: 50.0         # [N]
+

@@ -29,3 +29,4 @@ gripper_controller:
   default: true
   joints:
     - gripper_joint
+
