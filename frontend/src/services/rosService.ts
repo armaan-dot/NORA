@@ -58,6 +58,62 @@ export const IMPOSSIBLE_OR_UNSUPPORTED_KEYWORDS: string[] = [
   'draw a picture', 'paint a portrait', 'write an essay', 'do my homework'
 ];
 
+// Safety Interlock: Explicit, vulgar, offensive, and profane language detection patterns
+export const EXPLICIT_WORDS_PATTERNS: RegExp[] = [
+  /\bfuck(?:ing|ed|er|s)?\b/i,
+  /\bfck\b/i,
+  /\bf\*ck\b/i,
+  /\bshit(?:ty|s)?\b/i,
+  /\bbullshit\b/i,
+  /\bsh\*t\b/i,
+  /\bbitch(?:es|ing)?\b/i,
+  /\bb\*tch\b/i,
+  /\basshole(?:s)?\b/i,
+  /\bdumbass(?:es)?\b/i,
+  /\bjackass(?:es)?\b/i,
+  /\bbadass\b/i,
+  /\bass(?:es)?\b/i,
+  /\bbastard(?:s)?\b/i,
+  /\bdamn(?:it)?\b/i,
+  /\bgoddamn(?:it)?\b/i,
+  /\bcrap(?:py)?\b/i,
+  /\bcunt(?:s)?\b/i,
+  /\bdick(?:s|head)?\b/i,
+  /\bcock(?:s|sucker)?\b/i,
+  /\bpussy(?:ies)?\b/i,
+  /\bwhore(?:s)?\b/i,
+  /\bslut(?:s)?\b/i,
+  /\bprick(?:s)?\b/i,
+  /\bmotherfucker(?:s)?\b/i,
+  /\bmotherfucking\b/i,
+  /\bnigger(?:s)?\b/i,
+  /\bnigga(?:s)?\b/i,
+  /\bfaggot(?:s)?\b/i,
+  /\bfag(?:s)?\b/i,
+  /\bretard(?:ed|s)?\b/i,
+  /\bstfu\b/i,
+  /\bwtf\b/i,
+  /\bpenis(?:es)?\b/i,
+  /\bvagina(?:s)?\b/i,
+  /\bdildo(?:s)?\b/i,
+  /\bporn\b/i,
+  /\bnsfw\b/i,
+  /\bblowjob(?:s)?\b/i,
+  /\bhandjob(?:s)?\b/i,
+  /\bboob(?:s)?\b/i,
+  /\btit(?:s|ties)?\b/i,
+  /\bsex\b/i,
+  /\bsexy\b/i,
+  /\bhorny\b/i,
+  /\bnude\b/i,
+  /\bnaked\b/i
+];
+
+export function containsExplicitWords(text: string): boolean {
+  if (!text) return false;
+  return EXPLICIT_WORDS_PATTERNS.some((regex) => regex.test(text));
+}
+
 // Natural curved desk-lamp default home pose: gracefully arched over the table, NOT upright 90 degrees!
 export const DESK_LAMP_HOME_JOINTS: number[] = [0.28, 0.58, 1.15, 0.0, 1.41, 0.0, 0.03];
 
@@ -109,6 +165,10 @@ export interface EntityMetadata {
 
 export function getEntityMetadata(targetNameOrText: string): EntityMetadata {
   const l = (targetNameOrText || '').toLowerCase().trim();
+
+  if (containsExplicitWords(l)) {
+    return { name: 'Safety Blocked', shape: 'box', color: '#ef4444', emoji: '🚫' };
+  }
 
   if (l.includes('tennis') || l.includes('racket') || l.includes('racquet') || l.includes('wimbledon')) {
     return { name: 'Tennis Ball', shape: 'sphere', color: '#84cc16', emoji: '🎾' };
@@ -984,6 +1044,80 @@ class RosBridgeService {
       await this.motionSleep(60);
     }
 
+    // Immediate Safety Interlock: Immediately flag and reject explicit words
+    if (containsExplicitWords(text)) {
+      this.emitLog({
+        level: 40,
+        levelName: 'ERROR',
+        nodeName: 'nora_safety',
+        message: `🛡️ [Safety Interlock] Explicit content detected in command "${text}". Cannot process explicit words.`
+      });
+
+      const intent: Intent = {
+        version: '1.0',
+        command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
+        raw_text: text,
+        action: 'explicit_blocked',
+        target_object: null,
+        target_location: null,
+        parameters: {
+          reason: 'Cannot process explicit words.',
+          error: 'Cannot process explicit words.',
+          is_explicit: true
+        },
+        confidence: 0.0
+      };
+
+      const zeroAffordances: AffordanceScore[] = [
+        {
+          skill_name: 'safety_interlock',
+          usefulness: 0.0,
+          feasibility: 0.0,
+          combined_score: 0.0,
+          breakdown: { reachability: 0.0, collision_free: 0.0, object_state: 0.0 }
+        }
+      ];
+
+      const guardrailEvt: GuardrailEvent = {
+        active: true,
+        title: 'Safety Interlock: Explicit Words Blocked',
+        reason: 'Cannot process explicit words.',
+        score: 0.0,
+        threshold: 0.30,
+        type: 'explicit',
+        timestamp: Date.now()
+      };
+
+      this.publishAffordanceScore(intent, zeroAffordances[0]);
+
+      this.notifyPipeline({
+        stage: 'FAILED',
+        intent,
+        affordances: zeroAffordances,
+        error: 'Cannot process explicit words.',
+        guardrailEvent: guardrailEvt
+      });
+
+      this.stateListeners.forEach((cb) => cb('FAILED'));
+      this.emitGuardrail(guardrailEvt);
+
+      // Say aloud via TTS and 3D speech bubble
+      this.emitArmSpeech({
+        message: 'Cannot process explicit words',
+        subtext: 'NORA Safety Policy: Explicit or abusive words are blocked immediately.',
+        type: 'explicit'
+      });
+
+      // Refusal gesture: Shake head 'no' without moving from safe park
+      await this.shakeHeadNo();
+
+      setTimeout(() => {
+        this.stateListeners.forEach((cb) => cb('IDLE'));
+      }, 3500);
+
+      return;
+    }
+
     this.emitLog({
       level: 20,
       levelName: 'INFO',
@@ -1192,16 +1326,19 @@ class RosBridgeService {
       };
       this.publishAffordanceScore(intent, fallbackAff);
 
+      const isExplicit = intent.action === 'explicit_blocked';
       const isImpossible = intent.action === 'impossible' || Boolean(intent.parameters?.impossible_keyword);
       const isGuardrailTest = intent.action === 'guardrail_test';
       const targetObjName = intent.target_object;
       const targetObj = targetObjName ? this.findObjectFromText(targetObjName) : null;
-      const isMissingObject = !targetObj && Boolean(targetObjName) && targetObjName !== 'none';
-      const isReachViolation = Boolean(topAff?.breakdown?.reachability !== undefined && topAff.breakdown.reachability < 0.30) && !isMissingObject;
+      const isMissingObject = !isExplicit && !targetObj && Boolean(targetObjName) && targetObjName !== 'none';
+      const isReachViolation = !isExplicit && Boolean(topAff?.breakdown?.reachability !== undefined && topAff.breakdown.reachability < 0.30) && !isMissingObject;
 
       const friendlyTarget = intent.parameters?.target_name || intent.target_object || 'item';
 
-      const guardrailType: GuardrailEvent['type'] = isImpossible
+      const guardrailType: GuardrailEvent['type'] = isExplicit
+        ? 'explicit'
+        : isImpossible
         ? 'impossible'
         : isMissingObject
         ? 'missing_object'
@@ -1209,7 +1346,9 @@ class RosBridgeService {
         ? 'reachability'
         : 'ungrounded';
 
-      const guardrailTitle = isImpossible
+      const guardrailTitle = isExplicit
+        ? 'Safety Interlock: Explicit Words Blocked'
+        : isImpossible
         ? 'Non-Physical Request Interlock'
         : isGuardrailTest
         ? 'SayCan Safety Guardrail Block'
@@ -1219,7 +1358,9 @@ class RosBridgeService {
         ? 'Kinematic Reachability Limit'
         : 'SayCan Affordance Guardrail Block';
 
-      const guardrailReason = isImpossible
+      const guardrailReason = isExplicit
+        ? 'Cannot process explicit words.'
+        : isImpossible
         ? intent.parameters?.reason || `Task "${intent.parameters?.impossible_keyword || text}" is not possible. NORA is a 6-DOF tabletop robotic manipulator designed for picking, placing, and passing objects.`
         : isGuardrailTest
         ? `SayCan Guardrail Triggered: The utterance "${text}" does not correspond to an actionable physical skill. All candidate skills scored 0.000 (below 0.30 threshold). Servos safely locked in home pose.`
@@ -1241,7 +1382,9 @@ class RosBridgeService {
 
       this.emitGuardrail(gEvent);
 
-      const rejectLogMsg = isImpossible
+      const rejectLogMsg = isExplicit
+        ? `🛡️ [Safety Interlock] User command "${text}" rejected: Cannot process explicit words.`
+        : isImpossible
         ? `🚫 [Action Not Possible] User command "${text}" rejected by guardrail: ${guardrailReason}`
         : isGuardrailTest
         ? `🛡️ [SayCan Guardrail Demonstration] Instruction "${text}" rejected: Combined affordance (0.000) is below safety threshold (0.30).`
@@ -1252,9 +1395,9 @@ class RosBridgeService {
         : `[SayCan Guardrail] Instruction "${text}" rejected: No physically grounded skill scored above threshold (max_score=${topAff ? topAff.combined_score.toFixed(3) : '0.000'} < 0.30).`;
 
       this.emitLog({
-        level: 30,
-        levelName: 'WARN',
-        nodeName: 'saycan_guardrail',
+        level: isExplicit ? 40 : 30,
+        levelName: isExplicit ? 'ERROR' : 'WARN',
+        nodeName: isExplicit ? 'nora_safety' : 'saycan_guardrail',
         message: rejectLogMsg
       });
 
@@ -1265,15 +1408,17 @@ class RosBridgeService {
         message: `Task aborted by SayCan guardrail: Preconditions not met. Arm parked at home pose.`
       });
 
-      if (isImpossible || isGuardrailTest) {
-        const speechMsg = isGuardrailTest
+      if (isExplicit || isImpossible || isGuardrailTest) {
+        const speechMsg = isExplicit
+          ? 'Cannot process explicit words'
+          : isGuardrailTest
           ? `Guardrail block engaged. All candidate skills scored below threshold.`
           : `Not possible! I cannot ${intent.parameters?.impossible_keyword || text}.`;
 
         this.emitArmSpeech({
           message: speechMsg,
           subtext: guardrailReason,
-          type: 'impossible'
+          type: isExplicit ? 'explicit' : 'impossible'
         });
       }
 
@@ -1520,6 +1665,24 @@ class RosBridgeService {
 
   private parseSimulatedIntent(text: string): Intent {
     const lower = text.toLowerCase().trim();
+
+    // Safety Interlock: Immediate Explicit Language Filter
+    if (containsExplicitWords(text)) {
+      return {
+        version: '1.0',
+        command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
+        raw_text: text,
+        action: 'explicit_blocked',
+        target_object: null,
+        target_location: null,
+        parameters: {
+          reason: 'Cannot process explicit words.',
+          error: 'Cannot process explicit words.',
+          is_explicit: true
+        },
+        confidence: 0.0
+      };
+    }
 
     // Guardrail Demonstration Commands (e.g. "use the guardrail block", "guardrail block", "test guardrail")
     if (
@@ -2146,7 +2309,7 @@ class RosBridgeService {
       'go_home'
     ];
 
-    if (intent.action === 'unknown' || intent.action === 'impossible' || intent.action === 'guardrail_test') {
+    if (intent.action === 'unknown' || intent.action === 'impossible' || intent.action === 'guardrail_test' || intent.action === 'explicit_blocked') {
       return candidateSkills
         .map((skill) => {
           return {

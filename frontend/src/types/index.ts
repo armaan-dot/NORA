@@ -101,7 +101,7 @@ export interface PerceptionScanEvent {
 export interface ArmSpeechEvent {
   message: string;
   subtext?: string;
-  type: 'impossible' | 'warning' | 'info';
+  type: 'impossible' | 'warning' | 'info' | 'explicit';
 }
 
 export interface GuardrailEvent {
@@ -110,7 +110,7 @@ export interface GuardrailEvent {
   reason: string;
   score: number;
   threshold: number;
-  type: 'impossible' | 'ungrounded' | 'missing_object' | 'reachability';
+  type: 'impossible' | 'ungrounded' | 'missing_object' | 'reachability' | 'explicit';
   targetObject?: string;
   timestamp?: number;
 }

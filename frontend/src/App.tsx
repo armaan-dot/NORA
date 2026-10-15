@@ -4,7 +4,7 @@ import { CommandInput } from './components/CommandInput';
 import { ProcessTab } from './components/ProcessTab';
 import { LogTerminal } from './components/LogTerminal';
 import { ArmStatus } from './components/ArmStatus';
-import { rosService, getEntityMetadata, type EntityMetadata } from './services/rosService';
+import { rosService, getEntityMetadata, containsExplicitWords, type EntityMetadata } from './services/rosService';
 import type {
   Intent,
   AffordanceScore,
@@ -63,6 +63,7 @@ export const App: React.FC = () => {
     skill?: string;
     targetObject?: string;
     isMissingObject?: boolean;
+    isExplicit?: boolean;
     meta?: EntityMetadata;
   } | null>(null);
 
@@ -109,24 +110,33 @@ export const App: React.FC = () => {
         const score = topAff ? topAff.combined_score : (data.guardrailEvent?.score ?? 0.0);
         const rawCmd = data.intent?.raw_text || '';
         const target = data.intent?.parameters?.target_name || data.intent?.target_object || data.guardrailEvent?.targetObject || '';
+        const isExplicit =
+          data.guardrailEvent?.type === 'explicit' ||
+          data.intent?.action === 'explicit_blocked' ||
+          containsExplicitWords(rawCmd) ||
+          (data.error?.toLowerCase().includes('explicit') ?? false);
         const isMissing =
-          data.guardrailEvent?.type === 'missing_object' ||
-          (data.error?.toLowerCase().includes('not present') ?? false) ||
-          (data.error?.toLowerCase().includes('not found') ?? false) ||
-          (data.error?.toLowerCase().includes('object grounding') ?? false);
+          !isExplicit &&
+          (data.guardrailEvent?.type === 'missing_object' ||
+            (data.error?.toLowerCase().includes('not present') ?? false) ||
+            (data.error?.toLowerCase().includes('not found') ?? false) ||
+            (data.error?.toLowerCase().includes('object grounding') ?? false));
 
-        const meta = getEntityMetadata(target || rawCmd);
+        const meta = !isExplicit && isMissing ? getEntityMetadata(target || rawCmd) : undefined;
 
         setFailedTaskPopup({
           open: true,
-          title: data.guardrailEvent?.title || 'Task Execution Interlocked (Affordance Failure)',
-          reason: data.error || data.guardrailEvent?.reason || `Affordance score (${score.toFixed(3)}) fell below the required safety threshold (0.300). Preconditions not met.`,
-          score,
+          title: isExplicit ? 'Cannot process explicit words' : (data.guardrailEvent?.title || 'Task Execution Interlocked (Affordance Failure)'),
+          reason: isExplicit
+            ? 'Safety Policy Interlock: Explicit words cannot be processed by the robot.'
+            : (data.error || data.guardrailEvent?.reason || `Affordance score (${score.toFixed(3)}) fell below the required safety threshold (0.300). Preconditions not met.`),
+          score: isExplicit ? 0.0 : score,
           threshold: 0.30,
           command: rawCmd,
-          skill: topAff?.skill_name || (data.intent?.action ?? 'deliver_to_user'),
-          targetObject: meta.name,
+          skill: isExplicit ? 'safety_interlock' : (topAff?.skill_name || (data.intent?.action ?? 'deliver_to_user')),
+          targetObject: isExplicit ? 'None (Blocked)' : meta?.name,
           isMissingObject: isMissing,
+          isExplicit,
           meta
         });
       } else if (data.stage === 'PARSING' || data.stage === 'EXECUTING') {
@@ -139,17 +149,24 @@ export const App: React.FC = () => {
       if (evt && evt.active) {
         const rawCmd = intent?.raw_text || '';
         const target = intent?.parameters?.target_name || intent?.target_object || evt.targetObject || '';
-        const meta = getEntityMetadata(target || rawCmd);
+        const isExplicit =
+          evt.type === 'explicit' ||
+          intent?.action === 'explicit_blocked' ||
+          containsExplicitWords(rawCmd) ||
+          (evt.reason?.toLowerCase().includes('explicit') ?? false);
+        const isMissing = !isExplicit && evt.type === 'missing_object';
+        const meta = !isExplicit && isMissing ? getEntityMetadata(target || rawCmd) : undefined;
         setFailedTaskPopup({
           open: true,
-          title: evt.title || 'SayCan Guardrail Triggered',
-          reason: evt.reason,
-          score: evt.score,
+          title: isExplicit ? 'Cannot process explicit words' : (evt.title || 'SayCan Guardrail Triggered'),
+          reason: isExplicit ? 'Safety Policy Interlock: Explicit words cannot be processed by the robot.' : evt.reason,
+          score: isExplicit ? 0.0 : evt.score,
           threshold: evt.threshold,
           command: rawCmd,
-          skill: topAffordance?.skill_name || intent?.action || 'deliver_to_user',
-          targetObject: meta.name,
-          isMissingObject: evt.type === 'missing_object',
+          skill: isExplicit ? 'safety_interlock' : (topAffordance?.skill_name || intent?.action || 'deliver_to_user'),
+          targetObject: isExplicit ? 'None (Blocked)' : meta?.name,
+          isMissingObject: isMissing,
+          isExplicit,
           meta
         });
       }
@@ -411,8 +428,12 @@ export const App: React.FC = () => {
                 </div>
                 <div>
                   <div className="failed-tag-row">
-                    <span className="failed-kicker">SAYCAN GUARDRAIL INTERLOCK</span>
-                    <span className="failed-badge-pill">TASK REJECTED</span>
+                    <span className="failed-kicker">
+                      {failedTaskPopup.isExplicit ? 'EXPLICIT CONTENT FILTER' : 'SAYCAN GUARDRAIL INTERLOCK'}
+                    </span>
+                    <span className="failed-badge-pill">
+                      {failedTaskPopup.isExplicit ? 'CANNOT PROCESS' : 'TASK REJECTED'}
+                    </span>
                   </div>
                   <h3 className="failed-modal-title">{failedTaskPopup.title}</h3>
                 </div>
@@ -432,7 +453,7 @@ export const App: React.FC = () => {
                 <div className="failed-score-head">
                   <span className="failed-score-label">SAYCAN TASK AFFORDANCE SCORE</span>
                   <span className="failed-score-eval">
-                    BELOW SAFETY THRESHOLD (τ &lt; 0.300)
+                    {failedTaskPopup.isExplicit ? 'CANNOT PROCESS EXPLICIT WORDS' : 'BELOW SAFETY THRESHOLD (τ < 0.300)'}
                   </span>
                 </div>
 
@@ -441,9 +462,13 @@ export const App: React.FC = () => {
                     {failedTaskPopup.score.toFixed(3)}
                   </div>
                   <div className="failed-score-status-box">
-                    <span className="score-status-tag">STATUS: PRECONDITIONS FAILED</span>
+                    <span className="score-status-tag">
+                      {failedTaskPopup.isExplicit ? 'STATUS: CANNOT PROCESS EXPLICIT WORDS' : 'STATUS: PRECONDITIONS FAILED'}
+                    </span>
                     <span className="score-status-sub">
-                      Combined = (Usefulness)<sup>0.6</sup> × (Feasibility)<sup>0.4</sup>
+                      {failedTaskPopup.isExplicit
+                        ? 'Zero affordance assigned due to safety & content moderation policy'
+                        : <>Combined = (Usefulness)<sup>0.6</sup> × (Feasibility)<sup>0.4</sup></>}
                     </span>
                   </div>
                 </div>
@@ -489,7 +514,7 @@ export const App: React.FC = () => {
                 <div className="failed-meta-cell">
                   <span className="cell-label">Target Entity</span>
                   <span className="cell-val text-red font-bold">
-                    {failedTaskPopup.targetObject || intent?.target_object || 'Missing Tabletop Object'}
+                    {failedTaskPopup.isExplicit ? 'None (Safety Policy Violation)' : (failedTaskPopup.targetObject || intent?.target_object || 'Missing Tabletop Object')}
                   </span>
                 </div>
                 <div className="failed-meta-cell">
@@ -506,7 +531,7 @@ export const App: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="failed-modal-footer">
-                {failedTaskPopup.meta ? (
+                {!failedTaskPopup.isExplicit && failedTaskPopup.meta ? (
                   <button
                     type="button"
                     className="btn-failed-action-entity"
@@ -531,7 +556,7 @@ export const App: React.FC = () => {
                     <span className="action-emoji">{failedTaskPopup.meta.emoji}</span>
                     <span>Place {failedTaskPopup.meta.name} on Tabletop</span>
                   </button>
-                ) : failedTaskPopup.isMissingObject ? (
+                ) : !failedTaskPopup.isExplicit && failedTaskPopup.isMissingObject ? (
                   <button
                     type="button"
                     className="btn-failed-action-spawn"

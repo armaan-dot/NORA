@@ -61,3 +61,18 @@ class TestNLUModel:
         empty_res = self.parser.parse("")
         assert empty_res["action"] == "unknown"
         assert empty_res["confidence"] == 0.0
+
+    def test_explicit_words_flagging(self) -> None:
+        explicit_queries = [
+            "what the fuck",
+            "fuck you",
+            "shut the fuck up",
+            "pick up that damn shit",
+            "you bitch",
+            "stupid bastard",
+        ]
+        for q in explicit_queries:
+            res = self.parser.parse(q)
+            assert res["action"] == "explicit_blocked"
+            assert res["confidence"] == 0.0
+            assert "Cannot process explicit words" in res["parameters"]["reason"]
