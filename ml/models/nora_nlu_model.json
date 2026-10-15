@@ -3828,9 +3828,11 @@
     "open_gripper": -2.1185851865120124,
     "close_gripper": -2.1822198827657395,
     "go_home": -2.1185851865120124,
+    "explicit_blocked": -10.0,
     "unknown": -8.816853240627426
   },
   "action_feature_weights": {
+    "explicit_blocked": {},
     "pick": {
       "0": -39.971926329000716,
       "1": -40.100767745002,

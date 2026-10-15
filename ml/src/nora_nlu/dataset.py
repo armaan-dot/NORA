@@ -217,6 +217,33 @@ _DIRECT_TEMPLATES: dict[str, list[str]] = {
     ],
 }
 
+_EXPLICIT_SAMPLES: list[str] = [
+    "fuck you",
+    "shut the fuck up",
+    "what the fuck",
+    "what the shit",
+    "you bitch",
+    "damn it",
+    "god damn it",
+    "pick up that damn shit",
+    "get this fucking thing",
+    "move this ass",
+    "stupid bastard",
+    "piece of crap",
+    "fuck off",
+    "eat shit",
+    "you suck dick",
+    "crap robot",
+    "get the fuck out",
+    "fucking clean this",
+    "grab that shit",
+    "drop the damn cup",
+    "bitch give me the apple",
+    "go to hell dumbass",
+    "idiot ass arm",
+    "get out motherfucker",
+]
+
 _COMMONSENSE_PAIRS: list[dict[str, Any]] = [
     # Thirst & Beverages
     {"instruction": "I am thirsty", "action": "pick", "target_object": "water", "target_location": "user"},
@@ -359,6 +386,27 @@ def generate_dataset(num_samples: int = 5000, seed: int = 42) -> list[dict[str, 
                     "target_location": target_loc,
                     "parameters": params,
                     "confidence": 1.0,
+                },
+            })
+
+    # 4. Include explicit / abusive samples flagged for safety interlock
+    for _ in range(10):
+        for explicit_text in _EXPLICIT_SAMPLES:
+            dataset.append({
+                "instruction": explicit_text,
+                "intent": {
+                    "version": "1.0",
+                    "command_id": str(uuid.uuid4()),
+                    "raw_text": explicit_text,
+                    "action": "explicit_blocked",
+                    "target_object": None,
+                    "target_location": None,
+                    "parameters": {
+                        "error": "Cannot process explicit words.",
+                        "reason": "Cannot process explicit words.",
+                        "flagged": True,
+                    },
+                    "confidence": 0.0,
                 },
             })
 

@@ -20,8 +20,67 @@ from nora_nlu_node.intent_parser import IntentParser
 
 _ACTIONS = {
     "pick", "place", "move_to_pose", "open_gripper", "close_gripper",
-    "go_home", "unknown",
+    "go_home", "explicit_blocked", "unknown",
 }
+
+_EXPLICIT_WORDS_PATTERNS = [
+    r"fuck(?:ing|ed|er|s)?",
+    r"fck",
+    r"f\*ck",
+    r"shit(?:ty|s)?",
+    r"bullshit",
+    r"sh\*t",
+    r"bitch(?:es|ing)?",
+    r"b\*tch",
+    r"asshole(?:s)?",
+    r"dumbass(?:es)?",
+    r"jackass(?:es)?",
+    r"badass",
+    r"ass(?:es)?",
+    r"bastard(?:s)?",
+    r"damn(?:it)?",
+    r"goddamn(?:it)?",
+    r"crap(?:py)?",
+    r"cunt(?:s)?",
+    r"dick(?:s|head)?",
+    r"cock(?:s|sucker)?",
+    r"pussy(?:ies)?",
+    r"whore(?:s)?",
+    r"slut(?:s)?",
+    r"prick(?:s)?",
+    r"motherfucker(?:s)?",
+    r"motherfucking",
+    r"nigger(?:s)?",
+    r"nigga(?:s)?",
+    r"faggot(?:s)?",
+    r"fag(?:s)?",
+    r"retard(?:ed|s)?",
+    r"stfu",
+    r"wtf",
+    r"penis(?:es)?",
+    r"vagina(?:s)?",
+    r"dildo(?:s)?",
+    r"porn",
+    r"nsfw",
+    r"blowjob(?:s)?",
+    r"handjob(?:s)?",
+    r"boob(?:s)?",
+    r"tit(?:s|ties)?",
+    r"sex",
+    r"sexy",
+    r"horny",
+    r"nude",
+    r"naked",
+]
+
+_EXPLICIT_REGEX = re.compile(rf"\b(?:{'|'.join(_EXPLICIT_WORDS_PATTERNS)})\b", re.IGNORECASE)
+
+
+def contains_explicit_words(text: str) -> bool:
+    """Return True if text contains explicit, profane, or inappropriate words."""
+    if not text:
+        return False
+    return bool(_EXPLICIT_REGEX.search(text))
 
 _COMMONSENSE_MAP: dict[str, dict[str, Any]] = {
     # --- Thirst / drinks ---
@@ -295,6 +354,21 @@ class LocalMLParser(IntentParser):
         lower = raw_text.lower()
         if not raw_text:
             return self._format_intent(raw_text, "unknown", None, None, {}, 0.0)
+
+        # 0. Safety interlock: flag explicit or profane words immediately
+        if contains_explicit_words(raw_text):
+            return self._format_intent(
+                raw_text=raw_text,
+                action="explicit_blocked",
+                target_object=None,
+                target_location=None,
+                parameters={
+                    "error": "Cannot process explicit words.",
+                    "reason": "Cannot process explicit words.",
+                    "flagged": True,
+                },
+                confidence=0.0,
+            )
 
         # 1. Coordinates detection
         coord_m = re.search(

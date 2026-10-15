@@ -231,6 +231,12 @@ class OrchestratorNode(Node):
         # Graceful fallback heuristic when service is offline
         self.get_logger().info("[Orchestrator] Using calculated heuristic affordance scores.")
         action = intent.get("action", "pick")
+        if action in ("explicit_blocked", "impossible"):
+            self.get_logger().warn(
+                f"[Orchestrator] Safety Interlock: action '{action}' is blocked. Affordance score: 0.00."
+            )
+            return {}
+
         is_loop = bool(
             intent.get("parameters", {}).get("is_loop")
             or action in ("clean_table", "rerack_table", "loop_task")
