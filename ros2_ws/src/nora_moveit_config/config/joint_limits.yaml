@@ -1,47 +1,45 @@
 # nora_moveit_config/config/joint_limits.yaml
 #
-# Joint velocity and acceleration limits used by MoveIt trajectory generation.
+# Joint velocity and acceleration limits used by MoveIt trajectory generation for UR5e.
 # Units: velocity  → rad/s
 #        acceleration → rad/s²
-#
-# These are conservative defaults — tune to your actual motor specs.
 
 joint_limits:
-  joint1:
+  shoulder_pan_joint:
     has_velocity_limits: true
-    max_velocity: 1.5708          # π/2 rad/s  ≈ 90 °/s
+    max_velocity: 3.14159          # π rad/s ≈ 180 °/s
     has_acceleration_limits: true
-    max_acceleration: 3.1416      # π rad/s²
+    max_acceleration: 6.28318
 
-  joint2:
+  shoulder_lift_joint:
     has_velocity_limits: true
-    max_velocity: 1.5708
+    max_velocity: 3.14159
     has_acceleration_limits: true
-    max_acceleration: 3.1416
+    max_acceleration: 6.28318
 
-  joint3:
+  elbow_joint:
     has_velocity_limits: true
-    max_velocity: 1.5708
+    max_velocity: 3.14159
     has_acceleration_limits: true
-    max_acceleration: 3.1416
+    max_acceleration: 6.28318
 
-  joint4:
+  wrist_1_joint:
     has_velocity_limits: true
-    max_velocity: 2.0944          # 2π/3 rad/s ≈ 120 °/s
+    max_velocity: 6.28318          # 2π rad/s ≈ 360 °/s
     has_acceleration_limits: true
-    max_acceleration: 4.1888
+    max_acceleration: 12.56636
 
-  joint5:
+  wrist_2_joint:
     has_velocity_limits: true
-    max_velocity: 2.0944
+    max_velocity: 6.28318
     has_acceleration_limits: true
-    max_acceleration: 4.1888
+    max_acceleration: 12.56636
 
-  joint6:
+  wrist_3_joint:
     has_velocity_limits: true
-    max_velocity: 2.0944
+    max_velocity: 6.28318
     has_acceleration_limits: true
-    max_acceleration: 4.1888
+    max_acceleration: 12.56636
 
   gripper_joint:
     has_velocity_limits: true

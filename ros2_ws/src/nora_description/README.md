@@ -39,34 +39,33 @@ Use the **Joint State Publisher GUI** sliders to pose the arm interactively.
 
 ## Joint Summary
 
-| Joint | Type | Parent → Child | Axis | Motion Limits |
-|---|---|---|---|---|
-| `joint1` | revolute | `base_link` → `link1` | Z (shoulder yaw) | [-180°, +180°] |
-| `joint2` | revolute | `link1` → `link2` | Y (shoulder pitch) | [-180°, +180°] |
-| `joint3` | revolute | `link2` → `link3` | Y (elbow pitch) | [-180°, +180°] |
-| `joint4` | revolute | `link3` → `link4` | Z (forearm roll) | [-180°, +180°] |
-| `joint5` | revolute | `link4` → `link5` | Y (wrist pitch) | [-180°, +180°] |
-| `joint6` | revolute | `link5` → `link6` | Z (wrist roll) | [-180°, +180°] |
-| `gripper_joint` | revolute | `link6` → `gripper_link` | X (gripper stroke) | [0 mm, 80 mm] |
-
-## Arm Physical Dimensions & Link Specifications
-
-| Link | Geometry Primitive | Dimensions (mm) | Joint Origin Z-Offset (mm) | Mass (kg) | Material Color |
+| Joint | Type | Parent → Child | Axis | Motion Limits | Max Speed |
 |---|---|---|---|---|---|
-| `base_link` | Cylinder | Ø 160 mm × H 100 mm ($r=0.08\,\text{m}, l=0.10\,\text{m}$) | $z = 0\,\text{mm}$ (origin) | 2.0 kg | Dark Grey |
-| `link1` (Shoulder) | Rectangular Box | $70 \times 70 \times 150\,\text{mm}$ | $z = 100\,\text{mm}$ from base | 1.0 kg | Silver |
-| `link2` (Upper Arm) | Cylinder | Ø 80 mm × H 200 mm ($r=0.04\,\text{m}, l=0.20\,\text{m}$) | $z = 150\,\text{mm}$ from link1 | 1.0 kg | Silver |
-| `link3` (Elbow) | Cylinder | Ø 70 mm × H 180 mm ($r=0.035\,\text{m}, l=0.18\,\text{m}$) | $z = 200\,\text{mm}$ from link2 | 1.0 kg | Silver |
-| `link4` (Forearm) | Rectangular Box | $60 \times 60 \times 140\,\text{mm}$ | $z = 180\,\text{mm}$ from link3 | 0.8 kg | Dark Grey |
-| `link5` (Wrist 1) | Cylinder | Ø 60 mm × H 100 mm ($r=0.03\,\text{m}, l=0.10\,\text{m}$) | $z = 140\,\text{mm}$ from link4 | 0.5 kg | Silver |
-| `link6` (Wrist 2) | Cylinder | Ø 50 mm × H 60 mm ($r=0.025\,\text{m}, l=0.06\,\text{m}$) | $z = 100\,\text{mm}$ from link5 | 0.3 kg | Dark Grey |
-| `gripper_link` | Rectangular End-Effector | $50 \times 100 \times 80\,\text{mm}$ (stroke: 0–80 mm) | $z = 60\,\text{mm}$ from link6 | 0.2 kg | Orange |
+| `shoulder_pan_joint` | revolute | `base_link` → `shoulder_link` | Z (base yaw) | [-360°, +360°] | 180 °/s |
+| `shoulder_lift_joint` | revolute | `shoulder_link` → `upper_arm_link` | Y (shoulder pitch) | [-360°, +360°] | 180 °/s |
+| `elbow_joint` | revolute | `upper_arm_link` → `forearm_link` | Y (elbow pitch) | [-180°, +180°] | 180 °/s |
+| `wrist_1_joint` | revolute | `forearm_link` → `wrist_1_link` | Y (wrist pitch) | [-360°, +360°] | 360 °/s |
+| `wrist_2_joint` | revolute | `wrist_1_link` → `wrist_2_link` | Z (wrist yaw) | [-360°, +360°] | 360 °/s |
+| `wrist_3_joint` | revolute | `wrist_2_link` → `wrist_3_link` | Y (wrist pitch) | [-360°, +360°] | 360 °/s |
+| `gripper_joint` | prismatic | `tool0` → `gripper_link` | Y (parallel stroke) | [0 mm, 80 mm] | 0.5 m/s |
+
+## Arm Physical Dimensions & Link Specifications (UR5e Official Specs)
+
+| Link | Geometry Primitive | Dimensions (mm) | Joint Origin Offset (mm) | Mass (kg) | Material Color |
+|---|---|---|---|---|---|
+| `base_link` | Cylinder | Ø 150 mm × H 162.5 mm | $z = 0\,\text{mm}$ (origin) | 4.0 kg | Dark Grey |
+| `shoulder_link` | Cylinder & Collar | Ø 130 mm × H 160 mm | $z = 162.5\,\text{mm}$ ($d_1$) | 3.7 kg | UR Blue / Grey |
+| `upper_arm_link` | Tube & Cap | Ø 110 mm × L 425 mm | $y = 133.3\,\text{mm}$ ($d_4$) | 8.39 kg | UR Grey / Blue |
+| `forearm_link` | Tube & Cap | Ø 90 mm × L 392.2 mm | $z = 425\,\text{mm}$ ($a_2$) | 2.275 kg | UR Grey / Blue |
+| `wrist_1_link` | Cylinder | Ø 80 mm × L 99.7 mm | $z = 392.2\,\text{mm}$ ($a_3$) | 1.219 kg | UR Blue |
+| `wrist_2_link` | Cylinder | Ø 76 mm × L 99.7 mm | $y = 99.7\,\text{mm}$ ($d_5$) | 1.219 kg | UR Grey |
+| `wrist_3_link` | Cylinder & Flange | Ø 70 mm × L 99.6 mm | $z = 99.7\,\text{mm}$ ($d_5$) | 0.188 kg | UR Blue / Dark |
+| `gripper_link` | Parallel End-Effector | $50 \times 80 \times 80\,\text{mm}$ | $z = 50\,\text{mm}$ from `tool0` | 0.3 kg | Dark / Orange |
 
 ### Overall Workspace & Kinematic Envelope
-- **Total Robot Mass:** ~5.8 kg
-- **Maximum Vertical Reach:** ~1,010 mm (1.01 m fully extended from base)
-- **Nominal Horizontal Reach Radius:** $150\,\text{mm} \le r \le 850\,\text{mm}$
-- **Payload Capacity:** 0.5 kg – 1.0 kg
+- **Total Robot Mass:** ~21.3 kg
+- **Maximum Nominal Reach:** 850 mm (0.85 m radius from base)
+- **Rated Payload:** 5.0 kg
 - **Gripper Opening Stroke:** 0.0 mm to 80.0 mm (0.08 m)
 
 ## TODOs

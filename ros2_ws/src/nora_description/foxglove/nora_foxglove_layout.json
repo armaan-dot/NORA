@@ -23,12 +23,13 @@
       "transforms": {
         "frame:world": { "visible": true },
         "frame:base_link": { "visible": true },
-        "frame:link1": { "visible": false },
-        "frame:link2": { "visible": false },
-        "frame:link3": { "visible": false },
-        "frame:link4": { "visible": false },
-        "frame:link5": { "visible": false },
-        "frame:link6": { "visible": false },
+        "frame:shoulder_link": { "visible": false },
+        "frame:upper_arm_link": { "visible": false },
+        "frame:forearm_link": { "visible": false },
+        "frame:wrist_1_link": { "visible": false },
+        "frame:wrist_2_link": { "visible": false },
+        "frame:wrist_3_link": { "visible": false },
+        "frame:tool0": { "visible": true },
         "frame:gripper_link": { "visible": true }
       },
       "topics": {
@@ -72,42 +73,42 @@
       "imageMode": {}
     },
     "Plot!joint_positions": {
-      "title": "NORA 6-DOF Joint Positions (rad)",
+      "title": "UR5e 6-DOF Joint Positions (rad)",
       "paths": [
         {
           "value": "/joint_states.position[0]",
           "enabled": true,
-          "label": "Joint 1 (Shoulder Yaw)",
+          "label": "Shoulder Pan (Yaw)",
           "color": "#e6194b"
         },
         {
           "value": "/joint_states.position[1]",
           "enabled": true,
-          "label": "Joint 2 (Shoulder Pitch)",
+          "label": "Shoulder Lift (Pitch)",
           "color": "#3cb44b"
         },
         {
           "value": "/joint_states.position[2]",
           "enabled": true,
-          "label": "Joint 3 (Elbow Pitch)",
+          "label": "Elbow (Pitch)",
           "color": "#ffe119"
         },
         {
           "value": "/joint_states.position[3]",
           "enabled": true,
-          "label": "Joint 4 (Forearm Roll)",
+          "label": "Wrist 1 (Pitch)",
           "color": "#4363d8"
         },
         {
           "value": "/joint_states.position[4]",
           "enabled": true,
-          "label": "Joint 5 (Wrist Pitch)",
+          "label": "Wrist 2 (Yaw)",
           "color": "#f58231"
         },
         {
           "value": "/joint_states.position[5]",
           "enabled": true,
-          "label": "Joint 6 (Wrist Roll)",
+          "label": "Wrist 3 (Pitch)",
           "color": "#911eb4"
         }
       ],

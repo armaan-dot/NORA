@@ -94,7 +94,7 @@ nora/
 │
 ├── ros2_ws/src/
 │   ├── nora_interfaces/         # All ROS 2 msgs / srvs / actions
-│   ├── nora_description/        # URDF/xacro 6-DOF arm (1.01m reach, 5.8kg mass, 80mm stroke)
+│   ├── nora_description/        # URDF/xacro UR5e 6-DOF arm (0.85m reach, 20.6kg mass, 80mm stroke)
 │   ├── nora_gazebo/             # Tabletop world, Gazebo launch
 │   ├── nora_moveit_config/      # SRDF, kinematics, OMPL, controllers
 │   ├── nora_control/            # ros2_control YAML, controller launch

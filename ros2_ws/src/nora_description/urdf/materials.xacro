@@ -1,9 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  materials.xacro — shared material definitions for the NORA arm.
+  materials.xacro — shared material definitions for the NORA / UR5e arm.
   Include this file at the top of any xacro that needs arm materials.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Universal Robots classic blue -->
+  <material name="ur_blue">
+    <color rgba="0.18 0.38 0.60 1.0"/>
+  </material>
+
+  <!-- Universal Robots metallic grey body -->
+  <material name="ur_grey">
+    <color rgba="0.78 0.78 0.80 1.0"/>
+  </material>
+
+  <!-- Universal Robots joint collar dark grey -->
+  <material name="ur_dark">
+    <color rgba="0.22 0.22 0.25 1.0"/>
+  </material>
 
   <!-- Silver / metallic links -->
   <material name="silver">

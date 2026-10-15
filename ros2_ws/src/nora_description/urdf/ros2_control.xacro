@@ -1,12 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  ros2_control.xacro — ros2_control hardware interface stub for the NORA arm.
-
-  Defines a <ros2_control> block for a joint_trajectory_controller with
-  PositionJointInterface for all 6 arm joints and the gripper joint.
-
-  # TODO(nora): Replace mock hardware plugin with real driver once available.
-  # TODO(nora): Add velocity/effort command interfaces as needed.
+  ros2_control.xacro — ros2_control hardware interface for UR5e manipulator.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
@@ -15,73 +9,71 @@
     <ros2_control name="${name}" type="system">
 
       <!-- ----------------------------------------------------------------
-           Hardware plugin (mock for simulation; swap for real driver)
+           Hardware plugin (mock for simulation/dev; swap for ur_robot_driver)
       ---------------------------------------------------------------- -->
       <hardware>
-        <!-- TODO(nora): replace with actual driver plugin, e.g.
-             <plugin>nora_hardware/NoraArmHardware</plugin> -->
         <plugin>mock_components/GenericSystem</plugin>
       </hardware>
 
       <!-- ----------------------------------------------------------------
-           Arm joints — position command + state interfaces
+           UR5e 6-DOF Arm Joints
       ---------------------------------------------------------------- -->
-      <joint name="joint1">
+      <joint name="shoulder_pan_joint">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">${-2*pi}</param>
+          <param name="max">${2*pi}</param>
         </command_interface>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>
 
-      <joint name="joint2">
+      <joint name="shoulder_lift_joint">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">${-2*pi}</param>
+          <param name="max">${2*pi}</param>
         </command_interface>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>
 
-      <joint name="joint3">
+      <joint name="elbow_joint">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">${-2*pi}</param>
+          <param name="max">${2*pi}</param>
         </command_interface>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>
 
-      <joint name="joint4">
+      <joint name="wrist_1_joint">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">${-2*pi}</param>
+          <param name="max">${2*pi}</param>
         </command_interface>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>
 
-      <joint name="joint5">
+      <joint name="wrist_2_joint">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">${-2*pi}</param>
+          <param name="max">${2*pi}</param>
         </command_interface>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>
 
-      <joint name="joint6">
+      <joint name="wrist_3_joint">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">${-2*pi}</param>
+          <param name="max">${2*pi}</param>
         </command_interface>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
       </joint>
 
       <!-- ----------------------------------------------------------------
-           Gripper joint
+           Gripper Joint
       ---------------------------------------------------------------- -->
       <joint name="gripper_joint">
         <command_interface name="position">

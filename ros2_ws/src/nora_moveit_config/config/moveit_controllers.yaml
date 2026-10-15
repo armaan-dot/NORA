@@ -1,7 +1,6 @@
 # nora_moveit_config/config/moveit_controllers.yaml
 #
-# Maps MoveIt trajectory execution to ros2_control controllers.
-# These names must match the controller names spawned by nora_control.
+# Maps MoveIt trajectory execution to ros2_control controllers for UR5e.
 
 moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
 
@@ -16,12 +15,12 @@ arm_controller:
   type: FollowJointTrajectory
   default: true
   joints:
-    - joint1
-    - joint2
-    - joint3
-    - joint4
-    - joint5
-    - joint6
+    - shoulder_pan_joint
+    - shoulder_lift_joint
+    - elbow_joint
+    - wrist_1_joint
+    - wrist_2_joint
+    - wrist_3_joint
 
 # ── Gripper action controller ─────────────────────────────────────────────────
 gripper_controller:
