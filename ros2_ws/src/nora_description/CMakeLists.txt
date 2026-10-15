@@ -31,6 +31,11 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}/rviz
 )
 
+install(DIRECTORY
+  foxglove/
+  DESTINATION share/${PROJECT_NAME}/foxglove
+)
+
 # --------------------------------------------------------------------------
 # Testing
 # --------------------------------------------------------------------------

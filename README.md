@@ -184,6 +184,26 @@ ros2 launch nora_bringup sim_gazebo.launch.py
 ros2 launch nora_bringup full_stack.launch.py
 ```
 
+### Visualize in Foxglove Studio
+
+Foxglove Studio provides high-performance 3D visualization, joint telemetry, and interactive command dispatch for NORA:
+
+```bash
+# 1. Install Foxglove bridge (ROS 2 Humble)
+sudo apt install ros-humble-foxglove-bridge
+
+# 2. Launch Foxglove bridge + NORA arm description
+ros2 launch nora_bringup foxglove.launch.py
+
+# Or launch Gazebo simulation with Foxglove enabled
+ros2 launch nora_bringup sim_gazebo.launch.py foxglove:=true
+```
+
+3. Open **Foxglove Studio** (desktop app or [app.foxglove.dev](https://app.foxglove.dev)).
+4. Connect to `ws://localhost:8765` (Foxglove WebSocket).
+5. Import [`foxglove/nora_foxglove_layout.json`](foxglove/nora_foxglove_layout.json) to view the 3D arm URDF, TF tree, joint position plots, orchestrator state, and interactively publish intents. For details, see [`foxglove/README.md`](foxglove/README.md).
+
+
 ---
 
 ## Intent Schema

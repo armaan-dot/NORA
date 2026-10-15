@@ -1,0 +1,177 @@
+{
+  "configById": {
+    "3D!nora_arm_view": {
+      "cameraState": {
+        "perspective": true,
+        "distance": 2.2,
+        "phi": 55,
+        "thetaOffset": 45,
+        "targetOffset": [0, 0, 0.35],
+        "target": [0, 0, 0],
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {
+        "enableStats": false,
+        "transforms": {
+          "showLabel": true,
+          "axisScale": 0.15
+        }
+      },
+      "transforms": {
+        "frame:world": { "visible": true },
+        "frame:base_link": { "visible": true },
+        "frame:link1": { "visible": false },
+        "frame:link2": { "visible": false },
+        "frame:link3": { "visible": false },
+        "frame:link4": { "visible": false },
+        "frame:link5": { "visible": false },
+        "frame:link6": { "visible": false },
+        "frame:gripper_link": { "visible": true }
+      },
+      "topics": {
+        "/robot_description": {
+          "visible": true
+        },
+        "/tf": {
+          "visible": true
+        },
+        "/tf_static": {
+          "visible": true
+        },
+        "/visualization_marker": {
+          "visible": true
+        },
+        "/visualization_marker_array": {
+          "visible": true
+        }
+      },
+      "layers": {
+        "grid": {
+          "layerId": "foxglove.Grid",
+          "size": 10,
+          "divisions": 10,
+          "lineWidth": 1,
+          "color": "#444444",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "frameId": "world"
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/goal_pose",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26
+      },
+      "imageMode": {}
+    },
+    "Plot!joint_positions": {
+      "title": "NORA 6-DOF Joint Positions (rad)",
+      "paths": [
+        {
+          "value": "/joint_states.position[0]",
+          "enabled": true,
+          "label": "Joint 1 (Shoulder Yaw)",
+          "color": "#e6194b"
+        },
+        {
+          "value": "/joint_states.position[1]",
+          "enabled": true,
+          "label": "Joint 2 (Shoulder Pitch)",
+          "color": "#3cb44b"
+        },
+        {
+          "value": "/joint_states.position[2]",
+          "enabled": true,
+          "label": "Joint 3 (Elbow Pitch)",
+          "color": "#ffe119"
+        },
+        {
+          "value": "/joint_states.position[3]",
+          "enabled": true,
+          "label": "Joint 4 (Forearm Roll)",
+          "color": "#4363d8"
+        },
+        {
+          "value": "/joint_states.position[4]",
+          "enabled": true,
+          "label": "Joint 5 (Wrist Pitch)",
+          "color": "#f58231"
+        },
+        {
+          "value": "/joint_states.position[5]",
+          "enabled": true,
+          "label": "Joint 6 (Wrist Roll)",
+          "color": "#911eb4"
+        }
+      ],
+      "showLegend": true,
+      "xAxisVal": "timestamp"
+    },
+    "Publish!intent_publisher": {
+      "topic": "/nora/intent",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Dispatch Intent to NORA",
+      "buttonTooltip": "Publishes JSON Intent string to /nora/intent",
+      "buttonColor": "#0088ff",
+      "advancedView": true,
+      "value": "{\n  \"data\": \"{\\\"action\\\": \\\"pick\\\", \\\"target_object\\\": \\\"red_cube\\\", \\\"target_location\\\": \\\"table\\\"}\"\n}"
+    },
+    "RawMessages!orchestrator_state": {
+      "topicPath": "/nora/orchestrator/state",
+      "diffTopicPath": "",
+      "diffMethod": "custom",
+      "diffEnabled": false,
+      "showFullMessageForDiff": false
+    },
+    "RawMessages!intent_monitor": {
+      "topicPath": "/nora/intent",
+      "diffTopicPath": "",
+      "diffMethod": "custom",
+      "diffEnabled": false,
+      "showFullMessageForDiff": false
+    },
+    "RosOut!system_logs": {
+      "searchTerms": [],
+      "minLogLevel": 1
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "linkedGlobalVariables": [],
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "direction": "row",
+    "first": {
+      "direction": "column",
+      "first": "3D!nora_arm_view",
+      "second": "Plot!joint_positions",
+      "splitPercentage": 62
+    },
+    "second": {
+      "direction": "column",
+      "first": {
+        "direction": "row",
+        "first": "Publish!intent_publisher",
+        "second": "RawMessages!orchestrator_state",
+        "splitPercentage": 52
+      },
+      "second": {
+        "direction": "column",
+        "first": "RawMessages!intent_monitor",
+        "second": "RosOut!system_logs",
+        "splitPercentage": 40
+      },
+      "splitPercentage": 45
+    },
+    "splitPercentage": 60
+  }
+}
