@@ -312,7 +312,51 @@ class LocalMLParser(IntentParser):
             except ValueError:
                 pass
 
-        # 2. Check for explicit known objects mentioned directly
+        # 2. Check for generalized loop commands (repetitions, counts, plurals, clean, rerack)
+        is_clean = any(w in lower for w in ["clean table", "clear table", "tidy table", "empty table", "clean up the table", "clear workspace"])
+        is_rerack = any(w in lower for w in ["re rack", "rerack", "re-rack", "rack table", "put back all", "return objects to table", "return items to table"])
+        count_m = re.search(r"(?:repeat|run|do\s+this|loop|pick\s+and\s+place)?\s*(\d+)\s*(?:times|x|iterations)", lower)
+        is_count = bool(count_m or any(w in lower for w in ["twice", "thrice", "2 times", "3 times", "4 times", "both"]))
+        is_quant = any(w in lower for w in ["all objects", "all items", "all blocks", "all cubes", "all cylinders", "everything", "both"])
+        has_loop_kw = any(w in lower for w in ["in a loop", "loop pick", "loop", "repeat"])
+
+        if is_clean or is_rerack or is_count or is_quant or has_loop_kw:
+            count = 2 if ("twice" in lower or "both" in lower or "2 times" in lower) else 3
+            if count_m:
+                try:
+                    count = int(count_m.group(1))
+                except ValueError:
+                    pass
+            targets = []
+            if "cube" in lower or "red" in lower:
+                targets.append("red_cube")
+            if "cylinder" in lower or "blue" in lower:
+                targets.append("blue_cylinder")
+            if "sphere" in lower or "green" in lower or "ball" in lower:
+                targets.append("green_sphere")
+            if not targets:
+                targets = ["red_cube", "blue_cylinder", "green_sphere"]
+
+            source = "tray" if (is_rerack or "from tray" in lower) else "table"
+            destination = "table" if source == "tray" else ("user" if any(w in lower for w in ["user", "give me", "hand me", "bring me"]) else "tray")
+            action_name = "rerack_table" if is_rerack else ("clean_table" if is_clean else "loop_task")
+
+            return self._format_intent(
+                raw_text=raw_text,
+                action=action_name,
+                target_object=", ".join(targets),
+                target_location=destination,
+                parameters={
+                    "is_loop": True,
+                    "loop_targets": targets,
+                    "loop_count": max(1, count),
+                    "source": source,
+                    "destination": destination,
+                },
+                confidence=0.98,
+            )
+
+        # 3. Check for explicit known objects mentioned directly
         explicit_obj = None
         if self.model_data:
             for obj in sorted(self.model_data.get("known_objects", []), key=len, reverse=True):
@@ -321,7 +365,7 @@ class LocalMLParser(IntentParser):
                     explicit_obj = obj
                     break
 
-        # 3. Commonsense Mapping (only if no explicit object was named)
+        # 4. Commonsense Mapping (only if no explicit object was named)
         if explicit_obj is None:
             for kw, mapped in _COMMONSENSE_MAP.items():
                 if re.search(rf"\b{kw}\b", lower):
