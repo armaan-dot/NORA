@@ -114,6 +114,82 @@ export function containsExplicitWords(text: string): boolean {
   return EXPLICIT_WORDS_PATTERNS.some((regex) => regex.test(text));
 }
 
+// Physical task & action keywords that cannot be spawned as tabletop objects
+export const PHYSICAL_TASK_KEYWORDS: string[] = [
+  ...IMPOSSIBLE_OR_UNSUPPORTED_KEYWORDS,
+  'clean', 'cleaning', 'clean up',
+  'wipe', 'wiping',
+  'wash', 'washing',
+  'sweep', 'sweeping',
+  'mop', 'mopping',
+  'dust', 'dusting',
+  'scrub', 'scrubbing',
+  'vacuum', 'vacuuming',
+  'tidy', 'tidying',
+  'polish', 'polishing',
+  'clear table', 'clear desk', 'clear mess',
+  'wave', 'waving',
+  'nod', 'nodding',
+  'shake', 'shaking',
+  'stretch', 'stretching',
+  'point', 'pointing',
+  'bow', 'bowing',
+  'salute', 'saluting',
+  'clap', 'clapping',
+  'exercise', 'exercising',
+  'pose', 'posing',
+  'push', 'pushing',
+  'pull', 'pulling',
+  'lift', 'lifting',
+  'drop', 'dropping',
+  'throw', 'throwing',
+  'catch', 'catching',
+  'cut', 'cutting',
+  'fold', 'folding',
+  'twist', 'twisting',
+  'turn', 'turning',
+  'pour', 'pouring',
+  'mix', 'mixing',
+  'stir', 'stirring',
+  'hit', 'hitting',
+  'tap', 'tapping',
+  'press', 'pressing',
+  'scratch', 'scratching',
+  'rub', 'rubbing',
+  'slide', 'sliding',
+  'drag', 'dragging',
+  'open', 'opening',
+  'close', 'closing'
+];
+
+export const RECOGNIZED_TABLETOP_OBJECTS: string[] = [
+  'apple', 'red apple', 'fruit', 'banana', 'orange',
+  'coffee', 'coffee mug', 'mug', 'cup', 'latte', 'espresso', 'tea',
+  'water', 'water glass', 'glass', 'drink', 'beverage', 'bottle', 'water bottle',
+  'tennis', 'tennis ball', 'ball', 'sphere', 'green sphere', 'stress ball', 'dice',
+  'cube', 'red cube', 'block', 'brick', 'box', 'package', 'storage box', 'playing cards', 'cards',
+  'cylinder', 'blue cylinder', 'canister', 'can', 'soda can',
+  'sponge'
+];
+
+export function hasExplicitObjectEntity(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const l = text.toLowerCase().trim();
+  return RECOGNIZED_TABLETOP_OBJECTS.some((obj) => {
+    const regex = new RegExp(`\\b${obj}\\b`, 'i');
+    return regex.test(l);
+  });
+}
+
+export function isPhysicalTask(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const l = text.toLowerCase().trim();
+  return PHYSICAL_TASK_KEYWORDS.some((kw) => {
+    const regex = new RegExp(`\\b${kw}\\b`, 'i');
+    return regex.test(l);
+  });
+}
+
 // Natural curved desk-lamp default home pose: gracefully arched over the table, NOT upright 90 degrees!
 export const DESK_LAMP_HOME_JOINTS: number[] = [0.28, 0.58, 1.15, 0.0, 1.41, 0.0, 0.03];
 
@@ -163,11 +239,16 @@ export interface EntityMetadata {
   emoji: string;
 }
 
-export function getEntityMetadata(targetNameOrText: string): EntityMetadata {
+export function getEntityMetadata(targetNameOrText: string): EntityMetadata | undefined {
   const l = (targetNameOrText || '').toLowerCase().trim();
 
-  if (containsExplicitWords(l)) {
-    return { name: 'Safety Blocked', shape: 'box', color: '#ef4444', emoji: '🚫' };
+  if (!l || containsExplicitWords(l)) {
+    return undefined;
+  }
+
+  // If this is a physical task without an explicit recognized tabletop item, do NOT fabricate an entity
+  if (isPhysicalTask(l) && !hasExplicitObjectEntity(l)) {
+    return undefined;
   }
 
   if (l.includes('tennis') || l.includes('racket') || l.includes('racquet') || l.includes('wimbledon')) {
@@ -197,7 +278,7 @@ export function getEntityMetadata(targetNameOrText: string): EntityMetadata {
   if (l.includes('cards') || l.includes('card')) {
     return { name: 'Playing Cards', shape: 'box', color: '#ffffff', emoji: '🃏' };
   }
-  if (l.includes('sponge') || l.includes('clean')) {
+  if (l.includes('sponge')) {
     return { name: 'Cleaning Sponge', shape: 'box', color: '#fde047', emoji: '🧽' };
   }
   if (l.includes('bottle') || l.includes('can') || l.includes('soda')) {
@@ -225,7 +306,12 @@ export function getEntityMetadata(targetNameOrText: string): EntityMetadata {
     return { name: 'Sphere Ball', shape: 'sphere', color: '#10b981', emoji: '⚽' };
   }
 
-  // Universal fallback for any custom item:
+  // If not a recognized tabletop object, do NOT fabricate an item for physical tasks or general actions
+  if (isPhysicalTask(l) || !hasExplicitObjectEntity(l)) {
+    return undefined;
+  }
+
+  // Universal fallback for custom physical item:
   const formatted = l ? l.charAt(0).toUpperCase() + l.slice(1).replace(/_/g, ' ') : 'Object';
   return { name: formatted, shape: 'box', color: '#a855f7', emoji: '✨' };
 }
@@ -1329,16 +1415,27 @@ class RosBridgeService {
       const isExplicit = intent.action === 'explicit_blocked';
       const isImpossible = intent.action === 'impossible' || Boolean(intent.parameters?.impossible_keyword);
       const isGuardrailTest = intent.action === 'guardrail_test';
+      const isPhysical = isPhysicalTask(text) || isImpossible || isGuardrailTest;
       const targetObjName = intent.target_object;
       const targetObj = targetObjName ? this.findObjectFromText(targetObjName) : null;
-      const isMissingObject = !isExplicit && !targetObj && Boolean(targetObjName) && targetObjName !== 'none';
-      const isReachViolation = !isExplicit && Boolean(topAff?.breakdown?.reachability !== undefined && topAff.breakdown.reachability < 0.30) && !isMissingObject;
+      const isMissingObject =
+        !isExplicit &&
+        !isPhysical &&
+        !targetObj &&
+        Boolean(targetObjName) &&
+        targetObjName !== 'none' &&
+        hasExplicitObjectEntity(targetObjName);
+      const isReachViolation =
+        !isExplicit &&
+        !isPhysical &&
+        Boolean(topAff?.breakdown?.reachability !== undefined && topAff.breakdown.reachability < 0.30) &&
+        !isMissingObject;
 
       const friendlyTarget = intent.parameters?.target_name || intent.target_object || 'item';
 
       const guardrailType: GuardrailEvent['type'] = isExplicit
         ? 'explicit'
-        : isImpossible
+        : isPhysical
         ? 'impossible'
         : isMissingObject
         ? 'missing_object'
@@ -1348,10 +1445,8 @@ class RosBridgeService {
 
       const guardrailTitle = isExplicit
         ? 'Safety Interlock: Explicit Words Blocked'
-        : isImpossible
-        ? 'Non-Physical Request Interlock'
-        : isGuardrailTest
-        ? 'SayCan Safety Guardrail Block'
+        : isPhysical
+        ? 'Physical Task Interlock'
         : isMissingObject
         ? 'Object Grounding Guardrail'
         : isReachViolation
@@ -1360,10 +1455,8 @@ class RosBridgeService {
 
       const guardrailReason = isExplicit
         ? 'Cannot process explicit words.'
-        : isImpossible
-        ? intent.parameters?.reason || `Task "${intent.parameters?.impossible_keyword || text}" is not possible. NORA is a 6-DOF tabletop robotic manipulator designed for picking, placing, and passing objects.`
-        : isGuardrailTest
-        ? `SayCan Guardrail Triggered: The utterance "${text}" does not correspond to an actionable physical skill. All candidate skills scored 0.000 (below 0.30 threshold). Servos safely locked in home pose.`
+        : isPhysical
+        ? (intent.parameters?.reason || `Physical task "${intent.parameters?.impossible_keyword || text}" cannot be executed. NORA is a 6-DOF tabletop robotic manipulator designed for picking, placing, and passing objects.`)
         : isMissingObject
         ? `SayCan Perception Guardrail: "${friendlyTarget}" is not present on the tabletop. Please click "+ Add Object" to place one in the workspace.`
         : isReachViolation
@@ -1384,10 +1477,8 @@ class RosBridgeService {
 
       const rejectLogMsg = isExplicit
         ? `🛡️ [Safety Interlock] User command "${text}" rejected: Cannot process explicit words.`
-        : isImpossible
-        ? `🚫 [Action Not Possible] User command "${text}" rejected by guardrail: ${guardrailReason}`
-        : isGuardrailTest
-        ? `🛡️ [SayCan Guardrail Demonstration] Instruction "${text}" rejected: Combined affordance (0.000) is below safety threshold (0.30).`
+        : isPhysical
+        ? `🚫 [Action Not Possible] User command "${text}" rejected: ${guardrailReason}`
         : isMissingObject
         ? `[SayCan Object Grounding] Instruction "${text}" rejected: Required object "${friendlyTarget}" is not present on tabletop. Preconditions failed (object_state=0.00).`
         : isReachViolation
@@ -1408,7 +1499,7 @@ class RosBridgeService {
         message: `Task aborted by SayCan guardrail: Preconditions not met. Arm parked at home pose.`
       });
 
-      if (isExplicit || isImpossible || isGuardrailTest) {
+      if (isExplicit || isPhysical || isImpossible || isGuardrailTest) {
         const speechMsg = isExplicit
           ? 'Cannot process explicit words'
           : isGuardrailTest

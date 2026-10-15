@@ -4,7 +4,14 @@ import { CommandInput } from './components/CommandInput';
 import { ProcessTab } from './components/ProcessTab';
 import { LogTerminal } from './components/LogTerminal';
 import { ArmStatus } from './components/ArmStatus';
-import { rosService, getEntityMetadata, containsExplicitWords, type EntityMetadata } from './services/rosService';
+import {
+  rosService,
+  getEntityMetadata,
+  containsExplicitWords,
+  isPhysicalTask,
+  hasExplicitObjectEntity,
+  type EntityMetadata
+} from './services/rosService';
 import type {
   Intent,
   AffordanceScore,
@@ -64,6 +71,7 @@ export const App: React.FC = () => {
     targetObject?: string;
     isMissingObject?: boolean;
     isExplicit?: boolean;
+    isPhysicalTask?: boolean;
     meta?: EntityMetadata;
   } | null>(null);
 
@@ -115,28 +123,54 @@ export const App: React.FC = () => {
           data.intent?.action === 'explicit_blocked' ||
           containsExplicitWords(rawCmd) ||
           (data.error?.toLowerCase().includes('explicit') ?? false);
+
+        const isPhysical =
+          !isExplicit &&
+          (isPhysicalTask(rawCmd) ||
+            data.guardrailEvent?.type === 'impossible' ||
+            data.guardrailEvent?.type === 'ungrounded' ||
+            data.guardrailEvent?.type === 'reachability' ||
+            data.intent?.action === 'impossible' ||
+            data.intent?.action === 'guardrail_test' ||
+            data.intent?.action === 'wave' ||
+            data.intent?.action === 'home' ||
+            !hasExplicitObjectEntity(target || rawCmd));
+
         const isMissing =
           !isExplicit &&
+          !isPhysical &&
           (data.guardrailEvent?.type === 'missing_object' ||
             (data.error?.toLowerCase().includes('not present') ?? false) ||
             (data.error?.toLowerCase().includes('not found') ?? false) ||
-            (data.error?.toLowerCase().includes('object grounding') ?? false));
+            (data.error?.toLowerCase().includes('object grounding') ?? false)) &&
+          hasExplicitObjectEntity(target || rawCmd);
 
-        const meta = !isExplicit && isMissing ? getEntityMetadata(target || rawCmd) : undefined;
+        const meta = !isExplicit && !isPhysical && isMissing ? getEntityMetadata(target || rawCmd) : undefined;
 
         setFailedTaskPopup({
           open: true,
-          title: isExplicit ? 'Cannot process explicit words' : (data.guardrailEvent?.title || 'Task Execution Interlocked (Affordance Failure)'),
+          title: isExplicit
+            ? 'Cannot process explicit words'
+            : isPhysical
+            ? (data.guardrailEvent?.title || 'Physical Task Interlock')
+            : (data.guardrailEvent?.title || 'Task Execution Interlocked (Affordance Failure)'),
           reason: isExplicit
             ? 'Safety Policy Interlock: Explicit words cannot be processed by the robot.'
+            : isPhysical
+            ? (data.guardrailEvent?.reason || data.error || `Task "${rawCmd}" is a physical action/task that cannot be executed. Servos remain locked at home pose.`)
             : (data.error || data.guardrailEvent?.reason || `Affordance score (${score.toFixed(3)}) fell below the required safety threshold (0.300). Preconditions not met.`),
-          score: isExplicit ? 0.0 : score,
+          score: (isExplicit || isPhysical) ? 0.0 : score,
           threshold: 0.30,
           command: rawCmd,
-          skill: isExplicit ? 'safety_interlock' : (topAff?.skill_name || (data.intent?.action ?? 'deliver_to_user')),
-          targetObject: isExplicit ? 'None (Blocked)' : meta?.name,
+          skill: isExplicit ? 'safety_interlock' : isPhysical ? 'physical_task_interlock' : (topAff?.skill_name || (data.intent?.action ?? 'deliver_to_user')),
+          targetObject: isExplicit
+            ? 'None (Safety Policy Violation)'
+            : isPhysical
+            ? 'None (Physical Task)'
+            : meta?.name || target || 'None (Infeasible)',
           isMissingObject: isMissing,
           isExplicit,
+          isPhysicalTask: isPhysical,
           meta
         });
       } else if (data.stage === 'PARSING' || data.stage === 'EXECUTING') {
@@ -154,19 +188,46 @@ export const App: React.FC = () => {
           intent?.action === 'explicit_blocked' ||
           containsExplicitWords(rawCmd) ||
           (evt.reason?.toLowerCase().includes('explicit') ?? false);
-        const isMissing = !isExplicit && evt.type === 'missing_object';
-        const meta = !isExplicit && isMissing ? getEntityMetadata(target || rawCmd) : undefined;
+
+        const isPhysical =
+          !isExplicit &&
+          (isPhysicalTask(rawCmd) ||
+            evt.type === 'impossible' ||
+            evt.type === 'ungrounded' ||
+            evt.type === 'reachability' ||
+            intent?.action === 'impossible' ||
+            intent?.action === 'guardrail_test' ||
+            intent?.action === 'wave' ||
+            intent?.action === 'home' ||
+            !hasExplicitObjectEntity(target || rawCmd));
+
+        const isMissing = !isExplicit && !isPhysical && evt.type === 'missing_object' && hasExplicitObjectEntity(target || rawCmd);
+        const meta = !isExplicit && !isPhysical && isMissing ? getEntityMetadata(target || rawCmd) : undefined;
+
         setFailedTaskPopup({
           open: true,
-          title: isExplicit ? 'Cannot process explicit words' : (evt.title || 'SayCan Guardrail Triggered'),
-          reason: isExplicit ? 'Safety Policy Interlock: Explicit words cannot be processed by the robot.' : evt.reason,
-          score: isExplicit ? 0.0 : evt.score,
+          title: isExplicit
+            ? 'Cannot process explicit words'
+            : isPhysical
+            ? (evt.title || 'Physical Task Interlock')
+            : (evt.title || 'SayCan Guardrail Triggered'),
+          reason: isExplicit
+            ? 'Safety Policy Interlock: Explicit words cannot be processed by the robot.'
+            : isPhysical
+            ? (evt.reason || `Task "${rawCmd}" is a physical action/task that cannot be executed. Servos remain locked at home pose.`)
+            : evt.reason,
+          score: (isExplicit || isPhysical) ? 0.0 : evt.score,
           threshold: evt.threshold,
           command: rawCmd,
-          skill: isExplicit ? 'safety_interlock' : (topAffordance?.skill_name || intent?.action || 'deliver_to_user'),
-          targetObject: isExplicit ? 'None (Blocked)' : meta?.name,
+          skill: isExplicit ? 'safety_interlock' : isPhysical ? 'physical_task_interlock' : (topAffordance?.skill_name || intent?.action || 'deliver_to_user'),
+          targetObject: isExplicit
+            ? 'None (Safety Policy Violation)'
+            : isPhysical
+            ? 'None (Physical Task)'
+            : meta?.name || target || 'None (Infeasible)',
           isMissingObject: isMissing,
           isExplicit,
+          isPhysicalTask: isPhysical,
           meta
         });
       }
@@ -429,10 +490,18 @@ export const App: React.FC = () => {
                 <div>
                   <div className="failed-tag-row">
                     <span className="failed-kicker">
-                      {failedTaskPopup.isExplicit ? 'EXPLICIT CONTENT FILTER' : 'SAYCAN GUARDRAIL INTERLOCK'}
+                      {failedTaskPopup.isExplicit
+                        ? 'EXPLICIT CONTENT FILTER'
+                        : failedTaskPopup.isPhysicalTask
+                        ? 'PHYSICAL TASK INTERLOCK'
+                        : 'SAYCAN GUARDRAIL INTERLOCK'}
                     </span>
                     <span className="failed-badge-pill">
-                      {failedTaskPopup.isExplicit ? 'CANNOT PROCESS' : 'TASK REJECTED'}
+                      {failedTaskPopup.isExplicit
+                        ? 'CANNOT PROCESS'
+                        : failedTaskPopup.isPhysicalTask
+                        ? 'TASK INFEASIBLE'
+                        : 'TASK REJECTED'}
                     </span>
                   </div>
                   <h3 className="failed-modal-title">{failedTaskPopup.title}</h3>
@@ -453,7 +522,11 @@ export const App: React.FC = () => {
                 <div className="failed-score-head">
                   <span className="failed-score-label">SAYCAN TASK AFFORDANCE SCORE</span>
                   <span className="failed-score-eval">
-                    {failedTaskPopup.isExplicit ? 'CANNOT PROCESS EXPLICIT WORDS' : 'BELOW SAFETY THRESHOLD (τ < 0.300)'}
+                    {failedTaskPopup.isExplicit
+                      ? 'CANNOT PROCESS EXPLICIT WORDS'
+                      : failedTaskPopup.isPhysicalTask
+                      ? 'PHYSICAL TASK INFEASIBLE (τ = 0.000)'
+                      : 'BELOW SAFETY THRESHOLD (τ < 0.300)'}
                   </span>
                 </div>
 
@@ -463,11 +536,17 @@ export const App: React.FC = () => {
                   </div>
                   <div className="failed-score-status-box">
                     <span className="score-status-tag">
-                      {failedTaskPopup.isExplicit ? 'STATUS: CANNOT PROCESS EXPLICIT WORDS' : 'STATUS: PRECONDITIONS FAILED'}
+                      {failedTaskPopup.isExplicit
+                        ? 'STATUS: CANNOT PROCESS EXPLICIT WORDS'
+                        : failedTaskPopup.isPhysicalTask
+                        ? 'STATUS: PHYSICAL TASK CANNOT BE SPAWNED ON TABLE'
+                        : 'STATUS: PRECONDITIONS FAILED'}
                     </span>
                     <span className="score-status-sub">
                       {failedTaskPopup.isExplicit
                         ? 'Zero affordance assigned due to safety & content moderation policy'
+                        : failedTaskPopup.isPhysicalTask
+                        ? 'Action is a physical task/motion, not a tabletop object that can be placed on table'
                         : <>Combined = (Usefulness)<sup>0.6</sup> × (Feasibility)<sup>0.4</sup></>}
                     </span>
                   </div>
@@ -514,7 +593,11 @@ export const App: React.FC = () => {
                 <div className="failed-meta-cell">
                   <span className="cell-label">Target Entity</span>
                   <span className="cell-val text-red font-bold">
-                    {failedTaskPopup.isExplicit ? 'None (Safety Policy Violation)' : (failedTaskPopup.targetObject || intent?.target_object || 'Missing Tabletop Object')}
+                    {failedTaskPopup.isExplicit
+                      ? 'None (Safety Policy Violation)'
+                      : failedTaskPopup.isPhysicalTask
+                      ? 'None (Physical Task - No Tabletop Entity)'
+                      : (failedTaskPopup.targetObject || intent?.target_object || 'Missing Tabletop Object')}
                   </span>
                 </div>
                 <div className="failed-meta-cell">
@@ -531,7 +614,7 @@ export const App: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="failed-modal-footer">
-                {!failedTaskPopup.isExplicit && failedTaskPopup.meta ? (
+                {!failedTaskPopup.isExplicit && !failedTaskPopup.isPhysicalTask && failedTaskPopup.meta ? (
                   <button
                     type="button"
                     className="btn-failed-action-entity"
@@ -556,18 +639,20 @@ export const App: React.FC = () => {
                     <span className="action-emoji">{failedTaskPopup.meta.emoji}</span>
                     <span>Place {failedTaskPopup.meta.name} on Tabletop</span>
                   </button>
-                ) : !failedTaskPopup.isExplicit && failedTaskPopup.isMissingObject ? (
+                ) : !failedTaskPopup.isExplicit && !failedTaskPopup.isPhysicalTask && failedTaskPopup.isMissingObject ? (
                   <button
                     type="button"
                     className="btn-failed-action-spawn"
                     onClick={() => {
                       const meta = getEntityMetadata(failedTaskPopup.targetObject || '');
-                      rosService.addObject({
-                        name: meta.name,
-                        shape: meta.shape,
-                        color: meta.color,
-                        spawnZone: 'auto'
-                      });
+                      if (meta) {
+                        rosService.addObject({
+                          name: meta.name,
+                          shape: meta.shape,
+                          color: meta.color,
+                          spawnZone: 'auto'
+                        });
+                      }
                       setFailedTaskPopup(null);
                     }}
                     title="Spawn requested object on table"
