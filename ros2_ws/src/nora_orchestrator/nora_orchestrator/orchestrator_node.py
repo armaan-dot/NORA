@@ -300,13 +300,20 @@ class OrchestratorNode(Node):
                     ])
             plan.append({"skill": "go_home", "params": {}})
             return plan
-        elif action == "pick":
-            return [
+        elif action in ("pick", "deliver_to_user"):
+            is_user = target_loc == "user" or action == "deliver_to_user"
+            plan = [
                 {"skill": "move_to_pose", "params": {"pose_name": "pre_grasp", "target": target_obj}},
                 {"skill": "open_gripper", "params": {"stroke_mm": 80}},
                 {"skill": "pick", "params": {"target_object": target_obj}},
-                {"skill": "move_to_pose", "params": {"pose_name": "handover" if target_loc == "user" else "lift"}},
+                {"skill": "move_to_pose", "params": {"pose_name": "handover" if is_user else "lift"}},
             ]
+            if is_user:
+                plan.extend([
+                    {"skill": "open_gripper", "params": {"stroke_mm": 80}},
+                    {"skill": "go_home", "params": {}},
+                ])
+            return plan
         elif action == "place":
             return [
                 {"skill": "move_to_pose", "params": {"pose_name": "approach_target", "target": target_loc}},
