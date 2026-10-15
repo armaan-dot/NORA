@@ -176,6 +176,14 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
 
           <button
             className="chip-btn chip-highlight"
+            onClick={() => handleChipClick('I want an apple')}
+            title="Requests an apple -> evaluates SayCan affordance -> picks & delivers apple (or safety interlocks if missing)"
+          >
+            🍎 I want an apple
+          </button>
+
+          <button
+            className="chip-btn chip-highlight"
             onClick={() => handleChipClick('I want to play tennis')}
             title="Infers tennis ball equipment need -> active vision search -> handover"
           >

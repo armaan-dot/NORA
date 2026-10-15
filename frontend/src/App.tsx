@@ -23,11 +23,13 @@ import {
   WifiOff,
   Settings,
   Scale,
-  Radio,
   Sparkles,
   ShieldCheck,
   ShieldAlert,
-  Info
+  Info,
+  AlertOctagon,
+  Plus,
+  X
 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -51,6 +53,20 @@ export const App: React.FC = () => {
   const [jointState, setJointState] = useState<JointState | null>(null);
   const [pipelineError, setPipelineError] = useState<string | undefined>();
   const [guardrailEvent, setGuardrailEvent] = useState<GuardrailEvent | null>(null);
+
+  // Red Failed Task Affordance Score Pop-up Modal State
+  const [failedTaskPopup, setFailedTaskPopup] = useState<{
+    open: boolean;
+    title: string;
+    reason: string;
+    score: number;
+    threshold: number;
+    command?: string;
+    skill?: string;
+    targetObject?: string;
+    isMissingApple?: boolean;
+    isMissingObject?: boolean;
+  } | null>(null);
 
   const topAffordance = affordances.length > 0 ? affordances[0] : null;
 
@@ -89,10 +105,52 @@ export const App: React.FC = () => {
       if (data.activeStepId) setActiveStepId(data.activeStepId);
       if (data.error !== undefined) setPipelineError(data.error);
       if (data.guardrailEvent !== undefined) setGuardrailEvent(data.guardrailEvent);
+
+      if (data.stage === 'FAILED') {
+        const topAff = data.affordances && data.affordances.length > 0 ? data.affordances[0] : null;
+        const score = topAff ? topAff.combined_score : (data.guardrailEvent?.score ?? 0.0);
+        const target = data.intent?.target_object || data.intent?.parameters?.target_name || '';
+        const cmdLower = (data.intent?.raw_text || '').toLowerCase();
+        const targetLower = target.toLowerCase();
+        const isApple = targetLower.includes('apple') || cmdLower.includes('apple');
+        const isMissing = data.guardrailEvent?.type === 'missing_object' || (data.error?.toLowerCase().includes('not present') ?? false) || (data.error?.toLowerCase().includes('not found') ?? false);
+
+        setFailedTaskPopup({
+          open: true,
+          title: data.guardrailEvent?.title || 'Task Execution Interlocked (Affordance Failure)',
+          reason: data.error || data.guardrailEvent?.reason || 'Affordance score fell below the required safety threshold (0.300). Preconditions not met.',
+          score,
+          threshold: 0.30,
+          command: data.intent?.raw_text,
+          skill: topAff?.skill_name || (data.intent?.action ?? 'unknown'),
+          targetObject: target || (isApple ? 'Red Apple' : undefined),
+          isMissingApple: isApple,
+          isMissingObject: isMissing
+        });
+      } else if (data.stage === 'PARSING' || data.stage === 'EXECUTING') {
+        setFailedTaskPopup(null);
+      }
     });
 
     const unGuardrail = rosService.onGuardrail((evt) => {
       setGuardrailEvent(evt);
+      if (evt && evt.active) {
+        const cmdLower = (intent?.raw_text || '').toLowerCase();
+        const reasonLower = (evt.reason || '').toLowerCase();
+        const isApple = reasonLower.includes('apple') || cmdLower.includes('apple');
+        setFailedTaskPopup({
+          open: true,
+          title: evt.title || 'SayCan Guardrail Triggered',
+          reason: evt.reason,
+          score: evt.score,
+          threshold: evt.threshold,
+          command: intent?.raw_text,
+          skill: topAffordance?.skill_name || intent?.action || 'unknown',
+          targetObject: intent?.target_object || (isApple ? 'Red Apple' : undefined),
+          isMissingApple: isApple,
+          isMissingObject: evt.type === 'missing_object'
+        });
+      }
     });
 
     return () => {
@@ -103,7 +161,17 @@ export const App: React.FC = () => {
       unPipeline();
       unGuardrail();
     };
-  }, []);
+  }, [intent, topAffordance]);
+
+  const handleSpawnApple = () => {
+    rosService.addObject({
+      name: 'Red Apple',
+      shape: 'apple',
+      color: '#e11d48',
+      spawnZone: 'auto'
+    });
+    setFailedTaskPopup(null);
+  };
 
   const handleCommandSubmit = async (cmdText: string) => {
     setActiveTab('process');
@@ -353,6 +421,157 @@ export const App: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Red Failed Task Affordance Score Pop-up Modal */}
+      {failedTaskPopup && (
+        <div className="failed-task-modal-backdrop" onClick={() => setFailedTaskPopup(null)}>
+          <div className="failed-task-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="failed-modal-header">
+              <div className="failed-header-left">
+                <div className="failed-icon-box">
+                  <ShieldAlert size={24} className="failed-pulse-icon" />
+                </div>
+                <div>
+                  <div className="failed-tag-row">
+                    <span className="failed-kicker">SAYCAN GUARDRAIL INTERLOCK</span>
+                    <span className="failed-badge-pill">TASK REJECTED</span>
+                  </div>
+                  <h3 className="failed-modal-title">{failedTaskPopup.title}</h3>
+                </div>
+              </div>
+              <button
+                className="btn-failed-modal-close"
+                onClick={() => setFailedTaskPopup(null)}
+                title="Dismiss Alert"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="failed-modal-body">
+              {/* Prominent Red Affordance Score Banner */}
+              <div className="failed-affordance-score-banner">
+                <div className="failed-score-head">
+                  <span className="failed-score-label">SAYCAN TASK AFFORDANCE SCORE</span>
+                  <span className="failed-score-eval">
+                    BELOW SAFETY THRESHOLD (τ &lt; 0.300)
+                  </span>
+                </div>
+
+                <div className="failed-score-big-row">
+                  <div className="failed-score-number">
+                    {failedTaskPopup.score.toFixed(3)}
+                  </div>
+                  <div className="failed-score-status-box">
+                    <span className="score-status-tag">STATUS: PRECONDITIONS FAILED</span>
+                    <span className="score-status-sub">
+                      Combined = (Usefulness)<sup>0.6</sup> × (Feasibility)<sup>0.4</sup>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Red Affordance Meter Bar with Safety Threshold Marker */}
+                <div className="failed-meter-bar-wrap">
+                  <div className="failed-meter-track">
+                    <div
+                      className="failed-meter-fill-red"
+                      style={{
+                        width: `${Math.max(4, Math.min(100, failedTaskPopup.score * 100))}%`
+                      }}
+                    />
+                    <div className="failed-threshold-marker" style={{ left: '30%' }}>
+                      <span className="threshold-marker-tag">Limit τ=0.30</span>
+                    </div>
+                  </div>
+                  <div className="failed-meter-scale">
+                    <span>0.00 (Unfeasible)</span>
+                    <span className="scale-tau text-amber">0.30 Safety Min</span>
+                    <span>1.00 (Optimal)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Guardrail Reason Callout */}
+              <div className="failed-reason-box">
+                <div className="reason-icon-col">
+                  <AlertOctagon size={20} className="text-red" />
+                </div>
+                <div className="reason-text-col">
+                  <strong>Interlock Explanation &amp; Physical Preconditions:</strong>
+                  <p>{failedTaskPopup.reason}</p>
+                </div>
+              </div>
+
+              {/* Context Breakdown Meta Grid */}
+              <div className="failed-meta-grid">
+                <div className="failed-meta-cell">
+                  <span className="cell-label">Input Utterance</span>
+                  <span className="cell-val highlight">"{failedTaskPopup.command || intent?.raw_text || 'none'}"</span>
+                </div>
+                <div className="failed-meta-cell">
+                  <span className="cell-label">Target Entity</span>
+                  <span className="cell-val text-red font-bold">
+                    {failedTaskPopup.targetObject || intent?.target_object || 'Missing Tabletop Object'}
+                  </span>
+                </div>
+                <div className="failed-meta-cell">
+                  <span className="cell-label">Assessed Skill</span>
+                  <span className="cell-val font-mono">
+                    {failedTaskPopup.skill || 'deliver_to_user'}
+                  </span>
+                </div>
+                <div className="failed-meta-cell">
+                  <span className="cell-label">Manipulator Safety State</span>
+                  <span className="cell-val text-cyan">Safe Idle Pose (0° Motion)</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="failed-modal-footer">
+                {failedTaskPopup.isMissingApple ? (
+                  <button
+                    type="button"
+                    className="btn-failed-action-apple"
+                    onClick={handleSpawnApple}
+                    title="Instantly spawn a fresh Red Apple into the tabletop workspace"
+                  >
+                    <span className="action-emoji">🍎</span>
+                    <span>Place Red Apple on Tabletop</span>
+                  </button>
+                ) : failedTaskPopup.isMissingObject ? (
+                  <button
+                    type="button"
+                    className="btn-failed-action-spawn"
+                    onClick={() => {
+                      if (failedTaskPopup.targetObject) {
+                        rosService.addObject({
+                          name: failedTaskPopup.targetObject,
+                          shape: 'box',
+                          color: '#eab308',
+                          spawnZone: 'auto'
+                        });
+                      }
+                      setFailedTaskPopup(null);
+                    }}
+                    title="Spawn requested object on table"
+                  >
+                    <Plus size={15} />
+                    <span>Spawn "{failedTaskPopup.targetObject || 'Object'}"</span>
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  className="btn-failed-dismiss"
+                  onClick={() => setFailedTaskPopup(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

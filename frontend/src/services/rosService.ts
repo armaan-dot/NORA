@@ -631,7 +631,16 @@ class RosBridgeService {
     if (!text) return null;
     const lower = text.toLowerCase().trim();
 
-    // 1. Direct match with registered objects by ID or exact name
+    // 1. Direct exact match with registered objects by ID or exact name
+    for (const obj of this.tabletopObjects) {
+      const nameL = obj.name.toLowerCase();
+      const idL = obj.id.toLowerCase();
+      if (lower === nameL || lower === idL) {
+        return obj;
+      }
+    }
+
+    // 2. Exact substring phrase match for full name or ID (e.g. "red cube", "red apple", "blue cylinder")
     for (const obj of this.tabletopObjects) {
       const nameL = obj.name.toLowerCase();
       const idL = obj.id.toLowerCase();
@@ -640,75 +649,84 @@ class RosBridgeService {
       }
     }
 
-    // 2. Token overlap: Match significant words against existing tabletop objects (with singular/plural stemming)
-    const getStem = (w: string) => {
-      if (w.endsWith('ies')) return w.slice(0, -3) + 'y';
-      if (w.endsWith('es') && (w.endsWith('shes') || w.endsWith('ches') || w.endsWith('sses') || w.endsWith('xes') || w.endsWith('zes') || w.endsWith('boxes') || w.endsWith('glasses'))) return w.slice(0, -2);
-      if (w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
-      return w;
-    };
+    // Semantic category and shape nouns vs color adjectives
+    const SHAPE_NOUNS = ['apple', 'fruit', 'cube', 'box', 'block', 'cylinder', 'can', 'bottle', 'sphere', 'ball', 'orb', 'glass', 'water', 'mug', 'cup', 'coffee', 'tea'];
+    const COLOR_ADJECTIVES = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'cyan', 'white', 'black', 'pink', 'brown', 'gray', 'grey'];
 
-    const words = lower.split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
-    const stopWords = new Set([
-      'the', 'and', 'for', 'want', 'need', 'give', 'bring', 'hand', 'pass', 'fetch',
-      'pick', 'grab', 'take', 'place', 'put', 'drop', 'look', 'find', 'search',
-      'table', 'tray', 'user', 'here', 'there', 'please', 'with', 'from', 'into', 'some',
-      'like', 'thing', 'things', 'play', 'right', 'this', 'just', 'also', 'that', 'should',
-      'hello', 'hey', 'could', 'would', 'will', 'all', 'every', 'each', 'both'
-    ]);
+    const mentionedNouns = SHAPE_NOUNS.filter((n) => lower.includes(n));
+    const mentionedColors = COLOR_ADJECTIVES.filter((c) => lower.includes(c));
 
-    for (const obj of this.tabletopObjects) {
-      const objTokens = obj.name.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
-      for (const w of words) {
-        if (stopWords.has(w)) continue;
-        const stem = getStem(w);
-        if (
-          objTokens.includes(w) ||
-          objTokens.includes(stem) ||
-          obj.shape === w ||
-          obj.shape === stem ||
-          obj.id.toLowerCase().includes(w) ||
-          obj.id.toLowerCase().includes(stem)
-        ) {
-          return obj;
+    // If an explicit shape/entity noun is mentioned, require noun compatibility!
+    // A color adjective alone (e.g. "red") MUST NOT match a different noun (e.g. "red cube" for "apple")!
+    if (mentionedNouns.length > 0) {
+      const matchingObjects = this.tabletopObjects.filter((obj) => {
+        const objNameL = obj.name.toLowerCase();
+        const objIdL = obj.id.toLowerCase();
+        return mentionedNouns.some((n) => {
+          if (n === 'apple' || n === 'fruit') {
+            return obj.shape === 'apple' || objNameL.includes('apple') || objIdL.includes('apple') || objNameL.includes('fruit');
+          }
+          if (n === 'cube' || n === 'box' || n === 'block') {
+            return obj.shape === 'box' || objNameL.includes('cube') || objIdL.includes('cube') || objNameL.includes('box');
+          }
+          if (n === 'cylinder' || n === 'can' || n === 'bottle') {
+            return obj.shape === 'cylinder' || objNameL.includes('cylinder') || objIdL.includes('cylinder');
+          }
+          if (n === 'sphere' || n === 'ball' || n === 'orb') {
+            return obj.shape === 'sphere' || objNameL.includes('sphere') || objIdL.includes('sphere') || objNameL.includes('ball');
+          }
+          if (n === 'glass' || n === 'water') {
+            return obj.shape === 'glass' || objNameL.includes('glass') || objIdL.includes('water') || objNameL.includes('water');
+          }
+          if (n === 'mug' || n === 'cup' || n === 'coffee' || n === 'tea') {
+            return obj.shape === 'mug' || objNameL.includes('mug') || objNameL.includes('cup') || objNameL.includes('coffee') || objNameL.includes('tea');
+          }
+          return false;
+        });
+      });
+
+      if (matchingObjects.length > 0) {
+        // If color was also specified, prioritize matching both noun AND color
+        if (mentionedColors.length > 0) {
+          const colorMatch = matchingObjects.find((obj) => {
+            const objNameL = obj.name.toLowerCase();
+            const objIdL = obj.id.toLowerCase();
+            return mentionedColors.some((c) => objNameL.includes(c) || objIdL.includes(c));
+          });
+          if (colorMatch) return colorMatch;
         }
+        return matchingObjects[0];
       }
+
+      // Explicit noun requested (e.g. "apple"), but no object with that noun exists on table!
+      // Do NOT fall back to other objects that just happen to share a color (like red cube)!
+      return null;
     }
 
     // 3. Match against Commonsense Activity & Desire Ontology on existing tabletop objects
     const concept = this.getConceptForText(text);
     if (concept) {
       for (const matcher of concept.searchMatchers) {
-        const found = this.tabletopObjects.find((o) =>
-          o.name.toLowerCase().includes(matcher) ||
-          o.id.toLowerCase().includes(matcher) ||
-          o.shape === matcher
-        );
+        const found = this.tabletopObjects.find((o) => {
+          const nameL = o.name.toLowerCase();
+          const idL = o.id.toLowerCase();
+          return nameL.includes(matcher) || idL.includes(matcher) || o.shape === matcher;
+        });
         if (found) {
           return found;
         }
       }
     }
 
-    // 4. Fallback shape matching against existing tabletop objects
-    if (lower.includes('ball') || lower.includes('sphere') || lower.includes('orb')) {
-      const found = this.tabletopObjects.find((o) => o.shape === 'sphere');
-      if (found) return found;
-    }
-
-    if (lower.includes('cup') || lower.includes('mug') || lower.includes('glass') || lower.includes('drink')) {
-      const found = this.tabletopObjects.find((o) => o.shape === 'mug' || o.shape === 'glass');
-      if (found) return found;
-    }
-
-    if (lower.includes('cube') || lower.includes('block') || lower.includes('box')) {
-      const found = this.tabletopObjects.find((o) => o.shape === 'box');
-      if (found) return found;
-    }
-
-    if (lower.includes('cylinder') || lower.includes('can') || lower.includes('bottle')) {
-      const found = this.tabletopObjects.find((o) => o.shape === 'cylinder');
-      if (found) return found;
+    // 4. Color-only disambiguation if NO conflicting noun was specified
+    if (mentionedColors.length > 0 && mentionedNouns.length === 0) {
+      for (const obj of this.tabletopObjects) {
+        const objNameL = obj.name.toLowerCase();
+        const objIdL = obj.id.toLowerCase();
+        if (mentionedColors.some((c) => objNameL.includes(c) || objIdL.includes(c))) {
+          return obj;
+        }
+      }
     }
 
     return null;
@@ -718,24 +736,50 @@ class RosBridgeService {
     if (!raw) return null;
     const l = raw.toLowerCase().trim();
 
-    const obj = this.findObjectFromText(l);
-    if (obj) return obj.id;
-
     // 1. Direct match with registered objects by id or exact name
     for (const o of this.tabletopObjects) {
       if (l === o.id.toLowerCase() || l === o.name.toLowerCase()) {
         return o.id;
       }
+    }
+
+    const obj = this.findObjectFromText(l);
+    if (obj) return obj.id;
+
+    // 2. Direct string contains
+    for (const o of this.tabletopObjects) {
       if (l.includes(o.id.toLowerCase()) || l.includes(o.name.toLowerCase())) {
         return o.id;
       }
     }
 
-    // 2. Fallback standard keywords
-    if (l.includes('red') && l.includes('cube')) return 'red_cube';
-    if (l.includes('blue') && l.includes('cylinder')) return 'blue_cylinder';
-    if (l.includes('green') && (l.includes('sphere') || l.includes('ball'))) return 'green_sphere';
-    if (l.includes('water') || l.includes('drink') || l.includes('glass') || l.includes('cup') || l.includes('bottle')) return 'water';
+    // 3. Specific item identification (respecting semantics!)
+    if (l.includes('apple') || l.includes('fruit')) {
+      const appleObj = this.tabletopObjects.find(
+        (o) => o.shape === 'apple' || o.id.toLowerCase().includes('apple') || o.name.toLowerCase().includes('apple')
+      );
+      return appleObj ? appleObj.id : 'apple';
+    }
+
+    if (l.includes('cube') || l.includes('box') || l.includes('block')) {
+      const cubeObj = this.tabletopObjects.find((o) => o.shape === 'box' || o.id.toLowerCase().includes('cube'));
+      return cubeObj ? cubeObj.id : 'red_cube';
+    }
+
+    if (l.includes('cylinder') || (l.includes('blue') && !l.includes('cube') && !l.includes('apple'))) {
+      const cylObj = this.tabletopObjects.find((o) => o.shape === 'cylinder' || o.id.toLowerCase().includes('cylinder'));
+      return cylObj ? cylObj.id : 'blue_cylinder';
+    }
+
+    if (l.includes('sphere') || l.includes('ball') || (l.includes('green') && !l.includes('cube') && !l.includes('apple'))) {
+      const sphereObj = this.tabletopObjects.find((o) => o.shape === 'sphere' || o.id.toLowerCase().includes('sphere'));
+      return sphereObj ? sphereObj.id : 'green_sphere';
+    }
+
+    if (l.includes('water') || l.includes('glass') || l.includes('drink') || l.includes('cup') || l.includes('mug')) {
+      const glassObj = this.tabletopObjects.find((o) => o.shape === 'glass' || o.shape === 'mug' || o.id.toLowerCase().includes('water'));
+      return glassObj ? glassObj.id : 'water';
+    }
 
     return null;
   }
@@ -1613,7 +1657,7 @@ class RosBridgeService {
 
     if (isDirectSearch) {
       const targetObj = this.findObjectFromText(text);
-      const objId = targetObj ? targetObj.id : (this.normalizeObjectName(text) || this.tabletopObjects[0]?.id || 'red_cube');
+      const objId = targetObj ? targetObj.id : (this.normalizeObjectName(text) || 'item');
       return {
         version: '1.0',
         command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
@@ -2033,11 +2077,11 @@ class RosBridgeService {
 
       // Kinematic distance & physical existence grounding
       if (isTargetMissing) {
-        if (['pick', 'deliver_to_user', 'place', 'move_to_pose'].includes(skill)) {
+        if (['pick', 'deliver_to_user', 'place', 'move_to_pose', 'search_object'].includes(skill)) {
           // Precondition failure: object is not on tabletop!
-          reachability = 0.04;
-          collision_free = 0.30;
-          object_state = 0.01;
+          reachability = 0.0;
+          collision_free = 0.20;
+          object_state = 0.0;
         }
       } else if (targetDistFromBase !== null) {
         if (isTargetOutOfReach) {
@@ -2077,21 +2121,35 @@ class RosBridgeService {
           collision_free = 0.50;
           object_state = 0.10; // Nothing in gripper to place!
         } else if (skill === 'pick') {
-          if (!isTargetOutOfReach) {
+          if (isTargetMissing) {
+            reachability = 0.0;
+            collision_free = 0.20;
+            object_state = 0.0;
+          } else if (!isTargetOutOfReach) {
             reachability = 0.95;
             collision_free = 0.97;
+            object_state = 0.98;
           }
-          object_state = 0.98;
         } else if (skill === 'deliver_to_user') {
-          if (!isTargetOutOfReach) {
+          if (isTargetMissing) {
+            reachability = 0.0;
+            collision_free = 0.20;
+            object_state = 0.0;
+          } else if (!isTargetOutOfReach) {
             reachability = 0.94;
             collision_free = 0.96;
+            object_state = 0.97;
           }
-          object_state = 0.97;
         } else if (skill === 'search_object') {
-          reachability = 0.99;
-          collision_free = 0.99;
-          object_state = 0.99;
+          if (isTargetMissing) {
+            reachability = 0.05;
+            collision_free = 0.30;
+            object_state = 0.0;
+          } else {
+            reachability = 0.99;
+            collision_free = 0.99;
+            object_state = 0.99;
+          }
         }
       }
 
@@ -2756,7 +2814,8 @@ class RosBridgeService {
     const curr = [...this.currentJointPositions];
     const targetObj = (step.targetObject || intent.target_object || '').toLowerCase();
     const normObj = this.normalizeObjectName(targetObj);
-    const objPos = this.getObjectPosition(normObj || 'red_cube');
+    const resolvedObj = normObj ? this.tabletopObjects.find((o) => o.id === normObj || o.name.toLowerCase().includes(normObj)) : null;
+    const objPos = resolvedObj ? resolvedObj.position : this.getObjectPosition(normObj || '');
     const poseName = step.params?.pose_name || '';
 
     // Active vision search scan pose: arm arches overhead, camera tilted towards target
