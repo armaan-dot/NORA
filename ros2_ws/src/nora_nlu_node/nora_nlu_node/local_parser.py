@@ -211,18 +211,36 @@ _COMMONSENSE_MAP: dict[str, dict[str, Any]] = {
     "mistake": {"action": "pick", "target_object": "eraser", "target_location": "user"},
     "erase": {"action": "pick", "target_object": "eraser", "target_location": "user"},
     "highlight": {"action": "pick", "target_object": "highlighter", "target_location": "user"},
+    "highlight paper": {"action": "pick", "target_object": "highlighter", "target_location": "user"},
     "underline": {"action": "pick", "target_object": "highlighter", "target_location": "user"},
     "measure": {"action": "pick", "target_object": "ruler", "target_location": "user"},
+    "measure paper": {"action": "pick", "target_object": "ruler", "target_location": "user"},
     "straight line": {"action": "pick", "target_object": "ruler", "target_location": "user"},
     "staple": {"action": "pick", "target_object": "stapler", "target_location": "user"},
     "staples": {"action": "pick", "target_object": "stapler", "target_location": "user"},
+    "staple paper": {"action": "pick", "target_object": "stapler", "target_location": "user"},
+    "staple sheets": {"action": "pick", "target_object": "stapler", "target_location": "user"},
+    "bind paper": {"action": "pick", "target_object": "stapler", "target_location": "user"},
+    "erase pencil": {"action": "pick", "target_object": "eraser", "target_location": "user"},
+    "erase mistake": {"action": "pick", "target_object": "eraser", "target_location": "user"},
     "attach": {"action": "pick", "target_object": "paper_clip", "target_location": "user"},
     "clip": {"action": "pick", "target_object": "paper_clip", "target_location": "user"},
     "tape": {"action": "pick", "target_object": "tape", "target_location": "user"},
     "stick": {"action": "pick", "target_object": "glue_stick", "target_location": "user"},
     "glue": {"action": "pick", "target_object": "glue_stick", "target_location": "user"},
+    "cut paper": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "cut the paper": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "cut this paper": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "cut sheet": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "trim paper": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "snip paper": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "slice paper": {"action": "pick", "target_object": "scissors", "target_location": "user"},
     "cut": {"action": "pick", "target_object": "scissors", "target_location": "user"},
     "scissors": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "trim": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "snip": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "shears": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "write on paper": {"action": "pick", "target_object": "pen", "target_location": "user"},
     "pen": {"action": "pick", "target_object": "pen", "target_location": "user"},
     "pencil": {"action": "pick", "target_object": "pencil", "target_location": "user"},
     "marker": {"action": "pick", "target_object": "marker", "target_location": "user"},
@@ -463,7 +481,41 @@ class LocalMLParser(IntentParser):
                 confidence=0.98,
             )
 
-        # 3. Check for explicit known objects mentioned directly
+        # 3. Check high-priority multi-word commonsense phrases and cutting/stationery intents
+        for keyword, mapped in sorted(_COMMONSENSE_MAP.items(), key=lambda kv: len(kv[0]), reverse=True):
+            if " " in keyword and re.search(rf"\b{re.escape(keyword)}\b", lower):
+                return self._format_intent(
+                    raw_text=raw_text,
+                    action=mapped["action"],
+                    target_object=mapped["target_object"],
+                    target_location=mapped.get("target_location"),
+                    parameters={},
+                    confidence=0.98,
+                )
+
+        # Cutting / trimming material intent always resolves to scissors tool
+        if any(w in lower for w in ["cut", "trim", "snip", "shears"]) and not any(w in lower for w in ["pick up paper", "grab paper", "lift paper"]):
+            return self._format_intent(
+                raw_text=raw_text,
+                action="pick",
+                target_object="scissors",
+                target_location="user",
+                parameters={"activity_context": "cutting"},
+                confidence=0.98,
+            )
+
+        # Stapling material intent resolves to stapler tool
+        if any(w in lower for w in ["staple", "stapling", "bind papers", "fasten papers"]):
+            return self._format_intent(
+                raw_text=raw_text,
+                action="pick",
+                target_object="stapler",
+                target_location="user",
+                parameters={"activity_context": "stapling"},
+                confidence=0.98,
+            )
+
+        # 4. Check for explicit known objects mentioned directly
         explicit_obj = None
         if self.model_data:
             for obj in sorted(self.model_data.get("known_objects", []), key=len, reverse=True):
@@ -472,7 +524,7 @@ class LocalMLParser(IntentParser):
                     explicit_obj = obj
                     break
 
-        # 4. Commonsense Mapping (only if no explicit object was named)
+        # 5. Commonsense Mapping (only if no explicit object was named)
         if explicit_obj is None:
             for kw, mapped in _COMMONSENSE_MAP.items():
                 if re.search(rf"\b{kw}\b", lower):

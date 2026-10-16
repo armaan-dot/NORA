@@ -292,6 +292,7 @@ export function isPhysicalTask(text: string | null | undefined): boolean {
     'food', 'hungry', 'starv', 'eat', 'eating', 'snack', 'fruit', 'apple', 'banana', 'orange', 'sandwich', 'cookie', 'chips',
     'drink', 'thirsty', 'water', 'coffee', 'tea', 'soda', 'beverage', 'hydrate',
     'write', 'writing', 'pen', 'pencil', 'note', 'marker', 'scissors', 'stapler', 'stationery', 'paper', 'ruler', 'eraser', 'highlighter',
+    'cut', 'cutting', 'snip', 'trim', 'shears', 'slice', 'staple', 'erase', 'measure', 'highlight',
     'play', 'game', 'toy', 'bored', 'tennis', 'dice', 'cards', 'controller', 'gamepad', 'fidget', 'puzzle',
     'tool', 'wrench', 'screwdriver', 'pliers',
     'cube', 'cylinder', 'sphere', 'box', 'sponge', 'table'
@@ -390,14 +391,22 @@ export function getEntityMetadata(targetNameOrText: string): EntityMetadata | un
     return { name: 'Red Apple', shape: 'apple', color: '#e11d48', emoji: '🍎' };
   }
   // Stationery & office items
-  if (l.includes('stationery') || l.includes('write') || l.includes('writing') || l.includes('pen') || l.includes('pencil') || l.includes('note') || l.includes('marker') || l.includes('scissors') || l.includes('stapler') || l.includes('ruler')) {
-    if (l.includes('scissors')) return { name: 'Scissors', shape: 'box', color: '#64748b', emoji: '✂️' };
-    if (l.includes('stapler')) return { name: 'Stapler', shape: 'box', color: '#475569', emoji: '📎' };
+  if (
+    l.includes('stationery') || l.includes('write') || l.includes('writing') || l.includes('pen') ||
+    l.includes('pencil') || l.includes('note') || l.includes('marker') || l.includes('scissors') ||
+    l.includes('stapler') || l.includes('ruler') || l.includes('cut') || l.includes('trim') ||
+    l.includes('snip') || l.includes('shears') || l.includes('staple') || l.includes('erase') ||
+    l.includes('eraser') || l.includes('measure') || l.includes('highlight')
+  ) {
+    if (l.includes('scissors') || l.includes('cut') || l.includes('trim') || l.includes('snip') || l.includes('shears')) {
+      return { name: 'Scissors', shape: 'box', color: '#64748b', emoji: '✂️' };
+    }
+    if (l.includes('stapler') || l.includes('staple')) return { name: 'Stapler', shape: 'box', color: '#475569', emoji: '📎' };
     if (l.includes('notebook') || l.includes('notes')) return { name: 'Notebook', shape: 'box', color: '#3b82f6', emoji: '📓' };
     if (l.includes('pencil')) return { name: 'Pencil', shape: 'cylinder', color: '#f59e0b', emoji: '✏️' };
-    if (l.includes('marker') || l.includes('highlighter')) return { name: 'Highlighter', shape: 'cylinder', color: '#eab308', emoji: '🖍️' };
-    if (l.includes('ruler')) return { name: 'Ruler', shape: 'box', color: '#cbd5e1', emoji: '📏' };
-    if (l.includes('eraser')) return { name: 'Eraser', shape: 'box', color: '#f43f5e', emoji: '🧼' };
+    if (l.includes('marker') || l.includes('highlighter') || l.includes('highlight')) return { name: 'Highlighter', shape: 'cylinder', color: '#eab308', emoji: '🖍️' };
+    if (l.includes('ruler') || l.includes('measure')) return { name: 'Ruler', shape: 'box', color: '#cbd5e1', emoji: '📏' };
+    if (l.includes('eraser') || l.includes('erase')) return { name: 'Eraser', shape: 'box', color: '#f43f5e', emoji: '🧼' };
     return { name: 'Writing Pen', shape: 'cylinder', color: '#2563eb', emoji: '🖊️' };
   }
   // Games, play, toys & boredom
@@ -577,18 +586,83 @@ export const SEMANTIC_ACTIVITY_ONTOLOGY: ActivityConcept[] = [
     color: '#3b82f6',
     searchMatchers: ['blue cylinder', 'cylinder', 'tube', 'canister']
   },
-  // 8. Stationery, Writing & Office Work
+  // 8. Scissors & Paper Cutting (Acquires Scissors)
+  {
+    id: 'scissors',
+    keywords: [
+      'cut', 'cut paper', 'cutting', 'trim', 'trim paper', 'snip', 'snip paper',
+      'scissors', 'shears', 'slice paper', 'craft cut', 'cut this', 'cut sheets', 'cutting paper'
+    ],
+    impliedNeed: 'pair of scissors for cutting paper',
+    defaultName: 'Office Scissors',
+    shape: 'box',
+    color: '#64748b',
+    searchMatchers: ['scissors', 'office scissors', 'scissor', 'cutting tool', 'shears']
+  },
+  // 9. Stapler & Document Binding (Acquires Stapler)
+  {
+    id: 'stapler',
+    keywords: [
+      'staple', 'staple paper', 'stapling', 'bind', 'bind papers', 'fasten',
+      'fasten papers', 'stapler', 'staples', 'paper fastener'
+    ],
+    impliedNeed: 'stapler for binding papers',
+    defaultName: 'Paper Stapler',
+    shape: 'box',
+    color: '#475569',
+    searchMatchers: ['stapler', 'paper stapler', 'staple']
+  },
+  // 10. Eraser & Mistake Correction (Acquires Eraser)
+  {
+    id: 'eraser',
+    keywords: [
+      'erase', 'erasing', 'rub out', 'remove pencil', 'made a mistake', 'mistake',
+      'fix mistake', 'eraser', 'rubber eraser', 'pencil eraser'
+    ],
+    impliedNeed: 'pink eraser for removing pencil marks',
+    defaultName: 'Pink Eraser',
+    shape: 'box',
+    color: '#f43f5e',
+    searchMatchers: ['eraser', 'pink eraser', 'rubber']
+  },
+  // 11. Ruler & Precision Measurement (Acquires Ruler)
+  {
+    id: 'ruler',
+    keywords: [
+      'measure', 'measuring', 'draw straight line', 'straight line', 'measure length',
+      'ruler', 'metric ruler', 'measure distance'
+    ],
+    impliedNeed: 'desk ruler for measuring and straight lines',
+    defaultName: 'Desk Ruler',
+    shape: 'box',
+    color: '#cbd5e1',
+    searchMatchers: ['ruler', 'desk ruler', 'scale']
+  },
+  // 12. Highlighter & Text Marking (Acquires Highlighter)
+  {
+    id: 'highlighter',
+    keywords: [
+      'highlight', 'highlighter', 'fluorescent', 'mark text', 'underline',
+      'neon marker', 'highlighting'
+    ],
+    impliedNeed: 'neon highlighter for text marking',
+    defaultName: 'Neon Highlighter',
+    shape: 'cylinder',
+    color: '#eab308',
+    searchMatchers: ['highlighter', 'neon highlighter', 'marker']
+  },
+  // 13. Writing Pen & Taking Notes (Acquires Writing Pen)
   {
     id: 'pen',
     keywords: [
-      'write', 'writing', 'pen', 'pencil', 'note', 'take notes', 'marker', 'highlighter',
-      'stationery', 'desk item', 'paper', 'notebook', 'ruler', 'eraser', 'scissors', 'stapler'
+      'write', 'writing', 'pen', 'pencil', 'note', 'take notes', 'jot down',
+      'sign', 'signature', 'desk item', 'jot', 'ballpoint', 'stationery'
     ],
     impliedNeed: 'writing pen for taking notes',
     defaultName: 'Writing Pen',
     shape: 'cylinder',
     color: '#2563eb',
-    searchMatchers: ['pen', 'writing pen', 'pencil', 'marker', 'stationery']
+    searchMatchers: ['pen', 'writing pen', 'pencil', 'stationery']
   }
 ];
 
@@ -1155,6 +1229,41 @@ class RosBridgeService {
     }
 
     // 3. Specific item identification (respecting strict semantics!)
+    if (l.includes('scissors') || l.includes('scissor') || l.includes('cut') || l.includes('trim') || l.includes('snip') || l.includes('shears')) {
+      const scissorsObj = this.tabletopObjects.find(
+        (o) => o.id.toLowerCase().includes('scissor') || o.name.toLowerCase().includes('scissor')
+      );
+      return scissorsObj ? scissorsObj.id : 'scissors';
+    }
+
+    if (l.includes('stapler') || l.includes('staple') || l.includes('bind')) {
+      const staplerObj = this.tabletopObjects.find(
+        (o) => o.id.toLowerCase().includes('stapler') || o.name.toLowerCase().includes('stapler')
+      );
+      return staplerObj ? staplerObj.id : 'stapler';
+    }
+
+    if (l.includes('eraser') || l.includes('erase') || l.includes('rub out')) {
+      const eraserObj = this.tabletopObjects.find(
+        (o) => o.id.toLowerCase().includes('eraser') || o.name.toLowerCase().includes('eraser')
+      );
+      return eraserObj ? eraserObj.id : 'eraser';
+    }
+
+    if (l.includes('ruler') || l.includes('measure') || l.includes('straight line')) {
+      const rulerObj = this.tabletopObjects.find(
+        (o) => o.id.toLowerCase().includes('ruler') || o.name.toLowerCase().includes('ruler')
+      );
+      return rulerObj ? rulerObj.id : 'ruler';
+    }
+
+    if (l.includes('highlighter') || l.includes('highlight')) {
+      const hlObj = this.tabletopObjects.find(
+        (o) => o.id.toLowerCase().includes('highlighter') || o.name.toLowerCase().includes('highlighter')
+      );
+      return hlObj ? hlObj.id : 'highlighter';
+    }
+
     if (l.includes('tennis') || l.includes('racket') || l.includes('racquet') || (l.includes('play') && l.includes('ball'))) {
       const tennisObj = this.tabletopObjects.find(
         (o) => o.id.toLowerCase().includes('tennis') || o.name.toLowerCase().includes('tennis')

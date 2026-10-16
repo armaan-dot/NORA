@@ -213,6 +213,89 @@ export const ThreeCanvas: React.FC = () => {
       penGroup.add(tip);
 
       mesh = penGroup;
+    } else if (nameLower.includes('scissor') || nameLower.includes('shears')) {
+      const scissorGroup = new THREE.Group();
+      const bladeMat = new THREE.MeshStandardMaterial({
+        color: 0xe2e8f0,
+        metalness: 0.95,
+        roughness: 0.15
+      });
+      const handleMat = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        roughness: 0.35,
+        metalness: 0.2
+      });
+
+      // Left blade
+      const blade1Geo = new THREE.BoxGeometry(0.0035, 0.085, 0.011);
+      const blade1 = new THREE.Mesh(blade1Geo, bladeMat);
+      blade1.position.set(-0.007, 0.018, 0.001);
+      blade1.rotation.z = -0.22;
+      blade1.castShadow = true;
+      blade1.receiveShadow = true;
+      scissorGroup.add(blade1);
+
+      // Right blade
+      const blade2Geo = new THREE.BoxGeometry(0.0035, 0.085, 0.011);
+      const blade2 = new THREE.Mesh(blade2Geo, bladeMat);
+      blade2.position.set(0.007, 0.018, -0.001);
+      blade2.rotation.z = 0.22;
+      blade2.castShadow = true;
+      blade2.receiveShadow = true;
+      scissorGroup.add(blade2);
+
+      // Pivot rivet
+      const rivetGeo = new THREE.CylinderGeometry(0.0035, 0.0035, 0.008, 16);
+      const rivet = new THREE.Mesh(rivetGeo, bladeMat);
+      rivet.rotation.x = Math.PI / 2;
+      rivet.position.set(0, -0.005, 0);
+      scissorGroup.add(rivet);
+
+      // Handle loop 1
+      const ring1Geo = new THREE.TorusGeometry(0.013, 0.0032, 12, 24);
+      const ring1 = new THREE.Mesh(ring1Geo, handleMat);
+      ring1.position.set(-0.016, -0.038, 0);
+      ring1.castShadow = true;
+      scissorGroup.add(ring1);
+
+      // Handle loop 2
+      const ring2Geo = new THREE.TorusGeometry(0.013, 0.0032, 12, 24);
+      const ring2 = new THREE.Mesh(ring2Geo, handleMat);
+      ring2.position.set(0.016, -0.038, 0);
+      ring2.castShadow = true;
+      scissorGroup.add(ring2);
+
+      mesh = scissorGroup;
+    } else if (nameLower.includes('stapler')) {
+      const staplerGroup = new THREE.Group();
+      const baseMat = new THREE.MeshStandardMaterial({
+        color: 0x94a3b8,
+        metalness: 0.85,
+        roughness: 0.25
+      });
+      const topMat = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        roughness: 0.3,
+        metalness: 0.25
+      });
+
+      // Bottom anvil base
+      const baseGeo = new THREE.BoxGeometry(0.03, 0.008, 0.09);
+      const base = new THREE.Mesh(baseGeo, baseMat);
+      base.castShadow = true;
+      base.receiveShadow = true;
+      staplerGroup.add(base);
+
+      // Upper arm lever
+      const topGeo = new THREE.BoxGeometry(0.026, 0.02, 0.082);
+      const topLever = new THREE.Mesh(topGeo, topMat);
+      topLever.position.set(0, 0.015, -0.004);
+      topLever.rotation.x = 0.05;
+      topLever.castShadow = true;
+      topLever.receiveShadow = true;
+      staplerGroup.add(topLever);
+
+      mesh = staplerGroup;
     } else if (obj.shape === 'box') {
       const geo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
       const mat = new THREE.MeshStandardMaterial({
