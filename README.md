@@ -6,6 +6,7 @@
 [![ROS 2 Humble](https://img.shields.io/badge/ROS%202-Humble-blue?style=flat-square&logo=ros)](https://docs.ros.org/en/humble/)
 [![UR5e Compatible](https://img.shields.io/badge/Hardware-UR5e%20%7C%206--DOF-orange?style=flat-square)](https://www.universal-robots.com/)
 [![Foxglove Studio](https://img.shields.io/badge/Telemetry-Foxglove%20Studio-purple?style=flat-square)](https://foxglove.dev/)
+[![Simulation](https://img.shields.io/badge/Simulation-Gazebo%20%7C%20NVIDIA%20Isaac%20(Under%20Process)-yellow?style=flat-square)](https://developer.nvidia.com/isaac-sim)
 
 🔗 **Live Interactive Demo:** [https://armnora.netlify.app](https://armnora.netlify.app)
 
@@ -55,6 +56,7 @@ $$\text{Combined Score} = (\text{Usefulness})^{0.6} \times (\text{Feasibility})^
 - **Universal Robots UR5e & Tabletop Arm**: ROS 2 Humble control via MoveIt 2 and `joint_trajectory_controller`.
 - **Foxglove Studio Telemetry**: Live streaming of `/joint_states`, `/nora/affordance_score`, RGB-D camera pointclouds, and reticle scans.
 - **Interactive 3D Web Twin**: Three.js WebGL simulation featuring closed-form IK, collision avoidance, and draggable tabletop objects.
+- **Gazebo & NVIDIA Isaac Sim**: High-fidelity physics simulations, digital twin environments, and sensor pipelines are currently under process.
 
 ---
 
