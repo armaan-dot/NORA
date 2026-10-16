@@ -288,6 +288,9 @@ _EXPLICIT_SAMPLES: list[str] = [
     "go to hell dumbass",
     "idiot ass arm",
     "get out motherfucker",
+    "Masterbate",
+    "kill him",
+    "masturbate",
 ]
 
 _COMMONSENSE_PAIRS: list[dict[str, Any]] = [
