@@ -184,6 +184,35 @@ export const ThreeCanvas: React.FC = () => {
       tennisGroup.add(seam2);
 
       mesh = tennisGroup;
+    } else if (nameLower.includes('pen') || nameLower.includes('pencil') || nameLower.includes('marker')) {
+      const penGroup = new THREE.Group();
+      // Pen slender body
+      const penGeo = new THREE.CylinderGeometry(0.007, 0.007, 0.11, 16);
+      const penMat = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        roughness: 0.25,
+        metalness: 0.35
+      });
+      const penBody = new THREE.Mesh(penGeo, penMat);
+      penBody.castShadow = true;
+      penBody.receiveShadow = true;
+      penGroup.add(penBody);
+
+      // Silver clip on cap
+      const clipGeo = new THREE.BoxGeometry(0.004, 0.03, 0.007);
+      const clipMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.85, roughness: 0.2 });
+      const clip = new THREE.Mesh(clipGeo, clipMat);
+      clip.position.set(0.007, 0.035, 0);
+      penGroup.add(clip);
+
+      // Silver conical tip
+      const tipGeo = new THREE.ConeGeometry(0.007, 0.018, 16);
+      const tip = new THREE.Mesh(tipGeo, clipMat);
+      tip.position.y = -0.064;
+      tip.rotation.x = Math.PI;
+      penGroup.add(tip);
+
+      mesh = penGroup;
     } else if (obj.shape === 'box') {
       const geo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
       const mat = new THREE.MeshStandardMaterial({
@@ -1183,6 +1212,14 @@ export const ThreeCanvas: React.FC = () => {
               title="Quick Add: Fresh Red Apple"
             >
               🍎
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickSpawn('Writing Pen', 'cylinder', '#2563eb')}
+              className="hud-quick-btn"
+              title="Quick Add: Blue Writing Pen"
+            >
+              🖊️
             </button>
             <button
               type="button"

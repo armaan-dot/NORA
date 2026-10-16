@@ -32,7 +32,7 @@ interface PresetItem {
   shape: ObjectShape;
   color: string;
   emoji: string;
-  category: 'drinks' | 'food' | 'primitives';
+  category: 'drinks' | 'food' | 'stationery' | 'primitives';
   desc: string;
 }
 
@@ -46,6 +46,16 @@ const PRESETS: PresetItem[] = [
   { name: 'Red Apple', shape: 'apple', color: '#e11d48', emoji: '🍎', category: 'food', desc: 'Fresh apple with stem & leaf' },
   { name: 'Green Apple', shape: 'apple', color: '#65a30d', emoji: '🍏', category: 'food', desc: 'Crisp granny smith apple' },
   { name: 'Orange Fruit', shape: 'sphere', color: '#f97316', emoji: '🍊', category: 'food', desc: 'Citrus tabletop fruit' },
+
+  // Stationery & Office Supplies
+  { name: 'Writing Pen', shape: 'cylinder', color: '#2563eb', emoji: '🖊️', category: 'stationery', desc: 'Blue ballpoint desk pen' },
+  { name: 'Yellow Pencil', shape: 'cylinder', color: '#f59e0b', emoji: '✏️', category: 'stationery', desc: 'Sharpened graphite pencil' },
+  { name: 'Neon Highlighter', shape: 'cylinder', color: '#eab308', emoji: '🖍️', category: 'stationery', desc: 'Vibrant text highlighter' },
+  { name: 'Notebook Journal', shape: 'box', color: '#3b82f6', emoji: '📓', category: 'stationery', desc: 'Hardcover notes sketchbook' },
+  { name: 'Desk Ruler', shape: 'box', color: '#cbd5e1', emoji: '📏', category: 'stationery', desc: 'Clear metric measurement ruler' },
+  { name: 'Office Scissors', shape: 'box', color: '#64748b', emoji: '✂️', category: 'stationery', desc: 'Stainless steel cutting scissors' },
+  { name: 'Paper Stapler', shape: 'box', color: '#475569', emoji: '📎', category: 'stationery', desc: 'Desktop document stapler' },
+  { name: 'Pink Eraser', shape: 'box', color: '#f43f5e', emoji: '🧼', category: 'stationery', desc: 'Rubber pencil eraser block' },
 
   // Workspace Primitives
   { name: 'Yellow Box', shape: 'box', color: '#eab308', emoji: '🟨', category: 'primitives', desc: 'Standard manipulation cube' },
@@ -68,7 +78,7 @@ const COLOR_SWATCHES = [
 ];
 
 export const AddObjectModal: React.FC<AddObjectModalProps> = ({ isOpen, onClose, onObjectAdded }) => {
-  const [selectedCategory, setSelectedCategory] = useState<'all' | 'drinks' | 'food' | 'primitives'>('all');
+  const [selectedCategory, setSelectedCategory] = useState<'all' | 'drinks' | 'food' | 'stationery' | 'primitives'>('all');
   const [name, setName] = useState('Coffee Mug');
   const [shape, setShape] = useState<ObjectShape>('mug');
   const [color, setColor] = useState('#8B4513');
@@ -324,6 +334,13 @@ export const AddObjectModal: React.FC<AddObjectModalProps> = ({ isOpen, onClose,
                 onClick={() => setSelectedCategory('food')}
               >
                 🍎 Food
+              </button>
+              <button
+                type="button"
+                className={`category-tab ${selectedCategory === 'stationery' ? 'active' : ''}`}
+                onClick={() => setSelectedCategory('stationery')}
+              >
+                🖊️ Stationery
               </button>
               <button
                 type="button"
