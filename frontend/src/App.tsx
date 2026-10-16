@@ -9,7 +9,6 @@ import {
   getEntityMetadata,
   containsExplicitWords,
   isPhysicalTask,
-  hasExplicitObjectEntity,
   type EntityMetadata
 } from './services/rosService';
 import type {
@@ -128,13 +127,10 @@ export const App: React.FC = () => {
           !isExplicit &&
           (isPhysicalTask(rawCmd) ||
             data.guardrailEvent?.type === 'impossible' ||
-            data.guardrailEvent?.type === 'ungrounded' ||
-            data.guardrailEvent?.type === 'reachability' ||
             data.intent?.action === 'impossible' ||
-            data.intent?.action === 'guardrail_test' ||
-            data.intent?.action === 'wave' ||
-            data.intent?.action === 'home' ||
-            !hasExplicitObjectEntity(target || rawCmd));
+            data.intent?.action === 'guardrail_test');
+
+        const meta = !isExplicit && !isPhysical ? getEntityMetadata(target || rawCmd) : undefined;
 
         const isMissing =
           !isExplicit &&
@@ -142,10 +138,9 @@ export const App: React.FC = () => {
           (data.guardrailEvent?.type === 'missing_object' ||
             (data.error?.toLowerCase().includes('not present') ?? false) ||
             (data.error?.toLowerCase().includes('not found') ?? false) ||
-            (data.error?.toLowerCase().includes('object grounding') ?? false)) &&
-          hasExplicitObjectEntity(target || rawCmd);
-
-        const meta = !isExplicit && !isPhysical && isMissing ? getEntityMetadata(target || rawCmd) : undefined;
+            (data.error?.toLowerCase().includes('object grounding') ?? false) ||
+            (data.error?.toLowerCase().includes('visual search failed') ?? false) ||
+            Boolean(meta));
 
         setFailedTaskPopup({
           open: true,
@@ -153,6 +148,8 @@ export const App: React.FC = () => {
             ? 'Cannot process explicit words'
             : isPhysical
             ? (data.guardrailEvent?.title || 'Physical Task Interlock')
+            : isMissing
+            ? (data.guardrailEvent?.title || 'Object Grounding Guardrail')
             : (data.guardrailEvent?.title || 'Task Execution Interlocked (Affordance Failure)'),
           reason: isExplicit
             ? 'Safety Policy Interlock: Explicit words cannot be processed by the robot.'
@@ -193,16 +190,19 @@ export const App: React.FC = () => {
           !isExplicit &&
           (isPhysicalTask(rawCmd) ||
             evt.type === 'impossible' ||
-            evt.type === 'ungrounded' ||
-            evt.type === 'reachability' ||
             intent?.action === 'impossible' ||
-            intent?.action === 'guardrail_test' ||
-            intent?.action === 'wave' ||
-            intent?.action === 'home' ||
-            !hasExplicitObjectEntity(target || rawCmd));
+            intent?.action === 'guardrail_test');
 
-        const isMissing = !isExplicit && !isPhysical && evt.type === 'missing_object' && hasExplicitObjectEntity(target || rawCmd);
-        const meta = !isExplicit && !isPhysical && isMissing ? getEntityMetadata(target || rawCmd) : undefined;
+        const meta = !isExplicit && !isPhysical ? getEntityMetadata(target || rawCmd) : undefined;
+
+        const isMissing =
+          !isExplicit &&
+          !isPhysical &&
+          (evt.type === 'missing_object' ||
+            (evt.reason?.toLowerCase().includes('not present') ?? false) ||
+            (evt.reason?.toLowerCase().includes('not found') ?? false) ||
+            (evt.reason?.toLowerCase().includes('object grounding') ?? false) ||
+            Boolean(meta));
 
         setFailedTaskPopup({
           open: true,
@@ -210,6 +210,8 @@ export const App: React.FC = () => {
             ? 'Cannot process explicit words'
             : isPhysical
             ? (evt.title || 'Physical Task Interlock')
+            : isMissing
+            ? (evt.title || 'Object Grounding Guardrail')
             : (evt.title || 'SayCan Guardrail Triggered'),
           reason: isExplicit
             ? 'Safety Policy Interlock: Explicit words cannot be processed by the robot.'

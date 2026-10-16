@@ -46,7 +46,6 @@ export const IMPOSSIBLE_OR_UNSUPPORTED_KEYWORDS: string[] = [
   'climb', 'climbing',
   'drive', 'driving',
   'cook', 'cooking', 'bake', 'baking', 'fry', 'boil',
-  'eat', 'eating',
   'sleep', 'sleeping',
   'joke', 'tell a joke', 'laugh', 'cry',
   'breathe',
@@ -114,20 +113,9 @@ export function containsExplicitWords(text: string): boolean {
   return EXPLICIT_WORDS_PATTERNS.some((regex) => regex.test(text));
 }
 
-// Physical task & action keywords that cannot be spawned as tabletop objects
+// Physical task & action keywords that cannot be spawned as tabletop objects (non-robotic body actions)
 export const PHYSICAL_TASK_KEYWORDS: string[] = [
   ...IMPOSSIBLE_OR_UNSUPPORTED_KEYWORDS,
-  'clean', 'cleaning', 'clean up',
-  'wipe', 'wiping',
-  'wash', 'washing',
-  'sweep', 'sweeping',
-  'mop', 'mopping',
-  'dust', 'dusting',
-  'scrub', 'scrubbing',
-  'vacuum', 'vacuuming',
-  'tidy', 'tidying',
-  'polish', 'polishing',
-  'clear table', 'clear desk', 'clear mess',
   'wave', 'waving',
   'nod', 'nodding',
   'shake', 'shaking',
@@ -138,39 +126,152 @@ export const PHYSICAL_TASK_KEYWORDS: string[] = [
   'clap', 'clapping',
   'exercise', 'exercising',
   'pose', 'posing',
-  'push', 'pushing',
-  'pull', 'pulling',
-  'lift', 'lifting',
-  'drop', 'dropping',
-  'throw', 'throwing',
-  'catch', 'catching',
-  'cut', 'cutting',
-  'fold', 'folding',
-  'twist', 'twisting',
-  'turn', 'turning',
-  'pour', 'pouring',
-  'mix', 'mixing',
-  'stir', 'stirring',
   'hit', 'hitting',
-  'tap', 'tapping',
-  'press', 'pressing',
   'scratch', 'scratching',
-  'rub', 'rubbing',
-  'slide', 'sliding',
-  'drag', 'dragging',
-  'open', 'opening',
-  'close', 'closing'
+  'rub', 'rubbing'
 ];
 
 export const RECOGNIZED_TABLETOP_OBJECTS: string[] = [
-  'apple', 'red apple', 'fruit', 'banana', 'orange',
-  'coffee', 'coffee mug', 'mug', 'cup', 'latte', 'espresso', 'tea',
+  // Common category & desire nouns
+  'food', 'snack', 'snacks', 'fruit', 'fruits', 'meal', 'lunch', 'breakfast', 'dinner', 'nutrition',
+  'drink', 'drinks', 'beverage', 'beverages', 'refreshment',
+  'stationery', 'office supply', 'office supplies', 'writing tool',
+  'game', 'games', 'toy', 'toys', 'play item', 'recreation', 'puzzle', 'entertainment',
+  'tool', 'tools', 'hardware',
+
+  // Foods & Snacks
+  'apple', 'red apple', 'green apple', 'banana', 'orange', 'fresh orange',
+  'sandwich', 'burger', 'pizza', 'croissant', 'bagel', 'toast', 'muffin', 'donut',
+  'cookie', 'cookies', 'chips', 'potato chips', 'chips bag', 'cracker', 'snack bar',
+  'granola bar', 'chocolate', 'chocolate bar', 'candy', 'cereal',
+
+  // Drinks & Drinkware
+  'coffee', 'coffee mug', 'mug', 'cup', 'latte', 'espresso', 'cappuccino', 'tea', 'tea cup',
   'water', 'water glass', 'glass', 'drink', 'beverage', 'bottle', 'water bottle',
+  'soda', 'soda can', 'can', 'juice', 'milk', 'thermos',
+
+  // Stationery & Office Supplies
+  'pen', 'ballpoint pen', 'gel pen', 'writing pen', 'pencil', 'mechanical pencil',
+  'marker', 'whiteboard marker', 'permanent marker', 'highlighter',
+  'eraser', 'pencil sharpener', 'ruler', 'protractor', 'compass',
+  'scissors', 'stapler', 'staples', 'hole punch', 'paper clip', 'binder clip', 'rubber band',
+  'tape', 'glue', 'glue stick', 'sticky notes', 'post it', 'notebook', 'notepad', 'sketchbook',
+  'textbook', 'book', 'paper', 'folder', 'binder', 'envelope', 'clipboard', 'calculator',
+
+  // Games, Play & Toys
   'tennis', 'tennis ball', 'ball', 'sphere', 'green sphere', 'stress ball', 'dice',
-  'cube', 'red cube', 'block', 'brick', 'box', 'package', 'storage box', 'playing cards', 'cards',
-  'cylinder', 'blue cylinder', 'canister', 'can', 'soda can',
-  'sponge'
+  'game controller', 'controller', 'gamepad', 'joystick', 'fidget spinner', 'fidget',
+  'rubiks cube', 'puzzle', 'puzzle box', 'playing cards', 'cards', 'card', 'chess',
+  'chess piece', 'dominoes', 'toy car', 'plushie', 'lego',
+
+  // Containers & Geometry
+  'cube', 'red cube', 'block', 'brick', 'box', 'package', 'storage box',
+  'cylinder', 'blue cylinder', 'canister', 'tube', 'tray', 'bin', 'trash bin',
+  'sponge', 'cloth', 'towel'
 ];
+
+export interface CategorySearchDefinition {
+  category: string;
+  defaultId: string;
+  defaultName: string;
+  defaultShape: 'apple' | 'glass' | 'box' | 'cylinder' | 'sphere' | 'mug';
+  defaultColor: string;
+  defaultEmoji: string;
+  candidateIds: string[];
+}
+
+export const CATEGORY_SEARCH_MAP: Record<string, CategorySearchDefinition> = {
+  food: {
+    category: 'food',
+    defaultId: 'apple',
+    defaultName: 'Red Apple',
+    defaultShape: 'apple',
+    defaultColor: '#e11d48',
+    defaultEmoji: '🍎',
+    candidateIds: ['apple', 'banana', 'orange', 'sandwich', 'cookie', 'chips', 'snack', 'food']
+  },
+  snack: {
+    category: 'snack',
+    defaultId: 'apple',
+    defaultName: 'Red Apple',
+    defaultShape: 'apple',
+    defaultColor: '#e11d48',
+    defaultEmoji: '🍎',
+    candidateIds: ['apple', 'banana', 'orange', 'sandwich', 'cookie', 'chips', 'snack', 'food']
+  },
+  fruit: {
+    category: 'fruit',
+    defaultId: 'apple',
+    defaultName: 'Red Apple',
+    defaultShape: 'apple',
+    defaultColor: '#e11d48',
+    defaultEmoji: '🍎',
+    candidateIds: ['apple', 'banana', 'orange', 'fruit']
+  },
+  meal: {
+    category: 'meal',
+    defaultId: 'apple',
+    defaultName: 'Red Apple',
+    defaultShape: 'apple',
+    defaultColor: '#e11d48',
+    defaultEmoji: '🍎',
+    candidateIds: ['apple', 'banana', 'orange', 'sandwich', 'meal']
+  },
+  drink: {
+    category: 'drink',
+    defaultId: 'water',
+    defaultName: 'Water Glass',
+    defaultShape: 'glass',
+    defaultColor: '#06b6d4',
+    defaultEmoji: '🥛',
+    candidateIds: ['water', 'glass', 'cup', 'water_glass', 'coffee_mug', 'bottle', 'soda_can', 'drink']
+  },
+  beverage: {
+    category: 'beverage',
+    defaultId: 'water',
+    defaultName: 'Water Glass',
+    defaultShape: 'glass',
+    defaultColor: '#06b6d4',
+    defaultEmoji: '🥛',
+    candidateIds: ['water', 'glass', 'cup', 'water_glass', 'coffee_mug', 'bottle', 'soda_can', 'beverage']
+  },
+  stationery: {
+    category: 'stationery',
+    defaultId: 'pen',
+    defaultName: 'Writing Pen',
+    defaultShape: 'cylinder',
+    defaultColor: '#2563eb',
+    defaultEmoji: '🖊️',
+    candidateIds: ['pen', 'pencil', 'marker', 'notebook', 'eraser', 'ruler', 'stapler', 'scissors', 'stationery']
+  },
+  game: {
+    category: 'game',
+    defaultId: 'game_controller',
+    defaultName: 'Game Controller',
+    defaultShape: 'box',
+    defaultColor: '#8b5cf6',
+    defaultEmoji: '🎮',
+    candidateIds: ['game_controller', 'rubiks_cube', 'toy_car', 'dice', 'ball', 'tennis_ball', 'game']
+  },
+  toy: {
+    category: 'toy',
+    defaultId: 'game_controller',
+    defaultName: 'Game Controller',
+    defaultShape: 'box',
+    defaultColor: '#8b5cf6',
+    defaultEmoji: '🎮',
+    candidateIds: ['game_controller', 'rubiks_cube', 'toy_car', 'dice', 'ball', 'tennis_ball', 'toy']
+  },
+  tool: {
+    category: 'tool',
+    defaultId: 'wrench',
+    defaultName: 'Wrench',
+    defaultShape: 'cylinder',
+    defaultColor: '#475569',
+    defaultEmoji: '🔧',
+    candidateIds: ['wrench', 'screwdriver', 'pliers', 'hammer', 'tool']
+  }
+};
 
 export function hasExplicitObjectEntity(text: string | null | undefined): boolean {
   if (!text) return false;
@@ -184,6 +285,22 @@ export function hasExplicitObjectEntity(text: string | null | undefined): boolea
 export function isPhysicalTask(text: string | null | undefined): boolean {
   if (!text) return false;
   const l = text.toLowerCase().trim();
+
+  // Explicit exemption: If the utterance is an object desire (food, drink, play, stationery, tools, tabletop items),
+  // it is NEVER an impossible physical task!
+  const hasObjectOrDesire = [
+    'food', 'hungry', 'starv', 'eat', 'eating', 'snack', 'fruit', 'apple', 'banana', 'orange', 'sandwich', 'cookie', 'chips',
+    'drink', 'thirsty', 'water', 'coffee', 'tea', 'soda', 'beverage', 'hydrate',
+    'write', 'writing', 'pen', 'pencil', 'note', 'marker', 'scissors', 'stapler', 'stationery', 'paper', 'ruler', 'eraser', 'highlighter',
+    'play', 'game', 'toy', 'bored', 'tennis', 'dice', 'cards', 'controller', 'gamepad', 'fidget', 'puzzle',
+    'tool', 'wrench', 'screwdriver', 'pliers',
+    'cube', 'cylinder', 'sphere', 'box', 'sponge', 'table'
+  ].some((kw) => l.includes(kw));
+
+  if (hasObjectOrDesire) {
+    return false;
+  }
+
   return PHYSICAL_TASK_KEYWORDS.some((kw) => {
     const regex = new RegExp(`\\b${kw}\\b`, 'i');
     return regex.test(l);
@@ -251,11 +368,45 @@ export function getEntityMetadata(targetNameOrText: string): EntityMetadata | un
     return undefined;
   }
 
-  if (l.includes('tennis') || l.includes('racket') || l.includes('racquet') || l.includes('wimbledon')) {
-    return { name: 'Tennis Ball', shape: 'sphere', color: '#84cc16', emoji: '🎾' };
+  // Food, meals & hunger desires (default representative: Red Apple)
+  if (l.includes('food') || l.includes('hungry') || l.includes('starv') || l.includes('eat') || l.includes('snack') || l.includes('meal') || l.includes('lunch') || l.includes('breakfast') || l.includes('dinner')) {
+    if (l.includes('banana')) return { name: 'Banana', shape: 'cylinder', color: '#facc15', emoji: '🍌' };
+    if (l.includes('orange')) return { name: 'Fresh Orange', shape: 'sphere', color: '#f97316', emoji: '🍊' };
+    if (l.includes('sandwich')) return { name: 'Sandwich', shape: 'box', color: '#d97706', emoji: '🥪' };
+    if (l.includes('cookie')) return { name: 'Cookie', shape: 'cylinder', color: '#b45309', emoji: '🍪' };
+    if (l.includes('chips')) return { name: 'Chips Bag', shape: 'box', color: '#ef4444', emoji: '🥔' };
+    return { name: 'Red Apple', shape: 'apple', color: '#e11d48', emoji: '🍎' };
   }
   if (l.includes('apple') || l.includes('fruit')) {
     return { name: 'Red Apple', shape: 'apple', color: '#e11d48', emoji: '🍎' };
+  }
+  // Stationery & office items
+  if (l.includes('stationery') || l.includes('write') || l.includes('writing') || l.includes('pen') || l.includes('pencil') || l.includes('note') || l.includes('marker') || l.includes('scissors') || l.includes('stapler') || l.includes('ruler')) {
+    if (l.includes('scissors')) return { name: 'Scissors', shape: 'box', color: '#64748b', emoji: '✂️' };
+    if (l.includes('stapler')) return { name: 'Stapler', shape: 'box', color: '#475569', emoji: '📎' };
+    if (l.includes('notebook') || l.includes('notes')) return { name: 'Notebook', shape: 'box', color: '#3b82f6', emoji: '📓' };
+    if (l.includes('pencil')) return { name: 'Pencil', shape: 'cylinder', color: '#f59e0b', emoji: '✏️' };
+    if (l.includes('marker') || l.includes('highlighter')) return { name: 'Highlighter', shape: 'cylinder', color: '#eab308', emoji: '🖍️' };
+    if (l.includes('ruler')) return { name: 'Ruler', shape: 'box', color: '#cbd5e1', emoji: '📏' };
+    if (l.includes('eraser')) return { name: 'Eraser', shape: 'box', color: '#f43f5e', emoji: '🧼' };
+    return { name: 'Writing Pen', shape: 'cylinder', color: '#2563eb', emoji: '🖊️' };
+  }
+  // Games, play, toys & boredom
+  if (l.includes('game') || l.includes('play') || l.includes('toy') || l.includes('bored') || l.includes('entertain') || l.includes('controller') || l.includes('gamepad')) {
+    if (l.includes('tennis') || l.includes('racket') || l.includes('racquet')) {
+      return { name: 'Tennis Ball', shape: 'sphere', color: '#84cc16', emoji: '🎾' };
+    }
+    if (l.includes('dice')) return { name: 'Dice', shape: 'box', color: '#f8fafc', emoji: '🎲' };
+    if (l.includes('cards') || l.includes('card')) return { name: 'Playing Cards', shape: 'box', color: '#ffffff', emoji: '🃏' };
+    if (l.includes('fidget') || l.includes('stress ball')) return { name: 'Fidget Spinner', shape: 'cylinder', color: '#ec4899', emoji: '🌀' };
+    if (l.includes('puzzle')) return { name: 'Puzzle Box', shape: 'box', color: '#a855f7', emoji: '🧩' };
+    return { name: 'Game Controller', shape: 'box', color: '#8b5cf6', emoji: '🎮' };
+  }
+  // Tools & Hardware
+  if (l.includes('tool') || l.includes('wrench') || l.includes('screwdriver') || l.includes('pliers') || l.includes('hardware')) {
+    if (l.includes('screwdriver')) return { name: 'Screwdriver', shape: 'cylinder', color: '#f97316', emoji: '🪛' };
+    if (l.includes('pliers')) return { name: 'Pliers', shape: 'box', color: '#64748b', emoji: '🛠️' };
+    return { name: 'Wrench', shape: 'cylinder', color: '#475569', emoji: '🔧' };
   }
   if (l.includes('coffee') || l.includes('mug') || l.includes('latte') || l.includes('espresso') || l.includes('caffeine') || (l.includes('tired') && !l.includes('water'))) {
     return { name: 'Coffee Mug', shape: 'mug', color: '#8B4513', emoji: '☕' };
@@ -1575,71 +1726,199 @@ class RosBridgeService {
       });
 
       if (step.skill === 'search_object') {
-        const obj = this.normalizeObjectName(step.targetObject || intent.target_object);
-        const found = this.tabletopObjects.find(
-          (o) =>
-            o.id === obj ||
-            o.id === step.targetObject ||
-            o.name.toLowerCase() === (step.targetObject || '').toLowerCase()
-        );
-        const friendlyTarget = intent.parameters?.target_name || step.targetObject || 'target';
+        const rawLower = (intent.raw_text || '').toLowerCase();
+        const stepTarget = step.targetObject || intent.target_object || '';
+        const stepTargetLower = stepTarget.toLowerCase();
 
-        if (!found) {
-          // Object not present on table: perform scan and report missing cleanly without inventing objects
-          this.emitPerceptionScan({ active: true, targetObject: obj || step.targetObject });
+        // Check if user queried a common category term (food, drink, stationery, game, toy, tool, etc.)
+        let matchedCategoryKey: string | null = null;
+        for (const catKey of Object.keys(CATEGORY_SEARCH_MAP)) {
+          const regex = new RegExp(`\\b${catKey}s?\\b`, 'i');
+          if (regex.test(rawLower) || regex.test(stepTargetLower)) {
+            matchedCategoryKey = catKey;
+            break;
+          }
+        }
+
+        const catInfo = matchedCategoryKey ? CATEGORY_SEARCH_MAP[matchedCategoryKey] : null;
+
+        if (catInfo) {
+          // Say "Searching food" then search candidate item (e.g. Red Apple)
           this.emitLog({
             level: 20,
             levelName: 'INFO',
             nodeName: 'nora_perception',
-            message: `[Active Vision Search] Initiated visual search for [${friendlyTarget}] across tabletop workspace.`
+            message: `[Active Vision Search] Initiated visual search for [${catInfo.category}] across tabletop workspace.`
+          });
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: `[Category Grounding] Query "${catInfo.category}" maps to candidate item [${catInfo.defaultName}]. Scanning tabletop...`
+          });
+          this.emitArmSpeech({
+            message: `Searching ${catInfo.category}... searching for ${catInfo.defaultName}`,
+            subtext: `Category grounding: [${catInfo.category}] -> [${catInfo.defaultName}]`,
+            type: 'info'
+          });
+
+          // Check if any candidate from this category is currently present on the table
+          const found = this.tabletopObjects.find((o) => {
+            const oId = o.id.toLowerCase();
+            const oName = o.name.toLowerCase();
+            return catInfo.candidateIds.some(
+              (c) => oId === c || oId.includes(c) || oName.includes(c) || o.shape === c
+            );
+          });
+
+          this.emitPerceptionScan({ active: true, targetObject: catInfo.defaultId });
+          await this.simulateJointMotion(step, intent, execId);
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+          await this.delay(450);
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+
+          if (!found) {
+            this.emitPerceptionScan({ active: false, targetObject: catInfo.defaultId });
+            this.emitLog({
+              level: 30,
+              levelName: 'WARN',
+              nodeName: 'nora_perception',
+              message: `[RGB-D Vision Scan] Search completed: "${catInfo.category}" (candidate: ${catInfo.defaultName}) was NOT detected anywhere across tabletop workspace.`
+            });
+            this.emitLog({
+              level: 40,
+              levelName: 'ERROR',
+              nodeName: 'nora_orchestrator',
+              message: `Task aborted: Cannot pick or deliver "${catInfo.category}" because no matching item is present on the table.`
+            });
+
+            const gEvent: GuardrailEvent = {
+              active: true,
+              type: 'missing_object',
+              title: 'Object Grounding Guardrail',
+              reason: `SayCan Perception Guardrail: "${catInfo.defaultName}" (matching category "${catInfo.category}") is not present on the tabletop. Please click "+ Place ${catInfo.defaultName} on Tabletop" to place one in the workspace.`,
+              score: 0.15,
+              threshold: 0.30,
+              targetObject: catInfo.defaultId,
+              timestamp: Date.now()
+            };
+
+            this.emitGuardrail(gEvent);
+            this.notifyPipeline({
+              stage: 'FAILED',
+              intent,
+              affordances,
+              guardrailEvent: gEvent,
+              error: `Visual search failed: "${catInfo.defaultName}" (matching category "${catInfo.category}") was not found on the table. Click "Place ${catInfo.defaultName} on Tabletop" to place one in the workspace.`
+            });
+            this.stateListeners.forEach((cb) => cb('FAILED'));
+            setTimeout(() => {
+              this.stateListeners.forEach((cb) => cb('IDLE'));
+              this.returnHome();
+            }, 3500);
+            return;
+          }
+
+          // Found category item on table! Acquire it and retarget remaining plan steps
+          const pos = found.position;
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: `[YOLO-World] Target acquired! Found ${found.name} (category: ${catInfo.category}) at coordinates (X: ${pos.x.toFixed(2)}m, Y: ${pos.y.toFixed(2)}m, Z: ${pos.z.toFixed(2)}m) with 99.2% confidence.`
+          });
+          this.emitPerceptionScan({ active: false, targetObject: found.id, detectedPosition: pos, confidence: 0.992 });
+
+          // Update subsequent steps so they pick/deliver the detected item
+          for (let j = i + 1; j < plan.length; j++) {
+            if (plan[j].targetObject) {
+              plan[j].targetObject = found.id;
+            }
+          }
+        } else {
+          // Direct item search
+          const obj = this.normalizeObjectName(step.targetObject || intent.target_object);
+          const found = this.tabletopObjects.find(
+            (o) =>
+              o.id === obj ||
+              o.id === step.targetObject ||
+              o.name.toLowerCase() === (step.targetObject || '').toLowerCase()
+          );
+          const friendlyTarget = intent.parameters?.target_name || step.targetObject || 'target';
+
+          if (!found) {
+            // Object not present on table: perform scan and report missing cleanly without inventing objects
+            this.emitPerceptionScan({ active: true, targetObject: obj || step.targetObject });
+            this.emitLog({
+              level: 20,
+              levelName: 'INFO',
+              nodeName: 'nora_perception',
+              message: `[Active Vision Search] Initiated visual search for [${friendlyTarget}] across tabletop workspace.`
+            });
+            await this.simulateJointMotion(step, intent, execId);
+            if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+            await this.delay(450);
+            this.emitPerceptionScan({ active: false, targetObject: obj || step.targetObject });
+            this.emitLog({
+              level: 30,
+              levelName: 'WARN',
+              nodeName: 'nora_perception',
+              message: `[RGB-D Vision Scan] Search completed: "${friendlyTarget}" was NOT detected anywhere across tabletop workspace.`
+            });
+            this.emitLog({
+              level: 40,
+              levelName: 'ERROR',
+              nodeName: 'nora_orchestrator',
+              message: `Task aborted: Cannot pick or deliver "${friendlyTarget}" because it is not present on the table.`
+            });
+
+            const gEvent: GuardrailEvent = {
+              active: true,
+              type: 'missing_object',
+              title: 'Object Grounding Guardrail',
+              reason: `SayCan Perception Guardrail: "${friendlyTarget}" is not present on the tabletop. Please click "+ Add Object" to place one in the workspace.`,
+              score: 0.15,
+              threshold: 0.30,
+              targetObject: obj || step.targetObject,
+              timestamp: Date.now()
+            };
+
+            this.emitGuardrail(gEvent);
+            this.notifyPipeline({
+              stage: 'FAILED',
+              intent,
+              affordances,
+              guardrailEvent: gEvent,
+              error: `Visual search failed: "${friendlyTarget}" was not found on the table. Click "Add Object" to place one in the workspace.`
+            });
+            this.stateListeners.forEach((cb) => cb('FAILED'));
+            setTimeout(() => {
+              this.stateListeners.forEach((cb) => cb('IDLE'));
+              this.returnHome();
+            }, 3500);
+            return;
+          }
+
+          const pos = found.position;
+          this.emitPerceptionScan({ active: true, targetObject: obj });
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: `[Active Vision Search] Initiated visual search for [${found.name}] across tabletop workspace.`
           });
           await this.simulateJointMotion(step, intent, execId);
           if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
           await this.delay(450);
-          this.emitPerceptionScan({ active: false, targetObject: obj || step.targetObject });
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
           this.emitLog({
-            level: 30,
-            levelName: 'WARN',
+            level: 20,
+            levelName: 'INFO',
             nodeName: 'nora_perception',
-            message: `[RGB-D Vision Scan] Search completed: "${friendlyTarget}" was NOT detected anywhere across tabletop workspace.`
+            message: `[YOLO-World] Target acquired! [${found.name}] detected at coordinates (X: ${pos.x.toFixed(2)}m, Y: ${pos.y.toFixed(2)}m, Z: ${pos.z.toFixed(2)}m) with 99.2% confidence.`
           });
-          this.emitLog({
-            level: 40,
-            levelName: 'ERROR',
-            nodeName: 'nora_orchestrator',
-            message: `Task aborted: Cannot pick or deliver "${friendlyTarget}" because it is not present on the table.`
-          });
-          this.notifyPipeline({
-            stage: 'FAILED',
-            error: `Visual search failed: "${friendlyTarget}" was not found on the table. Click "Add Object" to place one in the workspace.`
-          });
-          this.stateListeners.forEach((cb) => cb('FAILED'));
-          setTimeout(() => {
-            this.stateListeners.forEach((cb) => cb('IDLE'));
-            this.returnHome();
-          }, 3500);
-          return;
+          this.emitPerceptionScan({ active: false, targetObject: obj, detectedPosition: pos, confidence: 0.992 });
         }
-
-        const pos = found.position;
-        this.emitPerceptionScan({ active: true, targetObject: obj });
-        this.emitLog({
-          level: 20,
-          levelName: 'INFO',
-          nodeName: 'nora_perception',
-          message: `[Active Vision Search] Initiated visual search for [${found.name}] across tabletop workspace.`
-        });
-        await this.simulateJointMotion(step, intent, execId);
-        if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
-        await this.delay(450);
-        if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
-        this.emitLog({
-          level: 20,
-          levelName: 'INFO',
-          nodeName: 'nora_perception',
-          message: `[YOLO-World] Target acquired! [${found.name}] detected at coordinates (X: ${pos.x.toFixed(2)}m, Y: ${pos.y.toFixed(2)}m, Z: ${pos.z.toFixed(2)}m) with 99.2% confidence.`
-        });
-        this.emitPerceptionScan({ active: false, targetObject: obj, detectedPosition: pos, confidence: 0.992 });
       } else if (step.skill === 'scatter_objects') {
         this.randomizeObjects();
         await this.delay(350);
@@ -2425,13 +2704,25 @@ class RosBridgeService {
     let targetExistsOnTable = false;
     const targetObjName = intent.target_object;
     if (targetObjName && targetObjName !== 'null' && targetObjName !== 'none') {
-      const foundObj =
+      let foundObj =
         this.findObjectFromText(targetObjName) ||
         this.tabletopObjects.find(
           (o) =>
             o.id.toLowerCase() === targetObjName.toLowerCase() ||
             o.name.toLowerCase() === targetObjName.toLowerCase()
         );
+
+      if (!foundObj) {
+        const cat = CATEGORY_SEARCH_MAP[targetObjName.toLowerCase()];
+        if (cat) {
+          foundObj = this.tabletopObjects.find((o) => {
+            const oId = o.id.toLowerCase();
+            const oName = o.name.toLowerCase();
+            return cat.candidateIds.some((c) => oId === c || oId.includes(c) || oName.includes(c) || o.shape === c);
+          });
+        }
+      }
+
       if (foundObj) {
         targetExistsOnTable = true;
         targetDistFromBase = Math.hypot(foundObj.position.x - this.robotBasePos.x, foundObj.position.z - this.robotBasePos.z);
@@ -2448,11 +2739,16 @@ class RosBridgeService {
 
       // Kinematic distance & physical existence grounding
       if (isTargetMissing) {
-        if (['pick', 'deliver_to_user', 'place', 'move_to_pose', 'search_object'].includes(skill)) {
+        if (['pick', 'deliver_to_user', 'place', 'move_to_pose'].includes(skill)) {
           // Precondition failure: object is not on tabletop!
           reachability = 0.0;
           collision_free = 0.20;
           object_state = 0.0;
+        } else if (skill === 'search_object') {
+          // Visual search is ALWAYS feasible - arm moves overhead camera to scan workspace!
+          reachability = 0.95;
+          collision_free = 0.98;
+          object_state = 0.85;
         }
       } else if (targetDistFromBase !== null) {
         if (isTargetOutOfReach) {
@@ -2513,9 +2809,9 @@ class RosBridgeService {
           }
         } else if (skill === 'search_object') {
           if (isTargetMissing) {
-            reachability = 0.05;
-            collision_free = 0.30;
-            object_state = 0.0;
+            reachability = 0.95;
+            collision_free = 0.98;
+            object_state = 0.85;
           } else {
             reachability = 0.99;
             collision_free = 0.99;
