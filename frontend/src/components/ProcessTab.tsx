@@ -170,7 +170,7 @@ export const ProcessTab: React.FC<ProcessTabProps> = ({
               <div className="meta-box">
                 <span className="meta-label">NLU Model Pipeline</span>
                 <span className="meta-value font-mono">
-                  Gemini / NORA-NLU-v2
+                  NORA NLU Pipeline
                 </span>
               </div>
             </div>
