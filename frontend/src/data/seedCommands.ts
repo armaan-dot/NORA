@@ -128,8 +128,34 @@ export const SEED_COMMANDS: SeedCommandExample[] = [
       target_object: "all_objects",
       target_location: "tray",
       parameters: {
-        objects: ["red_cube", "blue_cylinder", "green_sphere"]
+        objects: ["red_cube", "blue_cylinder", "green_sphere", "pen"]
       },
+      confidence: 1.0
+    }
+  },
+  {
+    instruction: "hand me the pen",
+    intent: {
+      version: "1.0",
+      command_id: "seed-pen-11",
+      raw_text: "hand me the pen",
+      action: "pick",
+      target_object: "pen",
+      target_location: "user",
+      parameters: { target_name: "Writing Pen" },
+      confidence: 1.0
+    }
+  },
+  {
+    instruction: "I need food",
+    intent: {
+      version: "1.0",
+      command_id: "seed-food-12",
+      raw_text: "I need food",
+      action: "deliver_to_user",
+      target_object: "apple",
+      target_location: "user",
+      parameters: { target_name: "Red Apple" },
       confidence: 1.0
     }
   }

@@ -346,6 +346,15 @@ export const DEFAULT_TABLETOP_OBJECTS: TabletopObject[] = [
     position: { x: 0.12, y: 0.505, z: -0.14 },
     state: 'table',
     isCustom: false
+  },
+  {
+    id: 'pen',
+    name: 'Writing Pen',
+    shape: 'cylinder',
+    color: '#2563eb',
+    position: { x: -0.02, y: 0.465, z: 0.18 },
+    state: 'table',
+    isCustom: false
   }
 ];
 
@@ -567,6 +576,19 @@ export const SEMANTIC_ACTIVITY_ONTOLOGY: ActivityConcept[] = [
     shape: 'cylinder',
     color: '#3b82f6',
     searchMatchers: ['blue cylinder', 'cylinder', 'tube', 'canister']
+  },
+  // 8. Stationery, Writing & Office Work
+  {
+    id: 'pen',
+    keywords: [
+      'write', 'writing', 'pen', 'pencil', 'note', 'take notes', 'marker', 'highlighter',
+      'stationery', 'desk item', 'paper', 'notebook', 'ruler', 'eraser', 'scissors', 'stapler'
+    ],
+    impliedNeed: 'writing pen for taking notes',
+    defaultName: 'Writing Pen',
+    shape: 'cylinder',
+    color: '#2563eb',
+    searchMatchers: ['pen', 'writing pen', 'pencil', 'marker', 'stationery']
   }
 ];
 
@@ -593,7 +615,8 @@ class RosBridgeService {
     red_cube: { x: -0.15, y: 0.48, z: 0.16 },
     blue_cylinder: { x: 0.10, y: 0.495, z: 0.14 },
     green_sphere: { x: -0.12, y: 0.485, z: -0.16 },
-    water: { x: 0.12, y: 0.505, z: -0.14 }
+    water: { x: 0.12, y: 0.505, z: -0.14 },
+    pen: { x: -0.02, y: 0.465, z: 0.18 }
   };
 
   // Emergency Stop & Safety Interlock State
@@ -851,7 +874,8 @@ class RosBridgeService {
       red_cube: { x: -0.15, y: 0.48, z: 0.16 },
       blue_cylinder: { x: 0.10, y: 0.495, z: 0.14 },
       green_sphere: { x: -0.12, y: 0.485, z: -0.16 },
-      water: { x: 0.12, y: 0.505, z: -0.14 }
+      water: { x: 0.12, y: 0.505, z: -0.14 },
+      pen: { x: -0.02, y: 0.465, z: 0.18 }
     };
 
     this.emitObjectsChange();
@@ -861,7 +885,7 @@ class RosBridgeService {
       level: 20,
       levelName: 'INFO',
       nodeName: 'tabletop_env',
-      message: '[Workspace] Restored default tabletop objects (Red Cube, Blue Cylinder, Green Sphere, Water Glass).'
+      message: '[Workspace] Restored default tabletop objects (Red Cube, Blue Cylinder, Green Sphere, Water Glass, Writing Pen).'
     });
   }
 
@@ -1136,6 +1160,13 @@ class RosBridgeService {
         (o) => o.id.toLowerCase().includes('tennis') || o.name.toLowerCase().includes('tennis')
       );
       return tennisObj ? tennisObj.id : 'tennis_ball';
+    }
+
+    if (l.includes('pen') || l.includes('pencil') || l.includes('marker') || l.includes('stationery') || (l.includes('write') && !l.includes('water'))) {
+      const penObj = this.tabletopObjects.find(
+        (o) => o.id.toLowerCase().includes('pen') || o.name.toLowerCase().includes('pen') || o.name.toLowerCase().includes('pencil')
+      );
+      return penObj ? penObj.id : 'pen';
     }
 
     if (l.includes('apple') || l.includes('fruit')) {
