@@ -21,8 +21,68 @@ _VALID_ACTIONS = [
     "open_gripper",
     "close_gripper",
     "go_home",
+    "explicit_blocked",
     "unknown",
 ]
+
+_EXPLICIT_WORDS_PATTERNS = [
+    r"fuck(?:ing|ed|er|s)?",
+    r"fck",
+    r"f\*ck",
+    r"shit(?:ty|s)?",
+    r"bullshit",
+    r"sh\*t",
+    r"bitch(?:es|ing)?",
+    r"b\*tch",
+    r"asshole(?:s)?",
+    r"dumbass(?:es)?",
+    r"jackass(?:es)?",
+    r"badass",
+    r"ass(?:es)?",
+    r"bastard(?:s)?",
+    r"damn(?:it)?",
+    r"goddamn(?:it)?",
+    r"crap(?:py)?",
+    r"cunt(?:s)?",
+    r"dick(?:s|head)?",
+    r"cock(?:s|sucker)?",
+    r"pussy(?:ies)?",
+    r"whore(?:s)?",
+    r"slut(?:s)?",
+    r"prick(?:s)?",
+    r"motherfucker(?:s)?",
+    r"motherfucking",
+    r"nigger(?:s)?",
+    r"nigga(?:s)?",
+    r"faggot(?:s)?",
+    r"fag(?:s)?",
+    r"retard(?:ed|s)?",
+    r"stfu",
+    r"wtf",
+    r"penis(?:es)?",
+    r"vagina(?:s)?",
+    r"dildo(?:s)?",
+    r"porn",
+    r"nsfw",
+    r"blowjob(?:s)?",
+    r"handjob(?:s)?",
+    r"boob(?:s)?",
+    r"tit(?:s|ties)?",
+    r"sex",
+    r"sexy",
+    r"horny",
+    r"nude",
+    r"naked",
+]
+
+_EXPLICIT_REGEX = re.compile(rf"\b(?:{'|'.join(_EXPLICIT_WORDS_PATTERNS)})\b", re.IGNORECASE)
+
+
+def contains_explicit_words(text: str) -> bool:
+    """Return True if text contains explicit, profane, or inappropriate words."""
+    if not text:
+        return False
+    return bool(_EXPLICIT_REGEX.search(text))
 
 _COMMONSENSE_MAP: dict[str, dict[str, Any]] = {
     # --- Thirst / drinks ---
@@ -60,15 +120,22 @@ _COMMONSENSE_MAP: dict[str, dict[str, Any]] = {
 
     # --- Hunger / food ---
     "hungry": {"action": "pick", "target_object": "snack", "target_location": "user"},
-    "starving": {"action": "pick", "target_object": "snack", "target_location": "user"},
+    "starving": {"action": "pick", "target_object": "food", "target_location": "user"},
     "famished": {"action": "pick", "target_object": "snack", "target_location": "user"},
     "peckish": {"action": "pick", "target_object": "snack", "target_location": "user"},
     "munchies": {"action": "pick", "target_object": "chips_bag", "target_location": "user"},
-    "food": {"action": "pick", "target_object": "snack", "target_location": "user"},
+    "food": {"action": "pick", "target_object": "food", "target_location": "user"},
     "eat": {"action": "pick", "target_object": "snack", "target_location": "user"},
+    "eating": {"action": "pick", "target_object": "snack", "target_location": "user"},
+    "feed": {"action": "pick", "target_object": "food", "target_location": "user"},
     "snack": {"action": "pick", "target_object": "snack", "target_location": "user"},
     "lunch": {"action": "pick", "target_object": "lunch_box", "target_location": "user"},
     "breakfast": {"action": "pick", "target_object": "granola_bar", "target_location": "user"},
+    "dinner": {"action": "pick", "target_object": "sandwich", "target_location": "user"},
+    "meal": {"action": "pick", "target_object": "lunch_box", "target_location": "user"},
+    "bite": {"action": "pick", "target_object": "snack", "target_location": "user"},
+    "rumbling": {"action": "pick", "target_object": "snack", "target_location": "user"},
+    "growling": {"action": "pick", "target_object": "snack", "target_location": "user"},
     "sweet": {"action": "pick", "target_object": "chocolate_bar", "target_location": "user"},
     "sugar": {"action": "pick", "target_object": "candy", "target_location": "user"},
     "chocolate": {"action": "pick", "target_object": "chocolate_bar", "target_location": "user"},
@@ -76,6 +143,7 @@ _COMMONSENSE_MAP: dict[str, dict[str, Any]] = {
     "crunchy": {"action": "pick", "target_object": "chips_bag", "target_location": "user"},
     "chips": {"action": "pick", "target_object": "chips_bag", "target_location": "user"},
     "cookie": {"action": "pick", "target_object": "cookie", "target_location": "user"},
+    "sandwich": {"action": "pick", "target_object": "sandwich", "target_location": "user"},
     "fruit": {"action": "pick", "target_object": "apple", "target_location": "user"},
     "healthy": {"action": "pick", "target_object": "apple", "target_location": "user"},
     "apple": {"action": "pick", "target_object": "apple", "target_location": "user"},
@@ -134,9 +202,13 @@ _COMMONSENSE_MAP: dict[str, dict[str, Any]] = {
     # --- Writing / stationery ---
     "write": {"action": "pick", "target_object": "pen", "target_location": "user"},
     "sign": {"action": "pick", "target_object": "pen", "target_location": "user"},
+    "jot": {"action": "pick", "target_object": "sticky_notes", "target_location": "user"},
     "note": {"action": "pick", "target_object": "sticky_notes", "target_location": "user"},
+    "notes": {"action": "pick", "target_object": "notebook", "target_location": "user"},
+    "homework": {"action": "pick", "target_object": "notebook", "target_location": "user"},
     "remind": {"action": "pick", "target_object": "sticky_notes", "target_location": "user"},
     "draw": {"action": "pick", "target_object": "pencil", "target_location": "user"},
+    "drawing": {"action": "pick", "target_object": "sketchbook", "target_location": "user"},
     "sketch": {"action": "pick", "target_object": "pencil", "target_location": "user"},
     "mistake": {"action": "pick", "target_object": "eraser", "target_location": "user"},
     "erase": {"action": "pick", "target_object": "eraser", "target_location": "user"},
@@ -145,17 +217,21 @@ _COMMONSENSE_MAP: dict[str, dict[str, Any]] = {
     "measure": {"action": "pick", "target_object": "ruler", "target_location": "user"},
     "straight line": {"action": "pick", "target_object": "ruler", "target_location": "user"},
     "staple": {"action": "pick", "target_object": "stapler", "target_location": "user"},
+    "staples": {"action": "pick", "target_object": "stapler", "target_location": "user"},
     "attach": {"action": "pick", "target_object": "paper_clip", "target_location": "user"},
+    "clip": {"action": "pick", "target_object": "paper_clip", "target_location": "user"},
     "tape": {"action": "pick", "target_object": "tape", "target_location": "user"},
     "stick": {"action": "pick", "target_object": "glue_stick", "target_location": "user"},
     "glue": {"action": "pick", "target_object": "glue_stick", "target_location": "user"},
     "cut": {"action": "pick", "target_object": "scissors", "target_location": "user"},
+    "scissors": {"action": "pick", "target_object": "scissors", "target_location": "user"},
     "pen": {"action": "pick", "target_object": "pen", "target_location": "user"},
     "pencil": {"action": "pick", "target_object": "pencil", "target_location": "user"},
     "marker": {"action": "pick", "target_object": "marker", "target_location": "user"},
     "notebook": {"action": "pick", "target_object": "notebook", "target_location": "user"},
     "study": {"action": "pick", "target_object": "textbook", "target_location": "user"},
     "read": {"action": "pick", "target_object": "book", "target_location": "user"},
+    "punch": {"action": "pick", "target_object": "hole_punch", "target_location": "user"},
     "calculate": {"action": "pick", "target_object": "calculator", "target_location": "user"},
     "math": {"action": "pick", "target_object": "calculator", "target_location": "user"},
 
@@ -235,15 +311,28 @@ _COMMONSENSE_MAP: dict[str, dict[str, Any]] = {
     "comb": {"action": "pick", "target_object": "comb", "target_location": "user"},
     "mirror": {"action": "pick", "target_object": "mirror", "target_location": "user"},
 
-    # --- Play / stress ---
+    # --- Play, games & boredom ---
     "bored": {"action": "pick", "target_object": "fidget_spinner", "target_location": "user"},
+    "boredom": {"action": "pick", "target_object": "fidget_spinner", "target_location": "user"},
+    "entertain": {"action": "pick", "target_object": "board_game", "target_location": "user"},
+    "entertainment": {"action": "pick", "target_object": "game_controller", "target_location": "user"},
+    "fun": {"action": "pick", "target_object": "board_game", "target_location": "user"},
+    "play": {"action": "pick", "target_object": "game_controller", "target_location": "user"},
+    "playing": {"action": "pick", "target_object": "game_controller", "target_location": "user"},
+    "game": {"action": "pick", "target_object": "game_controller", "target_location": "user"},
+    "games": {"action": "pick", "target_object": "board_game", "target_location": "user"},
+    "gamepad": {"action": "pick", "target_object": "game_controller", "target_location": "user"},
+    "controller": {"action": "pick", "target_object": "game_controller", "target_location": "user"},
     "fidget": {"action": "pick", "target_object": "fidget_spinner", "target_location": "user"},
-    "stressed": {"action": "pick", "target_object": "stress_ball", "target_location": "user"},
-    "anxious": {"action": "pick", "target_object": "stress_ball", "target_location": "user"},
-    "play": {"action": "pick", "target_object": "ball", "target_location": "user"},
+    "puzzle": {"action": "pick", "target_object": "puzzle_box", "target_location": "user"},
+    "chess": {"action": "pick", "target_object": "chess_piece", "target_location": "user"},
+    "catch": {"action": "pick", "target_object": "ball", "target_location": "user"},
     "toss": {"action": "pick", "target_object": "tennis_ball", "target_location": "user"},
     "dice": {"action": "pick", "target_object": "dice", "target_location": "user"},
     "cards": {"action": "pick", "target_object": "playing_cards", "target_location": "user"},
+    "stressed": {"action": "pick", "target_object": "stress_ball", "target_location": "user"},
+    "stress": {"action": "pick", "target_object": "stress_ball", "target_location": "user"},
+    "anxious": {"action": "pick", "target_object": "stress_ball", "target_location": "user"},
 }
 
 
@@ -332,10 +421,25 @@ class NLUModel:
 
     def predict(self, text: str) -> dict[str, Any]:
         """Predict structured intent from natural language input."""
-        raw_text = text.strip()
+        raw_text = text.strip() if text else ""
         lower = raw_text.lower()
         if not raw_text:
             return self._format_intent(raw_text, "unknown", None, None, {}, 0.0)
+
+        # 0. Safety interlock: flag explicit or profane words immediately
+        if contains_explicit_words(raw_text):
+            return self._format_intent(
+                raw_text=raw_text,
+                action="explicit_blocked",
+                target_object=None,
+                target_location=None,
+                parameters={
+                    "error": "Cannot process explicit words.",
+                    "reason": "Cannot process explicit words.",
+                    "flagged": True,
+                },
+                confidence=0.0,
+            )
 
         # 1. Check for coordinates in move_to_pose
         coord_match = re.search(
