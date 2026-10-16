@@ -92,3 +92,56 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# ---------------------------------------------------------------------------
+# Environment variables, Secrets & Passwords
+# ---------------------------------------------------------------------------
+.env
+.env.*
+*.env
+!.env.example
+!.env.template
+*.local
+*.secret
+*.secret.*
+*.password
+*password.txt
+*password.json
+*passwords*
+secrets/
+passwords/
+credentials/
+credentials.json
+service_account*.json
+tokens.json
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+
+# ---------------------------------------------------------------------------
+# Netlify
+# ---------------------------------------------------------------------------
+.netlify/
+.netlify
+netlify-credentials.json
+
+# ---------------------------------------------------------------------------
+# Node / Frontend artefacts
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------------------------------------------------------------------------
+# IDE / Editor artefacts
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+

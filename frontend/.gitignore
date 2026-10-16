@@ -4,3 +4,20 @@ dist-ssr
 *.local
 .vite
 
+# Environment variables & secrets
+.env
+.env.*
+*.env
+!.env.example
+!.env.template
+*.secret
+*.password
+*password.txt
+*password.json
+credentials.json
+
+# Netlify
+.netlify/
+.netlify
+
+
