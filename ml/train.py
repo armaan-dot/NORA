@@ -23,7 +23,7 @@ def main() -> None:
 
     # 1. Generate dataset (including direct and commonsense examples)
     print("1. Generating dataset with direct & commonsense intents...")
-    dataset = generate_dataset(num_samples=5000, seed=42)
+    dataset = generate_dataset(num_samples=15000, seed=42)
     print(f"   Total training examples generated: {len(dataset)}")
 
     # Split 80/20 train/val
@@ -62,6 +62,12 @@ def main() -> None:
     test_queries = [
         "give me the glass",
         "I am thirsty",
+        "I am hungry",
+        "I need food",
+        "I am going to play",
+        "I am bored",
+        "pick up the scissors",
+        "hand me the stapler",
         "pick up the red cube from the table",
         "put the green block in the bin",
         "open the gripper",
