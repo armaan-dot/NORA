@@ -280,7 +280,7 @@ export const App: React.FC = () => {
           </div>
           <div>
             <div className="brand-name-row">
-              <span className="brand-title">NORA</span>
+              <span className="brand-title">NORA (SIMULATION)</span>
               <span className="brand-tag">WEB CONSOLE</span>
               <span className="brand-tag">ROBOTICS OS</span>
             </div>
