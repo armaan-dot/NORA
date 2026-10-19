@@ -1693,29 +1693,49 @@ class RosBridgeService {
     const affordances = this.computeLocalAffordances(intent);
     const topAff = affordances[0];
 
+    const isExplicit = intent.action === 'explicit_blocked';
+    const isImpossible = intent.action === 'impossible' || Boolean(intent.parameters?.impossible_keyword);
+    const isGuardrailTest = intent.action === 'guardrail_test';
+    const isPhysical = isPhysicalTask(text) || isImpossible || isGuardrailTest;
+    const targetObjName = intent.target_object;
+    const targetObj = targetObjName
+      ? (this.findObjectFromText(targetObjName) ||
+         this.tabletopObjects.find((o) => o.id === targetObjName || o.name.toLowerCase() === targetObjName.toLowerCase()))
+      : null;
+    const isMissingObject =
+      !isExplicit &&
+      !isPhysical &&
+      !targetObj &&
+      Boolean(targetObjName) &&
+      targetObjName !== 'none' &&
+      targetObjName !== 'null' &&
+      intent.action !== 'search_object';
+
     // SayCan Safety Guardrail: If confidence < 0.30 or skill usefulness < 0.20 or target out of reach / missing / impossible / guardrail_test
-    if (!topAff || topAff.combined_score < 0.30 || intent.action === 'unknown' || intent.action === 'impossible' || intent.action === 'guardrail_test') {
-      const fallbackAff: AffordanceScore = topAff || {
-        skill_name: 'deliver_to_user',
-        usefulness: 0.0,
-        feasibility: 0.0,
-        combined_score: 0.0
-      };
+    if (
+      !topAff ||
+      topAff.combined_score < 0.30 ||
+      isMissingObject ||
+      intent.action === 'unknown' ||
+      intent.action === 'impossible' ||
+      intent.action === 'guardrail_test'
+    ) {
+      const fallbackAff: AffordanceScore = isMissingObject
+        ? {
+            skill_name: intent.action || 'deliver_to_user',
+            usefulness: topAff ? topAff.usefulness : 0.0,
+            feasibility: 0.0,
+            combined_score: 0.0,
+            breakdown: { reachability: 0.0, collision_free: 0.20, object_state: 0.0 }
+          }
+        : (topAff || {
+            skill_name: 'deliver_to_user',
+            usefulness: 0.0,
+            feasibility: 0.0,
+            combined_score: 0.0
+          });
       this.publishAffordanceScore(intent, fallbackAff);
 
-      const isExplicit = intent.action === 'explicit_blocked';
-      const isImpossible = intent.action === 'impossible' || Boolean(intent.parameters?.impossible_keyword);
-      const isGuardrailTest = intent.action === 'guardrail_test';
-      const isPhysical = isPhysicalTask(text) || isImpossible || isGuardrailTest;
-      const targetObjName = intent.target_object;
-      const targetObj = targetObjName ? this.findObjectFromText(targetObjName) : null;
-      const isMissingObject =
-        !isExplicit &&
-        !isPhysical &&
-        !targetObj &&
-        Boolean(targetObjName) &&
-        targetObjName !== 'none' &&
-        hasExplicitObjectEntity(targetObjName);
       const isReachViolation =
         !isExplicit &&
         !isPhysical &&
@@ -2885,10 +2905,17 @@ class RosBridgeService {
           collision_free = 0.20;
           object_state = 0.0;
         } else if (skill === 'search_object') {
-          // Visual search is ALWAYS feasible - arm moves overhead camera to scan workspace!
-          reachability = 0.95;
-          collision_free = 0.98;
-          object_state = 0.85;
+          if (intent.action === 'search_object') {
+            // Visual search is feasible when user explicitly requested visual search
+            reachability = 0.95;
+            collision_free = 0.98;
+            object_state = 0.85;
+          } else {
+            // Requested manipulation/delivery of missing object: preconditions fail! Take nothing!
+            reachability = 0.0;
+            collision_free = 0.20;
+            object_state = 0.0;
+          }
         }
       } else if (targetDistFromBase !== null) {
         if (isTargetOutOfReach) {
@@ -2949,9 +2976,15 @@ class RosBridgeService {
           }
         } else if (skill === 'search_object') {
           if (isTargetMissing) {
-            reachability = 0.95;
-            collision_free = 0.98;
-            object_state = 0.85;
+            if (intent.action === 'search_object') {
+              reachability = 0.95;
+              collision_free = 0.98;
+              object_state = 0.85;
+            } else {
+              reachability = 0.0;
+              collision_free = 0.20;
+              object_state = 0.0;
+            }
           } else {
             reachability = 0.99;
             collision_free = 0.99;
