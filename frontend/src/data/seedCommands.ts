@@ -128,7 +128,10 @@ export const SEED_COMMANDS: SeedCommandExample[] = [
       target_object: "all_objects",
       target_location: "tray",
       parameters: {
-        objects: ["red_cube", "blue_cylinder", "green_sphere", "pen"]
+        is_loop: true,
+        source: "table",
+        destination: "tray",
+        dynamic_frame_scan: true
       },
       confidence: 1.0
     }

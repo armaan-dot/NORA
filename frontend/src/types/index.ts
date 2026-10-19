@@ -96,6 +96,9 @@ export interface PerceptionScanEvent {
   targetObject?: string | null;
   detectedPosition?: ObjectPosition | null;
   confidence?: number;
+  detectedCount?: number;
+  objectsOnFrame?: string[];
+  scanMode?: 'frame_survey' | 'verification_survey' | 'target_search';
 }
 
 export interface ArmSpeechEvent {

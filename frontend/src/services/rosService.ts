@@ -1711,11 +1711,11 @@ class RosBridgeService {
       targetObjName !== 'null' &&
       intent.action !== 'search_object';
 
-    // SayCan Safety Guardrail: If confidence < 0.30 or skill usefulness < 0.20 or target out of reach / missing / impossible / guardrail_test
+    // SayCan Safety Guardrail: Block immediately ONLY for explicit violations, impossible actions, or guardrail test triggers.
+    // Manipulation commands with target objects always execute on-arm camera visual search first!
     if (
       !topAff ||
       topAff.combined_score < 0.30 ||
-      isMissingObject ||
       intent.action === 'unknown' ||
       intent.action === 'impossible' ||
       intent.action === 'guardrail_test'
@@ -1886,6 +1886,227 @@ class RosBridgeService {
       });
 
       if (step.skill === 'search_object') {
+        // Tabletop workspace post-cleanup verification re-scan with on-arm camera
+        if (step.params?.scan_mode === 'verification_survey') {
+          const currentTableItems = this.tabletopObjects.filter((o) => o.state === 'table');
+          const count = currentTableItems.length;
+          const names = currentTableItems.map((o) => o.name).join(', ');
+
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: `[On-Arm Camera Perception] Initiating post-cleanup tabletop verification re-scan to confirm all objects removed.`
+          });
+          this.emitArmSpeech({
+            message: 'Re-scanning tabletop workspace with on-arm camera to verify all objects are removed...',
+            subtext: 'RGB-D Eye-in-Hand camera active • Post-cleanup verification',
+            type: 'info'
+          });
+
+          this.emitPerceptionScan({ active: true, targetObject: 'tabletop_workspace', scanMode: 'verification_survey' });
+          await this.simulateJointMotion(step, intent, execId);
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+          await this.delay(650);
+          this.emitPerceptionScan({
+            active: false,
+            targetObject: 'tabletop_workspace',
+            detectedCount: count,
+            objectsOnFrame: currentTableItems.map((o) => o.name),
+            scanMode: 'verification_survey'
+          });
+
+          if (count === 0) {
+            this.emitLog({
+              level: 20,
+              levelName: 'INFO',
+              nodeName: 'nora_perception',
+              message: `✅ [Verification Confirmed] Re-scan complete: 0 objects detected on frame. All objects have been verified removed from tabletop.`
+            });
+            this.emitArmSpeech({
+              message: 'Verification confirmed! On-arm camera detected 0 objects on frame. Table is completely clean.',
+              subtext: 'Perception verification • Tabletop 100% clear',
+              type: 'info'
+            });
+          } else {
+            this.emitLog({
+              level: 30,
+              levelName: 'WARN',
+              nodeName: 'nora_perception',
+              message: `⚠️ [Verification Alert] Re-scan detected ${count} remaining object(s) on frame: [${names}]. Queuing real-time removal before final parking...`
+            });
+            this.emitArmSpeech({
+              message: `Verification detected ${count} remaining object${count > 1 ? 's' : ''} on frame: ${names}. Clearing them now...`,
+              subtext: `Dynamic queue update • ${count} objects detected`,
+              type: 'warning'
+            });
+
+            const newSteps: PlanStep[] = [];
+            for (const remainingObj of currentTableItems) {
+              const friendlyName = remainingObj.name;
+              const loopLabel = `Real-Time Clear: ${friendlyName}`;
+              newSteps.push(
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'move_to_pose',
+                  params: { pose_name: 'pre_grasp', target: remainingObj.id },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Align end-effector above ${friendlyName}`,
+                  loopGroup: loopLabel,
+                  targetObject: remainingObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'open_gripper',
+                  params: { stroke_mm: 80 },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Open gripper fingers`,
+                  loopGroup: loopLabel,
+                  targetObject: remainingObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'pick',
+                  params: { target_object: remainingObj.id },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Descend directly to ${friendlyName} and grasp`,
+                  loopGroup: loopLabel,
+                  targetObject: remainingObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'move_to_pose',
+                  params: { pose_name: 'lift', target: remainingObj.id },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Lift ${friendlyName} 18cm vertically`,
+                  loopGroup: loopLabel,
+                  targetObject: remainingObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'move_to_pose',
+                  params: { pose_name: 'approach_target', target: 'tray' },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Transfer ${friendlyName} towards storage tray`,
+                  loopGroup: loopLabel,
+                  targetObject: remainingObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'place',
+                  params: { target_location: 'tray', target_object: remainingObj.id },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Deposit ${friendlyName} inside storage tray`,
+                  loopGroup: loopLabel,
+                  targetObject: remainingObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'open_gripper',
+                  params: { stroke_mm: 80 },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Release grip from ${friendlyName}`,
+                  loopGroup: loopLabel,
+                  targetObject: remainingObj.id
+                }
+              );
+            }
+
+            // Follow-up verification sweep
+            newSteps.push({
+              id: Math.random().toString(36).substring(2, 7),
+              skill: 'search_object',
+              params: { target_object: 'tabletop_workspace', scan_mode: 'verification_survey' },
+              status: 'pending',
+              detail: '[Verification Sweep] On-Arm Camera re-scans tabletop workspace to verify 0 objects remain',
+              loopGroup: 'Perception Verification',
+              targetObject: 'tabletop_workspace'
+            });
+
+            plan.splice(i + 1, 0, ...newSteps);
+            this.notifyPipeline({
+              stage: 'EXECUTING',
+              intent,
+              affordances,
+              plan: [...plan],
+              activeStepId: step.id
+            });
+          }
+
+          step.status = 'completed';
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_skills',
+            message: `[Skill] Step ${i + 1} (${step.skill}) completed successfully.`
+          });
+          continue;
+        }
+
+        // Tabletop workspace survey with on-arm camera (dynamically scans all objects in live frame)
+        if (step.params?.scan_mode === 'frame_survey' || step.targetObject === 'tabletop_workspace') {
+          const currentTableItems = this.tabletopObjects.filter((o) => o.state === 'table');
+          const count = currentTableItems.length;
+          const names = currentTableItems.map((o) => o.name).join(', ');
+
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: `[On-Arm Camera Perception] Initiating tabletop workspace survey sweep.`
+          });
+          this.emitArmSpeech({
+            message: 'Scanning tabletop workspace with on-arm camera...',
+            subtext: 'RGB-D Eye-in-Hand camera active',
+            type: 'info'
+          });
+
+          this.emitPerceptionScan({ active: true, targetObject: 'tabletop_workspace' });
+          await this.simulateJointMotion(step, intent, execId);
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+          await this.delay(500);
+          this.emitPerceptionScan({
+            active: false,
+            targetObject: 'tabletop_workspace',
+            detectedCount: count,
+            objectsOnFrame: currentTableItems.map((o) => o.name)
+          });
+
+          if (count === 0) {
+            this.emitLog({
+              level: 20,
+              levelName: 'INFO',
+              nodeName: 'nora_perception',
+              message: `[On-Arm Camera Perception] Tabletop workspace sweep complete: 0 objects detected on frame. Table is already clear.`
+            });
+            this.emitArmSpeech({
+              message: 'Tabletop is already clear! On-arm camera detected 0 objects on frame.',
+              subtext: 'Workspace clear • 0 objects detected',
+              type: 'info'
+            });
+          } else {
+            this.emitLog({
+              level: 20,
+              levelName: 'INFO',
+              nodeName: 'nora_perception',
+              message: `[On-Arm Camera Perception] Visual sweep active. Detected ${count} object(s) on frame: [${names}]. Executing clear workspace sequence...`
+            });
+            this.emitArmSpeech({
+              message: `On-arm camera detected ${count} object${count > 1 ? 's' : ''} on frame: ${names}. Clearing workspace...`,
+              subtext: `Live frame detection: ${count} objects found`,
+              type: 'info'
+            });
+          }
+          step.status = 'completed';
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_skills',
+            message: `[Skill] Step ${i + 1} (${step.skill}) completed successfully.`
+          });
+          continue;
+        }
+
         const rawLower = (intent.raw_text || '').toLowerCase();
         const stepTarget = step.targetObject || intent.target_object || '';
         const stepTargetLower = stepTarget.toLowerCase();
@@ -1938,7 +2159,7 @@ class RosBridgeService {
           if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
 
           if (!found) {
-            this.emitPerceptionScan({ active: false, targetObject: catInfo.defaultId });
+            this.emitPerceptionScan({ active: false, targetObject: catInfo.defaultId, detectedCount: 0 });
             this.emitLog({
               level: 30,
               levelName: 'WARN',
@@ -1950,6 +2171,12 @@ class RosBridgeService {
               levelName: 'ERROR',
               nodeName: 'nora_orchestrator',
               message: `Task aborted: Cannot pick or deliver "${catInfo.category}" because no matching item is present on the table.`
+            });
+
+            this.emitArmSpeech({
+              message: `${catInfo.defaultName} was not found on the table`,
+              subtext: `SayCan Guardrail • ${catInfo.defaultName} is not present on tabletop`,
+              type: 'warning'
             });
 
             const gEvent: GuardrailEvent = {
@@ -1987,7 +2214,7 @@ class RosBridgeService {
             nodeName: 'nora_perception',
             message: `[YOLO-World] Target acquired! Found ${found.name} (category: ${catInfo.category}) at coordinates (X: ${pos.x.toFixed(2)}m, Y: ${pos.y.toFixed(2)}m, Z: ${pos.z.toFixed(2)}m) with 99.2% confidence.`
           });
-          this.emitPerceptionScan({ active: false, targetObject: found.id, detectedPosition: pos, confidence: 0.992 });
+          this.emitPerceptionScan({ active: false, targetObject: found.id, detectedPosition: pos, confidence: 0.992, detectedCount: 1, objectsOnFrame: [found.name] });
 
           // Update subsequent steps so they pick/deliver the detected item
           for (let j = i + 1; j < plan.length; j++) {
@@ -2008,6 +2235,11 @@ class RosBridgeService {
 
           if (!found) {
             // Object not present on table: perform scan and report missing cleanly without inventing objects
+            this.emitArmSpeech({
+              message: `Scanning tabletop workspace for ${friendlyTarget}...`,
+              subtext: `On-arm camera search active`,
+              type: 'info'
+            });
             this.emitPerceptionScan({ active: true, targetObject: obj || step.targetObject });
             this.emitLog({
               level: 20,
@@ -2018,7 +2250,7 @@ class RosBridgeService {
             await this.simulateJointMotion(step, intent, execId);
             if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
             await this.delay(450);
-            this.emitPerceptionScan({ active: false, targetObject: obj || step.targetObject });
+            this.emitPerceptionScan({ active: false, targetObject: obj || step.targetObject, detectedCount: 0 });
             this.emitLog({
               level: 30,
               levelName: 'WARN',
@@ -2030,6 +2262,12 @@ class RosBridgeService {
               levelName: 'ERROR',
               nodeName: 'nora_orchestrator',
               message: `Task aborted: Cannot pick or deliver "${friendlyTarget}" because it is not present on the table.`
+            });
+
+            this.emitArmSpeech({
+              message: `${friendlyTarget} was not found on the table`,
+              subtext: `SayCan Guardrail • ${friendlyTarget} is not present on tabletop`,
+              type: 'warning'
             });
 
             const gEvent: GuardrailEvent = {
@@ -2060,6 +2298,11 @@ class RosBridgeService {
           }
 
           const pos = found.position;
+          this.emitArmSpeech({
+            message: `Searching for ${found.name}...`,
+            subtext: `On-arm camera scan active`,
+            type: 'info'
+          });
           this.emitPerceptionScan({ active: true, targetObject: obj });
           this.emitLog({
             level: 20,
@@ -2077,7 +2320,12 @@ class RosBridgeService {
             nodeName: 'nora_perception',
             message: `[YOLO-World] Target acquired! [${found.name}] detected at coordinates (X: ${pos.x.toFixed(2)}m, Y: ${pos.y.toFixed(2)}m, Z: ${pos.z.toFixed(2)}m) with 99.2% confidence.`
           });
-          this.emitPerceptionScan({ active: false, targetObject: obj, detectedPosition: pos, confidence: 0.992 });
+          this.emitArmSpeech({
+            message: `Target acquired: [${found.name}] detected on table!`,
+            subtext: `YOLO-World detection • 99.2% confidence`,
+            type: 'info'
+          });
+          this.emitPerceptionScan({ active: false, targetObject: obj, detectedPosition: pos, confidence: 0.992, detectedCount: 1, objectsOnFrame: [found.name] });
         }
       } else if (step.skill === 'scatter_objects') {
         this.randomizeObjects();
@@ -2122,6 +2370,21 @@ class RosBridgeService {
             nodeName: 'nora_gripper',
             message: `Grasp confirmed: [${obj}] securely attached between gripper finger pads.`
           });
+
+          if (intent.action === 'clean_table') {
+            const friendlyName = found?.name || (obj ? obj.replace(/_/g, ' ') : 'object');
+            this.emitArmSpeech({
+              message: `Clearing ${friendlyName} to storage tray...`,
+              subtext: `On-arm camera tracking [${friendlyName}]`,
+              type: 'info'
+            });
+            this.emitLog({
+              level: 20,
+              levelName: 'INFO',
+              nodeName: 'nora_perception',
+              message: `[On-Arm Camera] Tracking [${friendlyName}] for transfer to storage tray.`
+            });
+          }
         }
       } else if (step.skill === 'open_gripper') {
         const heldObj = this.tabletopObjects.find((o) => o.state === 'held') ||
@@ -2167,6 +2430,228 @@ class RosBridgeService {
         nodeName: 'nora_skills',
         message: `[Skill] Step ${i + 1} (${step.skill}) completed successfully.`
       });
+
+      // Real-time tabletop perception: if user adds objects while clean_table is running, clear them too!
+      if (intent.action === 'clean_table') {
+        // Collect all objects that have already been scheduled or are currently being handled
+        const scheduledIds = new Set(
+          plan
+            .filter((p) => p.targetObject && p.targetObject !== 'tabletop_workspace')
+            .map((p) => p.targetObject)
+        );
+
+        // Find any objects currently on the table that are NOT scheduled
+        const unhandledLive = this.tabletopObjects.filter(
+          (o) => o.state === 'table' && !scheduledIds.has(o.id)
+        );
+
+        if (unhandledLive.length > 0) {
+          const nextIsFinal = i + 1 >= plan.length || plan[i + 1]?.skill === 'go_home';
+          if (step.skill === 'open_gripper' || step.skill === 'place' || nextIsFinal) {
+            for (const newObj of unhandledLive) {
+              const friendlyName = newObj.name;
+              const loopLabel = `Real-Time Clear: ${friendlyName}`;
+
+              this.emitLog({
+                level: 20,
+                levelName: 'INFO',
+                nodeName: 'nora_perception',
+                message: `[Real-Time Frame Perception] New object [${friendlyName}] placed on table during cleanup! Appending to live clearing plan.`
+              });
+              this.emitArmSpeech({
+                message: `New object detected on frame: ${friendlyName}! Clearing it as well...`,
+                subtext: `Real-time on-arm camera survey • Dynamic queue update`,
+                type: 'info'
+              });
+
+              const newSteps: PlanStep[] = [
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'move_to_pose',
+                  params: { pose_name: 'pre_grasp', target: newObj.id },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Align end-effector above newly added ${friendlyName}`,
+                  loopGroup: loopLabel,
+                  targetObject: newObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'open_gripper',
+                  params: { stroke_mm: 80 },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Open gripper fingers`,
+                  loopGroup: loopLabel,
+                  targetObject: newObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'pick',
+                  params: { target_object: newObj.id },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Descend directly to ${friendlyName} and grasp`,
+                  loopGroup: loopLabel,
+                  targetObject: newObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'move_to_pose',
+                  params: { pose_name: 'lift', target: newObj.id },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Lift ${friendlyName} 18cm vertically`,
+                  loopGroup: loopLabel,
+                  targetObject: newObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'move_to_pose',
+                  params: { pose_name: 'approach_target', target: 'tray' },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Transfer ${friendlyName} towards storage tray`,
+                  loopGroup: loopLabel,
+                  targetObject: newObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'place',
+                  params: { target_location: 'tray', target_object: newObj.id },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Deposit ${friendlyName} inside storage tray`,
+                  loopGroup: loopLabel,
+                  targetObject: newObj.id
+                },
+                {
+                  id: Math.random().toString(36).substring(2, 7),
+                  skill: 'open_gripper',
+                  params: { stroke_mm: 80 },
+                  status: 'pending',
+                  detail: `[${loopLabel}] Release grip from ${friendlyName}`,
+                  loopGroup: loopLabel,
+                  targetObject: newObj.id
+                }
+              ];
+
+              // Insert before verification_survey if present, otherwise before go_home
+              const targetIdx = plan.findIndex((p, idx) => idx > i && (p.params?.scan_mode === 'verification_survey' || p.skill === 'go_home'));
+              if (targetIdx !== -1) {
+                plan.splice(targetIdx, 0, ...newSteps);
+              } else {
+                plan.push(...newSteps);
+              }
+            }
+
+            // Update UI pipeline in real-time
+            this.notifyPipeline({
+              stage: 'EXECUTING',
+              intent,
+              affordances,
+              plan: [...plan],
+              activeStepId: step.id
+            });
+          }
+        }
+      }
+
+      // Final check: if we are at the go_home step for clean_table but new objects appeared on table:
+      if (intent.action === 'clean_table' && i === plan.length - 1 && step.skill === 'go_home') {
+        const remainingTable = this.tabletopObjects.filter((o) => o.state === 'table');
+        if (remainingTable.length > 0) {
+          step.status = 'pending';
+          for (const remainingObj of remainingTable) {
+            const friendlyName = remainingObj.name;
+            const loopLabel = `Real-Time Clear: ${friendlyName}`;
+            const newSteps: PlanStep[] = [
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'move_to_pose',
+                params: { pose_name: 'pre_grasp', target: remainingObj.id },
+                status: 'pending',
+                detail: `[${loopLabel}] Align end-effector above newly added ${friendlyName}`,
+                loopGroup: loopLabel,
+                targetObject: remainingObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'open_gripper',
+                params: { stroke_mm: 80 },
+                status: 'pending',
+                detail: `[${loopLabel}] Open gripper fingers`,
+                loopGroup: loopLabel,
+                targetObject: remainingObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'pick',
+                params: { target_object: remainingObj.id },
+                status: 'pending',
+                detail: `[${loopLabel}] Descend directly to ${friendlyName} and grasp`,
+                loopGroup: loopLabel,
+                targetObject: remainingObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'move_to_pose',
+                params: { pose_name: 'lift', target: remainingObj.id },
+                status: 'pending',
+                detail: `[${loopLabel}] Lift ${friendlyName} 18cm vertically`,
+                loopGroup: loopLabel,
+                targetObject: remainingObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'move_to_pose',
+                params: { pose_name: 'approach_target', target: 'tray' },
+                status: 'pending',
+                detail: `[${loopLabel}] Transfer ${friendlyName} towards storage tray`,
+                loopGroup: loopLabel,
+                targetObject: remainingObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'place',
+                params: { target_location: 'tray', target_object: remainingObj.id },
+                status: 'pending',
+                detail: `[${loopLabel}] Deposit ${friendlyName} inside storage tray`,
+                loopGroup: loopLabel,
+                targetObject: remainingObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'open_gripper',
+                params: { stroke_mm: 80 },
+                status: 'pending',
+                detail: `[${loopLabel}] Release grip from ${friendlyName}`,
+                loopGroup: loopLabel,
+                targetObject: remainingObj.id
+              }
+            ];
+            plan.splice(i, 0, ...newSteps);
+          }
+          // Follow-up verification sweep to confirm table is completely clear
+          plan.splice(i, 0, {
+            id: Math.random().toString(36).substring(2, 7),
+            skill: 'search_object',
+            params: { target_object: 'tabletop_workspace', scan_mode: 'verification_survey' },
+            status: 'pending',
+            detail: '[Verification Sweep] On-Arm Camera re-scans tabletop workspace to verify 0 objects remain',
+            loopGroup: 'Perception Verification',
+            targetObject: 'tabletop_workspace'
+          });
+          this.emitArmSpeech({
+            message: `Additional objects detected on tabletop! Clearing them before retracting...`,
+            subtext: `Real-time frame perception • Remaining: ${remainingTable.length}`,
+            type: 'info'
+          });
+          this.notifyPipeline({
+            stage: 'EXECUTING',
+            intent,
+            affordances,
+            plan: [...plan],
+            activeStepId: plan[i]?.id
+          });
+          i--;
+          continue;
+        }
+      }
     }
 
     if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
@@ -2182,6 +2667,23 @@ class RosBridgeService {
       nodeName: 'nora_orchestrator',
       message: `Task execution finished successfully. All skill goals reached.`
     });
+
+    if (intent.action === 'clean_table') {
+      const remaining = this.tabletopObjects.filter((o) => o.state === 'table').length;
+      if (remaining === 0) {
+        this.emitArmSpeech({
+          message: 'Tabletop fully clear! All objects safely stored in tray.',
+          subtext: 'Perception verification: 0 objects on frame',
+          type: 'info'
+        });
+        this.emitLog({
+          level: 20,
+          levelName: 'INFO',
+          nodeName: 'nora_perception',
+          message: '[On-Arm Camera Perception] Tabletop verification sweep: 0 objects remaining on table. All items transferred to tray.'
+        });
+      }
+    }
 
     setTimeout(() => {
       this.stateListeners.forEach((cb) => cb('IDLE'));
@@ -2266,7 +2768,48 @@ class RosBridgeService {
       };
     }
 
-    // 1. Exact or partial match with seed commands
+    // 1. Dynamic Clean Table Intent Grounding: Always scan the live frame, never remember static initial objects
+    const isCleanCommand =
+      lower === 'clean table' ||
+      lower === 'clean up the table' ||
+      lower === 'clean up table' ||
+      lower === 'clean up' ||
+      lower === 'clean the table' ||
+      lower.includes('clean table') ||
+      lower.includes('clean up the table') ||
+      lower.includes('clean up table') ||
+      lower.includes('clean the table') ||
+      lower.includes('clear table') ||
+      lower.includes('clear the table') ||
+      lower.includes('clear workspace') ||
+      lower.includes('clean workspace') ||
+      lower.includes('tidy table') ||
+      lower.includes('tidy up table') ||
+      lower.includes('empty table') ||
+      lower.includes('empty the table');
+
+    if (isCleanCommand) {
+      const liveTableItems = this.tabletopObjects.filter((o) => o.state === 'table');
+      return {
+        version: '1.0',
+        command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
+        raw_text: text,
+        action: 'clean_table',
+        target_object: 'all_objects',
+        target_location: 'tray',
+        parameters: {
+          is_loop: true,
+          loop_targets: liveTableItems.map((o) => o.id),
+          loop_count: liveTableItems.length,
+          source: 'table',
+          destination: 'tray',
+          dynamic_frame_scan: true
+        },
+        confidence: 1.0
+      };
+    }
+
+    // 2. Exact or partial match with seed commands
     const seed = SEED_COMMANDS.find(
       (s) => s.instruction.toLowerCase() === lower || lower.includes(s.instruction.toLowerCase())
     );
@@ -2780,8 +3323,14 @@ class RosBridgeService {
           missingConcept: missing
         } as any;
       }
-    } else if (isClean || isRerack || hasAllGeneral) {
-      finalTargets = this.tabletopObjects.map((o) => o.id);
+    } else if (isClean) {
+      finalTargets = this.tabletopObjects.filter((o) => o.state === 'table').map((o) => o.id);
+    } else if (isRerack) {
+      finalTargets = this.tabletopObjects.filter((o) => o.state === 'tray').map((o) => o.id);
+    } else if (hasAllGeneral) {
+      finalTargets = this.tabletopObjects
+        .filter((o) => o.state === 'table')
+        .map((o) => o.id);
     } else {
       finalTargets = extractedTargets;
     }
@@ -2889,7 +3438,16 @@ class RosBridgeService {
       }
     }
     const isTargetOutOfReach = targetDistFromBase !== null && targetDistFromBase > 0.64;
-    const isTargetMissing = Boolean(targetObjName && targetObjName !== 'none' && !targetExistsOnTable);
+    const isTargetMissing = Boolean(
+      targetObjName &&
+      targetObjName !== 'none' &&
+      targetObjName !== 'all_objects' &&
+      targetObjName !== 'all' &&
+      targetObjName !== 'tabletop_workspace' &&
+      !isLoopAction &&
+      intent.action !== 'clean_table' &&
+      !targetExistsOnTable
+    );
 
     const results: AffordanceScore[] = candidateSkills.map((skill) => {
       let usefulness = 0.15;
@@ -2897,25 +3455,17 @@ class RosBridgeService {
       let collision_free = 0.96;
       let object_state = 0.98;
 
-      // Kinematic distance & physical existence grounding
+      // Active Perception Grounding: Do not assume precondition failure upfront.
+      // The robot arm always schedules and executes an on-arm camera search first!
       if (isTargetMissing) {
-        if (['pick', 'deliver_to_user', 'place', 'move_to_pose'].includes(skill)) {
-          // Precondition failure: object is not on tabletop!
-          reachability = 0.0;
-          collision_free = 0.20;
-          object_state = 0.0;
-        } else if (skill === 'search_object') {
-          if (intent.action === 'search_object') {
-            // Visual search is feasible when user explicitly requested visual search
-            reachability = 0.95;
-            collision_free = 0.98;
-            object_state = 0.85;
-          } else {
-            // Requested manipulation/delivery of missing object: preconditions fail! Take nothing!
-            reachability = 0.0;
-            collision_free = 0.20;
-            object_state = 0.0;
-          }
+        if (skill === 'search_object') {
+          reachability = 0.95;
+          collision_free = 0.98;
+          object_state = 0.95;
+        } else if (['pick', 'deliver_to_user', 'place', 'move_to_pose'].includes(skill)) {
+          reachability = 0.94;
+          collision_free = 0.96;
+          object_state = 0.90;
         }
       } else if (targetDistFromBase !== null) {
         if (isTargetOutOfReach) {
@@ -2955,41 +3505,21 @@ class RosBridgeService {
           collision_free = 0.50;
           object_state = 0.10; // Nothing in gripper to place!
         } else if (skill === 'pick') {
-          if (isTargetMissing) {
-            reachability = 0.0;
-            collision_free = 0.20;
-            object_state = 0.0;
-          } else if (!isTargetOutOfReach) {
+          if (!isTargetOutOfReach) {
             reachability = 0.95;
             collision_free = 0.97;
             object_state = 0.98;
           }
         } else if (skill === 'deliver_to_user') {
-          if (isTargetMissing) {
-            reachability = 0.0;
-            collision_free = 0.20;
-            object_state = 0.0;
-          } else if (!isTargetOutOfReach) {
+          if (!isTargetOutOfReach) {
             reachability = 0.94;
             collision_free = 0.96;
             object_state = 0.97;
           }
         } else if (skill === 'search_object') {
-          if (isTargetMissing) {
-            if (intent.action === 'search_object') {
-              reachability = 0.95;
-              collision_free = 0.98;
-              object_state = 0.85;
-            } else {
-              reachability = 0.0;
-              collision_free = 0.20;
-              object_state = 0.0;
-            }
-          } else {
-            reachability = 0.99;
-            collision_free = 0.99;
-            object_state = 0.99;
-          }
+          reachability = 0.99;
+          collision_free = 0.99;
+          object_state = 0.99;
         }
       }
 
@@ -3071,16 +3601,49 @@ class RosBridgeService {
 
   private buildGeneralizedLoopPlan(intent: Intent): PlanStep[] {
     const id = () => Math.random().toString(36).substring(2, 7);
-    const loopTargets: string[] =
-      intent.parameters?.loop_targets && intent.parameters.loop_targets.length > 0
-        ? intent.parameters.loop_targets
-        : this.tabletopObjects.map((o) => o.id);
+    const isCleanTable = intent.action === 'clean_table';
 
-    const count: number = intent.parameters?.loop_count || loopTargets.length;
+    // Live Frame Perception: clean_table dynamically checks whatever objects are on the tabletop right now!
+    let loopTargets: string[] = [];
+    if (isCleanTable) {
+      loopTargets = this.tabletopObjects
+        .filter((o) => o.state === 'table')
+        .map((o) => o.id);
+    } else if (intent.parameters?.loop_targets && intent.parameters.loop_targets.length > 0) {
+      loopTargets = intent.parameters.loop_targets;
+    } else {
+      const src = intent.parameters?.source || (intent.action === 'rerack_table' ? 'tray' : 'table');
+      loopTargets = this.tabletopObjects
+        .filter((o) => (src === 'tray' ? o.state === 'tray' : o.state === 'table'))
+        .map((o) => o.id);
+    }
+
+    const count: number = isCleanTable ? loopTargets.length : (intent.parameters?.loop_count || loopTargets.length);
     const source: 'table' | 'tray' =
       intent.parameters?.source || (intent.action === 'rerack_table' ? 'tray' : 'table');
     const destination: 'tray' | 'table' | 'user' =
       intent.parameters?.destination || (intent.action === 'rerack_table' ? 'table' : 'tray');
+
+    // If clean_table is called and 0 objects are present on the tabletop:
+    if (isCleanTable && loopTargets.length === 0) {
+      return [
+        {
+          id: id(),
+          skill: 'search_object',
+          params: { target_object: 'tabletop_workspace', scan_mode: 'frame_survey' },
+          status: 'pending',
+          detail: '[Visual Survey] On-Arm Camera tabletop workspace sweep & object detection',
+          targetObject: 'tabletop_workspace'
+        },
+        {
+          id: id(),
+          skill: 'go_home',
+          params: {},
+          status: 'pending',
+          detail: 'Standby: Tabletop is already clear (0 objects detected on frame). Retract arm to home pose.'
+        }
+      ];
+    }
 
     // Build execution items array repeating or slicing as needed
     const executionItems: string[] = [];
@@ -3089,10 +3652,25 @@ class RosBridgeService {
     }
 
     const plan: PlanStep[] = [];
+
+    // Prepend On-Arm Camera workspace sweep for clean table
+    if (isCleanTable) {
+      plan.push({
+        id: id(),
+        skill: 'search_object',
+        params: { target_object: 'tabletop_workspace', scan_mode: 'frame_survey' },
+        status: 'pending',
+        detail: `[Visual Survey] On-Arm Camera tabletop workspace sweep: ${executionItems.length} object(s) detected on frame`,
+        targetObject: 'tabletop_workspace'
+      });
+    }
+
     executionItems.forEach((item, index) => {
-      const friendlyName = item.replace('_', ' ');
+      const friendlyName = item.replace(/_/g, ' ');
       const actionVerb = source === 'tray' ? 'Re-rack' : destination === 'user' ? 'Deliver' : 'Clear';
-      const loopLabel = `Loop ${index + 1}/${executionItems.length}: ${actionVerb} ${friendlyName}`;
+      const loopLabel = isCleanTable
+        ? `Clear Object ${index + 1}/${executionItems.length}: ${friendlyName}`
+        : `Loop ${index + 1}/${executionItems.length}: ${actionVerb} ${friendlyName}`;
 
       if (source === 'tray') {
         plan.push(
@@ -3153,8 +3731,8 @@ class RosBridgeService {
         );
       } else {
         const isUserDest = destination === 'user';
-        plan.push(
-          {
+        if (!isCleanTable) {
+          plan.push({
             id: id(),
             skill: 'search_object',
             params: { target_object: item },
@@ -3162,7 +3740,10 @@ class RosBridgeService {
             detail: `[${loopLabel}] Active visual search & YOLO scan for ${friendlyName}`,
             loopGroup: loopLabel,
             targetObject: item
-          },
+          });
+        }
+
+        plan.push(
           {
             id: id(),
             skill: 'move_to_pose',
@@ -3233,12 +3814,26 @@ class RosBridgeService {
       }
     });
 
+    if (isCleanTable) {
+      plan.push({
+        id: id(),
+        skill: 'search_object',
+        params: { target_object: 'tabletop_workspace', scan_mode: 'verification_survey' },
+        status: 'pending',
+        detail: '[Verification Sweep] On-Arm Camera re-scans tabletop workspace to verify 0 objects remain',
+        loopGroup: 'Perception Verification',
+        targetObject: 'tabletop_workspace'
+      });
+    }
+
     plan.push({
       id: id(),
       skill: 'go_home',
       params: {},
       status: 'pending',
-      detail: `Final: Loop sequence completed (${executionItems.length} iterations). Retract arm to home transit pose.`,
+      detail: isCleanTable
+        ? `[Final Retract] Tabletop clear & verification confirmed. Retract arm to home transit pose.`
+        : `Final: Loop sequence completed (${executionItems.length} iterations). Retract arm to home transit pose.`,
       loopGroup: 'Final Retract'
     });
 
@@ -3658,8 +4253,11 @@ class RosBridgeService {
     const objPos = resolvedObj ? resolvedObj.position : this.getObjectPosition(normObj || '');
     const poseName = step.params?.pose_name || '';
 
-    // Active vision search scan pose: arm arches overhead, camera tilted towards target
     if (skill === 'search_object') {
+      if (step.params?.scan_mode === 'frame_survey' || step.targetObject === 'tabletop_workspace') {
+        // Wide-angle overhead scan pose with on-arm camera surveying entire tabletop workspace
+        return [0.0, 0.45, 0.85, 0.0, 1.15, 0.0, curr[6]];
+      }
       const dx = objPos.x - this.robotBasePos.x;
       const dz = objPos.z - this.robotBasePos.z;
       const yaw = Math.atan2(-dz, dx);

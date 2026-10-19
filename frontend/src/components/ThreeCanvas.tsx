@@ -21,7 +21,8 @@ import {
   Square,
   Play,
   XCircle,
-  ShieldAlert
+  ShieldAlert,
+  Camera
 } from 'lucide-react';
 
 export const ThreeCanvas: React.FC = () => {
@@ -31,6 +32,9 @@ export const ThreeCanvas: React.FC = () => {
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const objectGroupRef = useRef<THREE.Group | null>(null);
+  const armCameraGroupRef = useRef<THREE.Group | null>(null);
+  const cameraFrustumRef = useRef<THREE.Group | null>(null);
+  const cameraLedRef = useRef<THREE.MeshBasicMaterial | null>(null);
 
   // Dynamic mesh references
   const objectMeshesRef = useRef<Record<string, THREE.Object3D>>({});
@@ -46,6 +50,7 @@ export const ThreeCanvas: React.FC = () => {
     rosService.getAllObjectPositions()
   );
   const [scanEvent, setScanEvent] = useState<PerceptionScanEvent | null>(null);
+  const [cameraPerceivedCount, setCameraPerceivedCount] = useState<number | null>(null);
   const [draggingItem, setDraggingItem] = useState<string | null>(null);
   const [dragCoords, setDragCoords] = useState<{ x: number; z: number } | null>(null);
 
@@ -698,6 +703,129 @@ export const ThreeCanvas: React.FC = () => {
           }
         });
 
+        // Mount procedural Eye-in-Hand RGB-D Depth Camera to the arm wrist
+        const gripperLink =
+          robot.getObjectByName('gripper_link') ||
+          robot.getObjectByName('link6');
+
+        if (gripperLink) {
+          const armCameraGroup = new THREE.Group();
+          armCameraGroup.name = 'on_arm_depth_camera';
+
+          // 1. Machined Anodized Mounting Bracket
+          const bracketGeo = new THREE.BoxGeometry(0.045, 0.016, 0.012);
+          const bracketMat = new THREE.MeshStandardMaterial({
+            color: 0x1e293b,
+            metalness: 0.85,
+            roughness: 0.35
+          });
+          const bracketMesh = new THREE.Mesh(bracketGeo, bracketMat);
+          bracketMesh.position.set(0, -0.024, 0.038);
+          armCameraGroup.add(bracketMesh);
+
+          // 2. Camera Enclosure Housing (Intel RealSense D435 form-factor)
+          const camBodyGeo = new THREE.BoxGeometry(0.090, 0.024, 0.024);
+          const camBodyMat = new THREE.MeshStandardMaterial({
+            color: 0x475569,
+            metalness: 0.80,
+            roughness: 0.25
+          });
+          const camBodyMesh = new THREE.Mesh(camBodyGeo, camBodyMat);
+          camBodyMesh.position.set(0, -0.036, 0.042);
+          armCameraGroup.add(camBodyMesh);
+
+          // 3. Front Optical Glass Faceplate Bezel
+          const bezelGeo = new THREE.BoxGeometry(0.086, 0.020, 0.002);
+          const bezelMat = new THREE.MeshStandardMaterial({
+            color: 0x090d16,
+            roughness: 0.08,
+            metalness: 0.95
+          });
+          const bezelMesh = new THREE.Mesh(bezelGeo, bezelMat);
+          bezelMesh.position.set(0, -0.036, 0.0545);
+          armCameraGroup.add(bezelMesh);
+
+          // 4. Optical Sensor Lenses
+          const irMat = new THREE.MeshStandardMaterial({
+            color: 0x0f172a,
+            roughness: 0.1,
+            metalness: 0.95
+          });
+
+          // Left IR Stereo sensor
+          const irLeftGeo = new THREE.CylinderGeometry(0.0045, 0.0045, 0.003, 16);
+          irLeftGeo.rotateX(Math.PI / 2);
+          const irLeftMesh = new THREE.Mesh(irLeftGeo, irMat);
+          irLeftMesh.position.set(-0.025, -0.036, 0.056);
+          armCameraGroup.add(irLeftMesh);
+
+          // Center RGB Camera Lens with anti-reflective optical coating sheen
+          const rgbGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.004, 20);
+          rgbGeo.rotateX(Math.PI / 2);
+          const rgbMat = new THREE.MeshStandardMaterial({
+            color: 0x0284c7,
+            roughness: 0.15,
+            metalness: 0.9,
+            emissive: 0x0369a1,
+            emissiveIntensity: 0.3
+          });
+          const rgbMesh = new THREE.Mesh(rgbGeo, rgbMat);
+          rgbMesh.position.set(0, -0.036, 0.056);
+          armCameraGroup.add(rgbMesh);
+
+          // Right IR Projector lens
+          const irRightGeo = new THREE.CylinderGeometry(0.0045, 0.0045, 0.003, 16);
+          irRightGeo.rotateX(Math.PI / 2);
+          const irRightMesh = new THREE.Mesh(irRightGeo, irMat);
+          irRightMesh.position.set(0.025, -0.036, 0.056);
+          armCameraGroup.add(irRightMesh);
+
+          // 5. Glowing Camera Status LED
+          const ledGeo = new THREE.SphereGeometry(0.002, 12, 12);
+          const ledMat = new THREE.MeshBasicMaterial({ color: 0x00ff88 });
+          const ledMesh = new THREE.Mesh(ledGeo, ledMat);
+          ledMesh.position.set(0.035, -0.036, 0.056);
+          armCameraGroup.add(ledMesh);
+          cameraLedRef.current = ledMat;
+
+          // 6. Camera Optical Sightline / Holographic Frustum Beam
+          const frustumGroup = new THREE.Group();
+          frustumGroup.visible = false;
+          const fPoints = [
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(-0.14, -0.09, 0.40),
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0.14, -0.09, 0.40),
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(-0.14, 0.09, 0.40),
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0.14, 0.09, 0.40),
+            // boundary box
+            new THREE.Vector3(-0.14, -0.09, 0.40),
+            new THREE.Vector3(0.14, -0.09, 0.40),
+            new THREE.Vector3(0.14, -0.09, 0.40),
+            new THREE.Vector3(0.14, 0.09, 0.40),
+            new THREE.Vector3(0.14, 0.09, 0.40),
+            new THREE.Vector3(-0.14, 0.09, 0.40),
+            new THREE.Vector3(-0.14, 0.09, 0.40),
+            new THREE.Vector3(-0.14, -0.09, 0.40)
+          ];
+          const frustumGeo = new THREE.BufferGeometry().setFromPoints(fPoints);
+          const frustumMat = new THREE.LineBasicMaterial({
+            color: 0x00f0ff,
+            transparent: true,
+            opacity: 0.65
+          });
+          const frustumLines = new THREE.LineSegments(frustumGeo, frustumMat);
+          frustumLines.position.set(0, -0.036, 0.056);
+          frustumGroup.add(frustumLines);
+          armCameraGroup.add(frustumGroup);
+          cameraFrustumRef.current = frustumGroup;
+
+          gripperLink.add(armCameraGroup);
+          armCameraGroupRef.current = armCameraGroup;
+        }
+
         scene.add(robot);
         robotRef.current = robot;
 
@@ -755,6 +883,7 @@ export const ThreeCanvas: React.FC = () => {
 
     const unsubscribeObjectEvent = rosService.onObjectEvent((event) => {
       objectStatesRef.current[event.name] = event.state;
+      setTableObjects([...rosService.getObjects()]);
       if (event.position) {
         objectPositionsRef.current[event.name] = event.position;
         setLivePositions({ ...objectPositionsRef.current });
@@ -770,22 +899,33 @@ export const ThreeCanvas: React.FC = () => {
       setScanEvent(evt);
       if (evt.active) {
         if (scanGroupRef.current) scanGroupRef.current.visible = true;
+        if (cameraFrustumRef.current) cameraFrustumRef.current.visible = true;
+        if (cameraLedRef.current) cameraLedRef.current.color.setHex(0x00f0ff);
         if (targetReticleRef.current) targetReticleRef.current.visible = false;
-      } else if (evt.detectedPosition) {
-        if (scanGroupRef.current) scanGroupRef.current.visible = false;
-        if (targetReticleRef.current) {
-          targetReticleRef.current.position.set(
-            evt.detectedPosition.x,
-            evt.detectedPosition.y,
-            evt.detectedPosition.z
-          );
-          targetReticleRef.current.visible = true;
-          setTimeout(() => {
-            if (targetReticleRef.current) targetReticleRef.current.visible = false;
-          }, 2400);
-        }
       } else {
-        if (scanGroupRef.current) scanGroupRef.current.visible = false;
+        if (typeof evt.detectedCount === 'number') {
+          setCameraPerceivedCount(evt.detectedCount);
+        }
+        if (evt.detectedPosition) {
+          if (scanGroupRef.current) scanGroupRef.current.visible = false;
+          if (cameraFrustumRef.current) cameraFrustumRef.current.visible = false;
+          if (cameraLedRef.current) cameraLedRef.current.color.setHex(0x00ff88);
+          if (targetReticleRef.current) {
+            targetReticleRef.current.position.set(
+              evt.detectedPosition.x,
+              evt.detectedPosition.y,
+              evt.detectedPosition.z
+            );
+            targetReticleRef.current.visible = true;
+            setTimeout(() => {
+              if (targetReticleRef.current) targetReticleRef.current.visible = false;
+            }, 2400);
+          }
+        } else {
+          if (scanGroupRef.current) scanGroupRef.current.visible = false;
+          if (cameraFrustumRef.current) cameraFrustumRef.current.visible = false;
+          if (cameraLedRef.current) cameraLedRef.current.color.setHex(0x00ff88);
+        }
       }
     });
 
@@ -1119,12 +1259,64 @@ export const ThreeCanvas: React.FC = () => {
         </button>
       </div>
 
+      {/* On-Arm Eye-in-Hand Camera HUD */}
+      <div className={`on-arm-camera-hud ${scanEvent?.active ? 'scanning' : 'standby'}`}>
+        <div className="camera-lens-indicator">
+          <div className={`camera-led-dot ${scanEvent?.active ? 'active' : ''}`} />
+          <Camera size={14} className="camera-icon-hud" />
+        </div>
+        <div className="camera-hud-info">
+          <div className="camera-hud-title">
+            <span className="camera-brand">ON-ARM RGB-D CAMERA</span>
+            <span className={`camera-status-tag ${scanEvent?.active ? 'active' : 'standby'}`}>
+              {scanEvent?.active
+                ? scanEvent.scanMode === 'verification_survey'
+                  ? 'VERIFYING FRAME'
+                  : 'SCANNING FRAME'
+                : 'STANDBY'}
+            </span>
+          </div>
+          <div className="camera-hud-meta">
+            <span className="camera-spec">Intel RealSense D435 • Eye-in-Hand</span>
+            <span className="camera-obj-count">
+              {scanEvent?.active ? (
+                <span style={{ color: '#00f0ff' }}>
+                  {scanEvent.scanMode === 'verification_survey'
+                    ? 'Re-scanning frame to verify cleanup...'
+                    : 'Scanning tabletop frame...'}
+                </span>
+              ) : cameraPerceivedCount !== null ? (
+                <span>
+                  Perceived: <strong>{cameraPerceivedCount}</strong> object{cameraPerceivedCount !== 1 ? 's' : ''} detected
+                </span>
+              ) : (
+                <span style={{ opacity: 0.75 }}>Camera Standby • Awaiting visual sweep</span>
+              )}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Floating Perception Active Banner */}
       {scanEvent?.active && (
         <div className="viewport-perception-banner">
           <Scan size={16} className="spin-icon" />
           <span>
-            [RGB-D Vision Scan] Searching for <strong>{friendlyName(scanEvent.targetObject)}</strong> across tabletop...
+            {scanEvent.targetObject === 'tabletop_workspace' ? (
+              scanEvent.scanMode === 'verification_survey' ? (
+                <>
+                  [Perception Verification] Re-scanning tabletop workspace with On-Arm Camera to confirm 0 objects remain...
+                </>
+              ) : (
+                <>
+                  [On-Arm Camera Perception] Surveying tabletop workspace & detecting all objects on frame...
+                </>
+              )
+            ) : (
+              <>
+                [On-Arm RGB-D Vision Scan] Searching for <strong>{friendlyName(scanEvent.targetObject)}</strong> across tabletop...
+              </>
+            )}
           </span>
         </div>
       )}
