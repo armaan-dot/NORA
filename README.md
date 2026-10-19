@@ -1,6 +1,6 @@
 # NORA: Natural Language Orchestrated Robotics Agent
 
-> **SayCan-grounded 6-DOF robotic manipulator driven by natural language and affordance scoring.**
+> **SayCan-inspired 6-DOF robotic manipulator driven by natural language and affordance scoring.**
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-armnora.netlify.app-00f0ff?style=flat-square&logo=netlify)](https://armnora.netlify.app)
 [![ROS 2 Humble](https://img.shields.io/badge/ROS%202-Humble-blue?style=flat-square&logo=ros)](https://docs.ros.org/en/humble/)
@@ -60,21 +60,5 @@ $$\text{Combined Score} = (\text{Usefulness})^{0.6} \times (\text{Feasibility})^
 
 ---
 
-## Quickstart
-
-```bash
-# Clone repository
-git clone https://github.com/armaan-dot/NORA.git
-cd NORA
-
-# Build ROS 2 workspace
-make build-ros
-source ros2_ws/install/setup.bash
-
-# Run web digital twin
-cd frontend
-npm install
-npm run dev
-```
 
 Try the deployed web app: **[https://armnora.netlify.app](https://armnora.netlify.app)**
