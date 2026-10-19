@@ -61,7 +61,7 @@ export const ThreeCanvas: React.FC = () => {
 
   const handleQuickSpawn = (
     name: string,
-    shape: 'mug' | 'apple' | 'glass' | 'box' | 'cylinder' | 'sphere',
+    shape: 'mug' | 'apple' | 'glass' | 'box' | 'cylinder' | 'sphere' | 'scissors',
     color: string
   ) => {
     rosService.addObject({
@@ -213,6 +213,58 @@ export const ThreeCanvas: React.FC = () => {
       penGroup.add(tip);
 
       mesh = penGroup;
+    } else if (obj.shape === 'scissors' || nameLower.includes('scissors') || nameLower.includes('shears')) {
+      const scissorsGroup = new THREE.Group();
+      const steelMat = new THREE.MeshStandardMaterial({
+        color: 0xd1d5db,
+        metalness: 0.92,
+        roughness: 0.18
+      });
+      const handleMat = new THREE.MeshStandardMaterial({
+        color: colorHex || 0xe11d48,
+        metalness: 0.15,
+        roughness: 0.3
+      });
+
+      // Left Blade
+      const bladeGeo = new THREE.BoxGeometry(0.003, 0.08, 0.012);
+      const leftBlade = new THREE.Mesh(bladeGeo, steelMat);
+      leftBlade.position.set(-0.005, 0.02, 0);
+      leftBlade.rotation.z = -0.12;
+      leftBlade.castShadow = true;
+      scissorsGroup.add(leftBlade);
+
+      // Right Blade
+      const rightBlade = new THREE.Mesh(bladeGeo, steelMat);
+      rightBlade.position.set(0.005, 0.02, 0);
+      rightBlade.rotation.z = 0.12;
+      rightBlade.castShadow = true;
+      scissorsGroup.add(rightBlade);
+
+      // Center Pivot Screw
+      const pivotGeo = new THREE.CylinderGeometry(0.004, 0.004, 0.008, 12);
+      const pivotMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.8 });
+      const pivot = new THREE.Mesh(pivotGeo, pivotMat);
+      pivot.rotation.x = Math.PI / 2;
+      pivot.position.set(0, -0.005, 0);
+      scissorsGroup.add(pivot);
+
+      // Left Handle Loop (Torus)
+      const loopGeo = new THREE.TorusGeometry(0.016, 0.0045, 12, 24);
+      const leftLoop = new THREE.Mesh(loopGeo, handleMat);
+      leftLoop.position.set(-0.018, -0.038, 0);
+      leftLoop.castShadow = true;
+      scissorsGroup.add(leftLoop);
+
+      // Right Handle Loop (Torus)
+      const rightLoop = new THREE.Mesh(loopGeo, handleMat);
+      rightLoop.position.set(0.018, -0.038, 0);
+      rightLoop.castShadow = true;
+      scissorsGroup.add(rightLoop);
+
+      // Lay flat on table
+      scissorsGroup.rotation.x = Math.PI / 2;
+      mesh = scissorsGroup;
     } else if (obj.shape === 'box') {
       const geo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
       const mat = new THREE.MeshStandardMaterial({
@@ -1165,7 +1217,7 @@ export const ThreeCanvas: React.FC = () => {
             title="Inspect tabletop objects & live coordinates"
           >
             <Box size={14} />
-            <span>{tableObjects.length} Objects</span>
+            <span>Tabletop ({tableObjects.length})</span>
             {showObjectsPopover ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
           </button>
 
@@ -1185,7 +1237,7 @@ export const ThreeCanvas: React.FC = () => {
               type="button"
               onClick={() => rosService.resetToDefaultObjects()}
               className="hud-btn hud-btn-restore"
-              title="Restore default tabletop items (Red Cube, Blue Cylinder, Green Sphere, Water Glass)"
+              title="Restore default tabletop items (Pen, Scissors, Red Apple, Water Glass, Tennis Ball)"
             >
               <RotateCcw size={13} />
               <span>Restore Defaults</span>
@@ -1254,7 +1306,10 @@ export const ThreeCanvas: React.FC = () => {
             <div className="popover-header">
               <div className="popover-title-row">
                 <Box size={14} className="icon-cyan" />
-                <span className="popover-title">Tabletop Objects ({tableObjects.length})</span>
+                <span className="popover-title">Tabletop Workspace ({tableObjects.length} Physical Items)</span>
+              </div>
+              <div style={{ fontSize: '10.5px', color: '#94a3b8', margin: '2px 0 6px 0' }}>
+                Physical workspace — On-arm RealSense camera discovers items dynamically during motion
               </div>
               <div className="popover-actions-row">
                 {tableObjects.length > 0 ? (

@@ -78,7 +78,7 @@ export interface ObjectPosition {
 export interface TabletopObject {
   id: string;
   name: string;
-  shape: 'box' | 'cylinder' | 'sphere' | 'glass' | 'mug' | 'apple';
+  shape: 'box' | 'cylinder' | 'sphere' | 'glass' | 'mug' | 'apple' | 'scissors';
   color: string;
   position: ObjectPosition;
   state: 'table' | 'held' | 'tray' | 'user';

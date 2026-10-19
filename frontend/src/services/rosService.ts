@@ -312,29 +312,29 @@ export const DESK_LAMP_HOME_JOINTS: number[] = [0.28, 0.58, 1.15, 0.0, 1.41, 0.0
 
 export const DEFAULT_TABLETOP_OBJECTS: TabletopObject[] = [
   {
-    id: 'red_cube',
-    name: 'Red Cube',
-    shape: 'box',
-    color: '#ef4444',
-    position: { x: -0.15, y: 0.48, z: 0.16 },
-    state: 'table',
-    isCustom: false
-  },
-  {
-    id: 'blue_cylinder',
-    name: 'Blue Cylinder',
+    id: 'pen',
+    name: 'Writing Pen',
     shape: 'cylinder',
-    color: '#3b82f6',
-    position: { x: 0.10, y: 0.495, z: 0.14 },
+    color: '#2563eb',
+    position: { x: -0.06, y: 0.465, z: 0.18 },
     state: 'table',
     isCustom: false
   },
   {
-    id: 'green_sphere',
-    name: 'Green Sphere',
-    shape: 'sphere',
-    color: '#10b981',
-    position: { x: -0.12, y: 0.485, z: -0.16 },
+    id: 'scissors',
+    name: 'Scissors',
+    shape: 'scissors',
+    color: '#e11d48',
+    position: { x: 0.08, y: 0.465, z: 0.15 },
+    state: 'table',
+    isCustom: false
+  },
+  {
+    id: 'apple',
+    name: 'Red Apple',
+    shape: 'apple',
+    color: '#e11d48',
+    position: { x: -0.15, y: 0.485, z: -0.14 },
     state: 'table',
     isCustom: false
   },
@@ -348,11 +348,11 @@ export const DEFAULT_TABLETOP_OBJECTS: TabletopObject[] = [
     isCustom: false
   },
   {
-    id: 'pen',
-    name: 'Writing Pen',
-    shape: 'cylinder',
-    color: '#2563eb',
-    position: { x: -0.02, y: 0.465, z: 0.18 },
+    id: 'tennis_ball',
+    name: 'Tennis Ball',
+    shape: 'sphere',
+    color: '#84cc16',
+    position: { x: -0.16, y: 0.485, z: 0.12 },
     state: 'table',
     isCustom: false
   }
@@ -612,11 +612,11 @@ class RosBridgeService {
 
   // Dynamic tabletop object positions map (surfaceY = 0.45)
   private objectPositions: Record<string, ObjectPosition> = {
-    red_cube: { x: -0.15, y: 0.48, z: 0.16 },
-    blue_cylinder: { x: 0.10, y: 0.495, z: 0.14 },
-    green_sphere: { x: -0.12, y: 0.485, z: -0.16 },
+    pen: { x: -0.06, y: 0.465, z: 0.18 },
+    scissors: { x: 0.08, y: 0.465, z: 0.15 },
+    apple: { x: -0.15, y: 0.485, z: -0.14 },
     water: { x: 0.12, y: 0.505, z: -0.14 },
-    pen: { x: -0.02, y: 0.465, z: 0.18 }
+    tennis_ball: { x: -0.16, y: 0.485, z: 0.12 }
   };
 
   // Emergency Stop & Safety Interlock State
@@ -737,6 +737,40 @@ class RosBridgeService {
   public emitObjectsChange(): void {
     const list = this.getObjects();
     this.objectsListeners.forEach((cb) => cb(list));
+    this.publishMarkersToBridge();
+  }
+
+  public publishMarkersToBridge(): void {
+    if (!this.ros || !this.connected) return;
+    try {
+      const markerTopic = new ROSLIB.Topic({
+        ros: this.ros,
+        name: '/visualization_marker_array',
+        messageType: 'visualization_msgs/msg/MarkerArray'
+      });
+      const markers = this.tabletopObjects.map((obj, i) => {
+        const hex = (obj.color || '#3b82f6').replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16) / 255.0 || 0.2;
+        const g = parseInt(hex.substring(2, 4), 16) / 255.0 || 0.5;
+        const b = parseInt(hex.substring(4, 6), 16) / 255.0 || 0.8;
+        return {
+          header: { frame_id: 'world', stamp: { sec: Math.floor(Date.now() / 1000), nanosec: 0 } },
+          ns: 'tabletop_objects',
+          id: i + 1,
+          type: obj.shape === 'sphere' ? 2 : obj.shape === 'cylinder' ? 3 : 1,
+          action: 0,
+          pose: {
+            position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
+            orientation: { x: 0, y: 0, z: 0, w: 1 }
+          },
+          scale: { x: 0.06, y: 0.06, z: 0.06 },
+          color: { r, g, b, a: 0.95 }
+        };
+      });
+      markerTopic.publish({ markers });
+    } catch {
+      // ignore
+    }
   }
 
   public addObject(params: {
@@ -871,11 +905,11 @@ class RosBridgeService {
   public resetToDefaultObjects(): void {
     this.tabletopObjects = JSON.parse(JSON.stringify(DEFAULT_TABLETOP_OBJECTS));
     this.objectPositions = {
-      red_cube: { x: -0.15, y: 0.48, z: 0.16 },
-      blue_cylinder: { x: 0.10, y: 0.495, z: 0.14 },
-      green_sphere: { x: -0.12, y: 0.485, z: -0.16 },
+      pen: { x: -0.06, y: 0.465, z: 0.18 },
+      scissors: { x: 0.08, y: 0.465, z: 0.15 },
+      apple: { x: -0.15, y: 0.485, z: -0.14 },
       water: { x: 0.12, y: 0.505, z: -0.14 },
-      pen: { x: -0.02, y: 0.465, z: 0.18 }
+      tennis_ball: { x: -0.16, y: 0.485, z: 0.12 }
     };
 
     this.emitObjectsChange();
@@ -885,7 +919,7 @@ class RosBridgeService {
       level: 20,
       levelName: 'INFO',
       nodeName: 'tabletop_env',
-      message: '[Workspace] Restored default tabletop objects (Red Cube, Blue Cylinder, Green Sphere, Water Glass, Writing Pen).'
+      message: '[Workspace] Restored default tabletop objects (Writing Pen, Scissors, Red Apple, Water Glass, Tennis Ball).'
     });
   }
 
@@ -1276,6 +1310,52 @@ class RosBridgeService {
     this.orchStateSub.subscribe((msg: any) => {
       if (msg.data) {
         this.stateListeners.forEach((cb) => cb(msg.data as OrchestratorFsmState));
+      }
+    });
+
+    // 4. Subscribe to /nora/tabletop_objects/add for real-time Foxglove integration
+    const addObjectSub = new ROSLIB.Topic({
+      ros: this.ros,
+      name: '/nora/tabletop_objects/add',
+      messageType: 'std_msgs/msg/String'
+    });
+    addObjectSub.subscribe((msg: any) => {
+      try {
+        const data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
+        if (data && data.name) {
+          this.addObject({
+            name: data.name,
+            shape: data.shape || 'box',
+            color: data.color || '#3b82f6',
+            zone: 'auto'
+          });
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'foxglove_bridge',
+            message: `[Foxglove Remote Spawn] Object "${data.name}" added to tabletop workspace.`
+          });
+        }
+      } catch (err) {
+        console.warn('Could not parse remote add_object message:', err);
+      }
+    });
+
+    // 5. Subscribe to /nora/intent for remote task execution from Foxglove
+    const remoteIntentSub = new ROSLIB.Topic({
+      ros: this.ros,
+      name: '/nora/intent',
+      messageType: 'std_msgs/msg/String'
+    });
+    remoteIntentSub.subscribe((msg: any) => {
+      try {
+        const data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
+        const text = data.raw_text || data.text || (data.action ? `${data.action} ${data.target_object || ''}` : '');
+        if (text && !this.isExecuting) {
+          this.executeSimulated(text);
+        }
+      } catch (err) {
+        console.warn('Could not parse remote intent message:', err);
       }
     });
   }
@@ -1785,21 +1865,12 @@ class RosBridgeService {
             level: 20,
             levelName: 'INFO',
             nodeName: 'nora_perception',
-            message: `[Category Grounding] Query "${catInfo.category}" maps to candidate item [${catInfo.defaultName}]. Scanning tabletop...`
+            message: `[Category Grounding] Query "${catInfo.category}" maps to candidate item [${catInfo.defaultName}]. Articulating arm to survey pose...`
           });
           this.emitArmSpeech({
             message: `Searching ${catInfo.category}... searching for ${catInfo.defaultName}`,
             subtext: `Category grounding: [${catInfo.category}] -> [${catInfo.defaultName}]`,
             type: 'info'
-          });
-
-          // Check if any candidate from this category is currently present on the table
-          const found = this.tabletopObjects.find((o) => {
-            const oId = o.id.toLowerCase();
-            const oName = o.name.toLowerCase();
-            return catInfo.candidateIds.some(
-              (c) => oId === c || oId.includes(c) || oName.includes(c) || o.shape === c
-            );
           });
 
           this.emitPerceptionScan({ active: true, targetObject: catInfo.defaultId });
@@ -1808,26 +1879,36 @@ class RosBridgeService {
           await this.delay(450);
           if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
 
+          // True Optical Vision: RealSense D435 camera inspects physical workspace
+          const visibleObjects = this.getObjectsInCameraFOV();
+          const found = visibleObjects.find((o) => {
+            const oId = o.id.toLowerCase();
+            const oName = o.name.toLowerCase();
+            return catInfo.candidateIds.some(
+              (c) => oId === c || oId.includes(c) || oName.includes(c) || o.shape === c
+            );
+          });
+
           if (!found) {
             this.emitPerceptionScan({ active: false, targetObject: catInfo.defaultId });
             this.emitLog({
               level: 30,
               levelName: 'WARN',
               nodeName: 'nora_perception',
-              message: `[RGB-D Vision Scan] Search completed: "${catInfo.category}" (candidate: ${catInfo.defaultName}) was NOT detected anywhere across tabletop workspace.`
+              message: `[RGB-D Vision Scan] Search completed: "${catInfo.category}" (candidate: ${catInfo.defaultName}) was NOT detected in camera field-of-view.`
             });
             this.emitLog({
               level: 40,
               levelName: 'ERROR',
               nodeName: 'nora_orchestrator',
-              message: `Task aborted: Cannot pick or deliver "${catInfo.category}" because no matching item is present on the table.`
+              message: `Task aborted: Cannot pick or deliver "${catInfo.category}" because no matching item is visible in camera FOV.`
             });
 
             const gEvent: GuardrailEvent = {
               active: true,
               type: 'missing_object',
               title: 'Object Grounding Guardrail',
-              reason: `SayCan Perception Guardrail: "${catInfo.defaultName}" (matching category "${catInfo.category}") is not present on the tabletop. Please click "+ Place ${catInfo.defaultName} on Tabletop" to place one in the workspace.`,
+              reason: `SayCan Perception Guardrail: "${catInfo.defaultName}" (matching category "${catInfo.category}") was not detected by the camera on the tabletop. Please click "+ Place ${catInfo.defaultName} on Tabletop" to place one in the workspace.`,
               score: 0.15,
               threshold: 0.30,
               targetObject: catInfo.defaultId,
@@ -1840,7 +1921,7 @@ class RosBridgeService {
               intent,
               affordances,
               guardrailEvent: gEvent,
-              error: `Visual search failed: "${catInfo.defaultName}" (matching category "${catInfo.category}") was not found on the table. Click "Place ${catInfo.defaultName} on Tabletop" to place one in the workspace.`
+              error: `Visual search failed: "${catInfo.defaultName}" (matching category "${catInfo.category}") was not detected in camera view. Click "Place ${catInfo.defaultName} on Tabletop" to place one in the workspace.`
             });
             this.stateListeners.forEach((cb) => cb('FAILED'));
             setTimeout(() => {
@@ -1869,45 +1950,49 @@ class RosBridgeService {
         } else {
           // Direct item search
           const obj = this.normalizeObjectName(step.targetObject || intent.target_object);
-          const found = this.tabletopObjects.find(
+          const friendlyTarget = intent.parameters?.target_name || step.targetObject || 'target';
+
+          this.emitPerceptionScan({ active: true, targetObject: obj || step.targetObject });
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: `[Active Vision Search] Articulating arm to survey pose and initiating RealSense D435 camera sweep for [${friendlyTarget}]...`
+          });
+          await this.simulateJointMotion(step, intent, execId);
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+          await this.delay(450);
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+
+          // True Optical Vision: RealSense D435 camera inspects physical workspace
+          const visibleObjects = this.getObjectsInCameraFOV();
+          const found = visibleObjects.find(
             (o) =>
               o.id === obj ||
               o.id === step.targetObject ||
               o.name.toLowerCase() === (step.targetObject || '').toLowerCase()
           );
-          const friendlyTarget = intent.parameters?.target_name || step.targetObject || 'target';
 
           if (!found) {
-            // Object not present on table: perform scan and report missing cleanly without inventing objects
-            this.emitPerceptionScan({ active: true, targetObject: obj || step.targetObject });
-            this.emitLog({
-              level: 20,
-              levelName: 'INFO',
-              nodeName: 'nora_perception',
-              message: `[Active Vision Search] Initiated visual search for [${friendlyTarget}] across tabletop workspace.`
-            });
-            await this.simulateJointMotion(step, intent, execId);
-            if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
-            await this.delay(450);
             this.emitPerceptionScan({ active: false, targetObject: obj || step.targetObject });
             this.emitLog({
               level: 30,
               levelName: 'WARN',
               nodeName: 'nora_perception',
-              message: `[RGB-D Vision Scan] Search completed: "${friendlyTarget}" was NOT detected anywhere across tabletop workspace.`
+              message: `[RGB-D Vision Scan] Search completed: "${friendlyTarget}" was NOT detected in camera field-of-view across tabletop workspace.`
             });
             this.emitLog({
               level: 40,
               levelName: 'ERROR',
               nodeName: 'nora_orchestrator',
-              message: `Task aborted: Cannot pick or deliver "${friendlyTarget}" because it is not present on the table.`
+              message: `Task aborted: Cannot pick or deliver "${friendlyTarget}" because it was not detected by camera on the table.`
             });
 
             const gEvent: GuardrailEvent = {
               active: true,
               type: 'missing_object',
               title: 'Object Grounding Guardrail',
-              reason: `SayCan Perception Guardrail: "${friendlyTarget}" is not present on the tabletop. Please click "+ Add Object" to place one in the workspace.`,
+              reason: `SayCan Perception Guardrail: "${friendlyTarget}" is not visible in camera field-of-view. Please click "+ Add Object" to place one in the workspace.`,
               score: 0.15,
               threshold: 0.30,
               targetObject: obj || step.targetObject,
@@ -1920,7 +2005,7 @@ class RosBridgeService {
               intent,
               affordances,
               guardrailEvent: gEvent,
-              error: `Visual search failed: "${friendlyTarget}" was not found on the table. Click "Add Object" to place one in the workspace.`
+              error: `Visual search failed: "${friendlyTarget}" was not detected by camera on the table. Click "Add Object" to place one in the workspace.`
             });
             this.stateListeners.forEach((cb) => cb('FAILED'));
             setTimeout(() => {
@@ -1931,22 +2016,11 @@ class RosBridgeService {
           }
 
           const pos = found.position;
-          this.emitPerceptionScan({ active: true, targetObject: obj });
           this.emitLog({
             level: 20,
             levelName: 'INFO',
             nodeName: 'nora_perception',
-            message: `[Active Vision Search] Initiated visual search for [${found.name}] across tabletop workspace.`
-          });
-          await this.simulateJointMotion(step, intent, execId);
-          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
-          await this.delay(450);
-          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
-          this.emitLog({
-            level: 20,
-            levelName: 'INFO',
-            nodeName: 'nora_perception',
-            message: `[YOLO-World] Target acquired! [${found.name}] detected at coordinates (X: ${pos.x.toFixed(2)}m, Y: ${pos.y.toFixed(2)}m, Z: ${pos.z.toFixed(2)}m) with 99.2% confidence.`
+            message: `[YOLO-World] Target acquired! [${found.name}] detected by camera at coordinates (X: ${pos.x.toFixed(2)}m, Y: ${pos.y.toFixed(2)}m, Z: ${pos.z.toFixed(2)}m) with 99.2% confidence.`
           });
           this.emitPerceptionScan({ active: false, targetObject: obj, detectedPosition: pos, confidence: 0.992 });
         }
@@ -2038,6 +2112,165 @@ class RosBridgeService {
         nodeName: 'nora_skills',
         message: `[Skill] Step ${i + 1} (${step.skill}) completed successfully.`
       });
+    }
+
+    if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+
+    // Real-Time Vision & Verification Loop for Clean Table:
+    // If the user placed new objects on the table while cleaning, the camera dynamically detects and clears them!
+    if (intent.action === 'clean_table') {
+      let isVerifiedClean = false;
+      while (!isVerifiedClean && !this.isEStopped && !this.isCancelled && execId === this.currentExecutionId) {
+        // Articulate arm to elevated survey pose pointing RealSense camera at tabletop
+        this.emitLog({
+          level: 20,
+          levelName: 'INFO',
+          nodeName: 'nora_perception',
+          message: `[Active Vision Survey] Elevating arm to survey pose and performing real-time RealSense D435 camera sweep to detect any newly added or remaining objects...`
+        });
+        const surveyStep: PlanStep = {
+          id: Math.random().toString(36).substring(2, 7),
+          skill: 'search_object',
+          params: { pose_name: 'survey_table' },
+          status: 'running',
+          detail: 'Real-time camera optical scan & verification sweep'
+        };
+        this.emitPerceptionScan({ active: true });
+        await this.simulateJointMotion(surveyStep, intent, execId);
+        if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+        await this.delay(500);
+        this.emitPerceptionScan({ active: false });
+
+        // Query camera optical frustum for objects physically remaining on the table
+        const remainingInFOV = this.getObjectsInCameraFOV().filter((o) => o.state === 'table');
+        if (remainingInFOV.length > 0) {
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: `[Real-Time Vision Discovery] Camera detected ${remainingInFOV.length} object(s) on table: [${remainingInFOV.map((o) => o.name).join(', ')}]. Appending pickup routine to clean them in real-time!`
+          });
+
+          // Pick and clear each newly detected object
+          for (const newObj of remainingInFOV) {
+            if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+            const subSteps: PlanStep[] = [
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'search_object',
+                params: { target_object: newObj.id },
+                status: 'pending',
+                detail: `Lock onto newly detected ${newObj.name}`,
+                targetObject: newObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'move_to_pose',
+                params: { pose_name: 'pre_grasp', target: newObj.id },
+                status: 'pending',
+                detail: `Align above ${newObj.name}`,
+                targetObject: newObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'open_gripper',
+                params: { stroke_mm: 80 },
+                status: 'pending',
+                detail: `Open gripper fingers`,
+                targetObject: newObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'pick',
+                params: { target_object: newObj.id },
+                status: 'pending',
+                detail: `Descend and grasp ${newObj.name}`,
+                targetObject: newObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'move_to_pose',
+                params: { pose_name: 'lift', target: newObj.id },
+                status: 'pending',
+                detail: `Lift ${newObj.name}`,
+                targetObject: newObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'move_to_pose',
+                params: { pose_name: 'approach_target', target: 'tray' },
+                status: 'pending',
+                detail: `Transfer ${newObj.name} to storage tray`,
+                targetObject: newObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'place',
+                params: { target_location: 'tray', target_object: newObj.id },
+                status: 'pending',
+                detail: `Deposit ${newObj.name} into tray`,
+                targetObject: newObj.id
+              },
+              {
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'open_gripper',
+                params: { stroke_mm: 80 },
+                status: 'pending',
+                detail: `Release grip from ${newObj.name}`,
+                targetObject: newObj.id
+              }
+            ];
+
+            plan.push(...subSteps);
+            for (const s of subSteps) {
+              if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+              s.status = 'running';
+              this.notifyPipeline({ stage: 'EXECUTING', intent, affordances, plan: [...plan], activeStepId: s.id });
+              await this.simulateJointMotion(s, intent, execId);
+              if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+
+              if (s.skill === 'pick') {
+                newObj.state = 'held';
+                this.emitObjectEvent({ name: newObj.id, state: 'held' });
+              } else if (s.skill === 'place') {
+                newObj.state = 'tray';
+                this.emitObjectEvent({ name: newObj.id, state: 'tray' });
+              }
+              s.status = 'completed';
+            }
+          }
+        } else {
+          // 0 objects in FOV!
+          isVerifiedClean = true;
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: `[Vision Verification Sweep] Re-scanning full tabletop workspace with RealSense D435 camera...`
+          });
+          this.emitArmSpeech({
+            message: 'Re-scanning table... verifying all objects removed.',
+            subtext: 'Intel RealSense D435 active verification sweep',
+            type: 'info'
+          });
+
+          this.emitPerceptionScan({ active: true });
+          await this.delay(800);
+          this.emitPerceptionScan({ active: false });
+
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: `[Vision Verification Confirmed] Camera optical FOV confirms 0 objects remaining. Tabletop is 100% clean!`
+          });
+          this.emitArmSpeech({
+            message: 'Verification complete! Table is completely clear.',
+            subtext: '0 objects detected across workspace',
+            type: 'info'
+          });
+        }
+      }
     }
 
     if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
@@ -3466,6 +3699,60 @@ class RosBridgeService {
         detail: `Execute skill ${intent.action}`
       }
     ];
+  }
+
+  /**
+   * Optical Frustum Perception:
+   * Real-time camera vision raycasting based on physical field-of-view of Intel RealSense D435.
+   * Objects are ONLY detected if they physically lie inside the camera's optical cone.
+   * If the camera is at home pose or looking away, 0 objects are visible.
+   */
+  public getObjectsInCameraFOV(): TabletopObject[] {
+    const j = this.currentJointPositions;
+    const yaw = j[0];
+    const pitch = j[1] + j[2] + j[4];
+
+    // Forward kinematics of on-arm camera optical center
+    const L1 = 0.32;
+    const L2 = 0.32;
+    const Lcam = 0.22;
+    const rArm = L1 * Math.sin(j[1]) + L2 * Math.sin(j[1] + j[2]) + Lcam * Math.sin(pitch);
+    const camX = this.robotBasePos.x + rArm * Math.cos(yaw);
+    const camY = this.robotBasePos.y + 0.22 + L1 * Math.cos(j[1]) + L2 * Math.cos(j[1] + j[2]) + Lcam * Math.cos(pitch);
+    const camZ = this.robotBasePos.z - rArm * Math.sin(yaw);
+
+    // Camera pointing vector (optical axis looking along gripper / camera lens)
+    const dirX = Math.sin(pitch) * Math.cos(yaw);
+    const dirY = Math.cos(pitch); // downward when pitched forward towards table (pitch ~ 1.9 to 3.14 rad -> cos is negative)
+    const dirZ = -Math.sin(pitch) * Math.sin(yaw);
+    const dirLen = Math.hypot(dirX, dirY, dirZ) || 1.0;
+    const nx = dirX / dirLen;
+    const ny = dirY / dirLen;
+    const nz = dirZ / dirLen;
+
+    // Optical parameters of Intel RealSense D435 (horizontal FOV 69 deg, diagonal 86 deg, range 0.06m to 1.35m)
+    const maxHalfAngle = (86.0 / 2.0) * (Math.PI / 180.0);
+    const minRange = 0.06;
+    const maxRange = 1.35;
+
+    const visible: TabletopObject[] = [];
+    for (const obj of this.tabletopObjects) {
+      if (obj.state !== 'table') continue;
+      const vx = obj.position.x - camX;
+      const vy = obj.position.y - camY;
+      const vz = obj.position.z - camZ;
+      const dist = Math.hypot(vx, vy, vz);
+
+      if (dist < minRange || dist > maxRange) continue;
+
+      const dot = (vx * nx + vy * ny + vz * nz) / dist;
+      const angle = Math.acos(Math.max(-1.0, Math.min(1.0, dot)));
+
+      if (angle <= maxHalfAngle) {
+        visible.push(obj);
+      }
+    }
+    return visible;
   }
 
   // Exact 6-DOF Closed-Form Inverse Kinematics for Table-Mounted NORA Arm
