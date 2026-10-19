@@ -1,16 +1,15 @@
 """
-foxglove.launch.py — Launch the NORA arm visualization with Foxglove Bridge.
+foxglove.launch.py — Top-level launch file for Foxglove Studio integration in NORA.
 
 Starts:
-  1. xacro → robot_description param
-  2. robot_state_publisher
-  3. joint_state_publisher_gui (or headless joint_state_publisher)
-  4. foxglove_bridge (WebSocket server on port 8765)
-  5. Optional RViz2
+  1. NORA arm robot description & robot_state_publisher.
+  2. joint_state_publisher_gui (or headless joint_state_publisher).
+  3. foxglove_bridge WebSocket server (default port: 8765).
+  4. Optional RViz2 instance.
 
 Usage:
-  ros2 launch nora_description foxglove.launch.py
-  ros2 launch nora_description foxglove.launch.py port:=8765 gui:=true
+  ros2 launch nora_bringup foxglove.launch.py
+  ros2 launch nora_bringup foxglove.launch.py port:=8765 gui:=true
 """
 
 import os
@@ -24,7 +23,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description() -> LaunchDescription:
-    pkg_share = get_package_share_directory("nora_description")
+    pkg_desc = get_package_share_directory("nora_description")
 
     # ------------------------------------------------------------------
     # Launch arguments
@@ -39,7 +38,7 @@ def generate_launch_description() -> LaunchDescription:
     address_arg = DeclareLaunchArgument(
         "address",
         default_value="0.0.0.0",
-        description="Address to bind Foxglove WebSocket server",
+        description="IP address to bind Foxglove WebSocket server",
     )
     address = LaunchConfiguration("address")
 
@@ -53,28 +52,28 @@ def generate_launch_description() -> LaunchDescription:
     use_sim_time_arg = DeclareLaunchArgument(
         "use_sim_time",
         default_value="false",
-        description="Use simulation (Gazebo) clock",
+        description="Use simulation clock if true",
     )
     use_sim_time = LaunchConfiguration("use_sim_time")
 
     gui_arg = DeclareLaunchArgument(
         "gui",
         default_value="true",
-        description="Launch joint_state_publisher_gui with slider controls",
+        description="Launch joint_state_publisher_gui sliders if true",
     )
     gui = LaunchConfiguration("gui")
 
     rviz_arg = DeclareLaunchArgument(
         "rviz",
         default_value="false",
-        description="Launch RViz2 alongside Foxglove bridge",
+        description="Launch RViz2 alongside Foxglove Studio if true",
     )
     rviz = LaunchConfiguration("rviz")
 
     # ------------------------------------------------------------------
     # Robot description via xacro
     # ------------------------------------------------------------------
-    xacro_file = os.path.join(pkg_share, "urdf", "nora_arm.urdf.xacro")
+    xacro_file = os.path.join(pkg_desc, "urdf", "nora_arm.urdf.xacro")
     robot_description = {"robot_description": Command(["xacro ", xacro_file])}
 
     # ------------------------------------------------------------------
@@ -129,7 +128,7 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
-    rviz_config = os.path.join(pkg_share, "rviz", "nora_arm.rviz")
+    rviz_config = os.path.join(pkg_desc, "rviz", "nora_arm.rviz")
     rviz2_node = Node(
         package="rviz2",
         executable="rviz2",
@@ -138,6 +137,14 @@ def generate_launch_description() -> LaunchDescription:
         arguments=["-d", rviz_config],
         parameters=[{"use_sim_time": use_sim_time}],
         condition=IfCondition(rviz),
+    )
+
+    perception_node = Node(
+        package="nora_perception",
+        executable="nora_perception",
+        name="nora_perception",
+        output="screen",
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     return LaunchDescription(
@@ -152,6 +159,7 @@ def generate_launch_description() -> LaunchDescription:
             joint_state_publisher_gui_node,
             joint_state_publisher_node,
             foxglove_bridge_node,
+            perception_node,
             rviz2_node,
         ]
     )

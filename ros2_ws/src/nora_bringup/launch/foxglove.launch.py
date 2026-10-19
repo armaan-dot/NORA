@@ -139,6 +139,14 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(rviz),
     )
 
+    perception_node = Node(
+        package="nora_perception",
+        executable="nora_perception",
+        name="nora_perception",
+        output="screen",
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
     return LaunchDescription(
         [
             port_arg,
@@ -151,6 +159,7 @@ def generate_launch_description() -> LaunchDescription:
             joint_state_publisher_gui_node,
             joint_state_publisher_node,
             foxglove_bridge_node,
+            perception_node,
             rviz2_node,
         ]
     )

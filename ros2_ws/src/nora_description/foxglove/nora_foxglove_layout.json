@@ -3,9 +3,9 @@
     "3D!nora_arm_view": {
       "cameraState": {
         "perspective": true,
-        "distance": 2.2,
-        "phi": 55,
-        "thetaOffset": 45,
+        "distance": 2.1,
+        "phi": 52,
+        "thetaOffset": 38,
         "targetOffset": [0, 0, 0.35],
         "target": [0, 0, 0],
         "fovy": 45,
@@ -22,15 +22,17 @@
       },
       "transforms": {
         "frame:world": { "visible": true },
+        "frame:tabletop": { "visible": true },
         "frame:base_link": { "visible": true },
-        "frame:shoulder_link": { "visible": false },
-        "frame:upper_arm_link": { "visible": false },
-        "frame:forearm_link": { "visible": false },
-        "frame:wrist_1_link": { "visible": false },
-        "frame:wrist_2_link": { "visible": false },
-        "frame:wrist_3_link": { "visible": false },
         "frame:tool0": { "visible": true },
-        "frame:gripper_link": { "visible": true }
+        "frame:gripper_link": { "visible": true },
+        "frame:camera_link": { "visible": true },
+        "frame:camera_color_optical_frame": { "visible": true },
+        "frame:pen_frame": { "visible": true },
+        "frame:scissors_frame": { "visible": true },
+        "frame:apple_frame": { "visible": true },
+        "frame:water_frame": { "visible": true },
+        "frame:tennis_ball_frame": { "visible": true }
       },
       "topics": {
         "/robot_description": {
@@ -42,10 +44,18 @@
         "/tf_static": {
           "visible": true
         },
-        "/visualization_marker": {
+        "/visualization_marker_array": {
           "visible": true
         },
-        "/visualization_marker_array": {
+        "/camera/color/camera_info": {
+          "visible": true
+        },
+        "/slam/trajectory": {
+          "visible": true,
+          "color": "#00f0ff",
+          "lineWidth": 0.015
+        },
+        "/robot_pose": {
           "visible": true
         }
       },
@@ -55,7 +65,7 @@
           "size": 10,
           "divisions": 10,
           "lineWidth": 1,
-          "color": "#444444",
+          "color": "#334155",
           "position": [0, 0, 0],
           "rotation": [0, 0, 0],
           "frameId": "world"
@@ -65,74 +75,77 @@
         "type": "point",
         "poseTopic": "/goal_pose",
         "pointTopic": "/clicked_point",
-        "poseEstimateTopic": "/initialpose",
-        "poseEstimateXDeviation": 0.5,
-        "poseEstimateYDeviation": 0.5,
-        "poseEstimateThetaDeviation": 0.26
+        "poseEstimateTopic": "/initialpose"
       },
       "imageMode": {}
     },
-    "Plot!joint_positions": {
-      "title": "UR5e 6-DOF Joint Positions (rad)",
+    "Image!on_arm_camera": {
+      "cameraTopic": "/camera/color/image_raw",
+      "enabledMarkerTopics": [],
+      "transformMarkers": true,
+      "synchronize": false,
+      "mode": "fit",
+      "zoomPercentage": 100,
+      "flipHorizontal": false,
+      "flipVertical": false
+    },
+    "Plot!slam_motion_telemetry": {
+      "title": "UR5e Kinematic & SLAM Trajectory Telemetry",
       "paths": [
         {
           "value": "/joint_states.position[0]",
           "enabled": true,
-          "label": "Shoulder Pan (Yaw)",
-          "color": "#e6194b"
+          "label": "Joint 1: Shoulder Pan (rad)",
+          "color": "#38bdf8"
         },
         {
           "value": "/joint_states.position[1]",
           "enabled": true,
-          "label": "Shoulder Lift (Pitch)",
-          "color": "#3cb44b"
+          "label": "Joint 2: Shoulder Lift (rad)",
+          "color": "#4ade80"
         },
         {
           "value": "/joint_states.position[2]",
           "enabled": true,
-          "label": "Elbow (Pitch)",
-          "color": "#ffe119"
-        },
-        {
-          "value": "/joint_states.position[3]",
-          "enabled": true,
-          "label": "Wrist 1 (Pitch)",
-          "color": "#4363d8"
+          "label": "Joint 3: Elbow (rad)",
+          "color": "#facc15"
         },
         {
           "value": "/joint_states.position[4]",
           "enabled": true,
-          "label": "Wrist 2 (Yaw)",
-          "color": "#f58231"
+          "label": "Joint 5: Wrist 2 (rad)",
+          "color": "#f43f5e"
         },
         {
-          "value": "/joint_states.position[5]",
+          "value": "/robot_pose.pose.position.y",
           "enabled": true,
-          "label": "Wrist 3 (Pitch)",
-          "color": "#911eb4"
+          "label": "Camera Height Y (m)",
+          "color": "#c084fc"
         }
       ],
       "showLegend": true,
       "xAxisVal": "timestamp"
     },
+    "Publish!add_object_publisher": {
+      "topic": "/nora/tabletop_objects/add",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Add Object to Tabletop",
+      "buttonTooltip": "Dynamically spawn a physical object onto the live tabletop workspace",
+      "buttonColor": "#10b981",
+      "advancedView": true,
+      "value": "{\n  \"data\": \"{\\\"id\\\": \\\"scissors\\\", \\\"name\\\": \\\"Scissors\\\", \\\"shape\\\": \\\"scissors\\\", \\\"color\\\": \\\"#e11d48\\\", \\\"x\\\": 0.08, \\\"y\\\": 0.465, \\\"z\\\": 0.15}\"\n}"
+    },
     "Publish!intent_publisher": {
       "topic": "/nora/intent",
       "datatype": "std_msgs/msg/String",
-      "buttonText": "Dispatch Intent to NORA",
-      "buttonTooltip": "Publishes JSON Intent string to /nora/intent",
-      "buttonColor": "#0088ff",
+      "buttonText": "Dispatch Task to NORA",
+      "buttonTooltip": "Publishes natural language robotic intent to /nora/intent",
+      "buttonColor": "#0284c7",
       "advancedView": true,
-      "value": "{\n  \"data\": \"{\\\"action\\\": \\\"pick\\\", \\\"target_object\\\": \\\"red_cube\\\", \\\"target_location\\\": \\\"table\\\"}\"\n}"
+      "value": "{\n  \"data\": \"{\\\"action\\\": \\\"pick\\\", \\\"target_object\\\": \\\"scissors\\\", \\\"target_location\\\": \\\"user\\\"}\"\n}"
     },
-    "RawMessages!orchestrator_state": {
-      "topicPath": "/nora/orchestrator/state",
-      "diffTopicPath": "",
-      "diffMethod": "custom",
-      "diffEnabled": false,
-      "showFullMessageForDiff": false
-    },
-    "RawMessages!intent_monitor": {
-      "topicPath": "/nora/intent",
+    "RawMessages!tabletop_objects": {
+      "topicPath": "/nora/tabletop_objects",
       "diffTopicPath": "",
       "diffMethod": "custom",
       "diffEnabled": false,
@@ -154,25 +167,30 @@
     "first": {
       "direction": "column",
       "first": "3D!nora_arm_view",
-      "second": "Plot!joint_positions",
-      "splitPercentage": 62
+      "second": "Plot!slam_motion_telemetry",
+      "splitPercentage": 64
     },
     "second": {
       "direction": "column",
-      "first": {
-        "direction": "row",
-        "first": "Publish!intent_publisher",
-        "second": "RawMessages!orchestrator_state",
-        "splitPercentage": 52
-      },
+      "first": "Image!on_arm_camera",
       "second": {
         "direction": "column",
-        "first": "RawMessages!intent_monitor",
-        "second": "RosOut!system_logs",
-        "splitPercentage": 40
+        "first": {
+          "direction": "row",
+          "first": "Publish!add_object_publisher",
+          "second": "Publish!intent_publisher",
+          "splitPercentage": 50
+        },
+        "second": {
+          "direction": "row",
+          "first": "RawMessages!tabletop_objects",
+          "second": "RosOut!system_logs",
+          "splitPercentage": 45
+        },
+        "splitPercentage": 35
       },
-      "splitPercentage": 45
+      "splitPercentage": 50
     },
-    "splitPercentage": 60
+    "splitPercentage": 56
   }
 }
