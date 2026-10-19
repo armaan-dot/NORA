@@ -1,4 +1,5 @@
 # NORA: Natural Language Orchestrated Robotics Agent
+NORA translates everyday spoken English into physically verified robotic skills for tabletop arms and industrial manipulators like the Universal Robots UR5e:
 
 > **SayCan-inspired 6-DOF robotic manipulator driven by natural language and affordance scoring.**
 
@@ -11,10 +12,6 @@
 🔗 **Live Interactive Demo:** [https://armnora.netlify.app](https://armnora.netlify.app)
 
 ---
-
-## What is NORA?
-
-NORA translates everyday spoken English into physically verified robotic skills for tabletop arms and industrial manipulators like the **Universal Robots UR5e**:
 
 ```text
 User: "I am thirsty"
