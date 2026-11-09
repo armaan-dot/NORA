@@ -75,6 +75,12 @@ _EXPLICIT_WORDS_PATTERNS = [
     r"naked",
 ]
 
+# Words that end a fallback object capture ("place the cube ON the shelf" -> cube, not cube_on).
+_OBJECT_STOP_WORDS = {
+    "on", "in", "into", "onto", "to", "at", "from", "near", "by", "with",
+    "under", "over", "and", "then", "for",
+}
+
 _EXPLICIT_REGEX = re.compile(rf"\b(?:{'|'.join(_EXPLICIT_WORDS_PATTERNS)})\b", re.IGNORECASE)
 
 
@@ -597,7 +603,10 @@ class NLUModel:
                 lower,
             )
             if obj_m:
-                candidate = obj_m.group(1).strip().replace(" ", "_")
+                words = obj_m.group(1).split()
+                if len(words) > 1 and words[1] in _OBJECT_STOP_WORDS:
+                    words = words[:1]
+                candidate = "_".join(words)
                 if candidate not in {"coordinates", "pose", "home", "gripper", "hand"}:
                     target_object = candidate
 
