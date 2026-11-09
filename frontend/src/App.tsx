@@ -4,6 +4,7 @@ import { CommandInput } from './components/CommandInput';
 import { ProcessTab } from './components/ProcessTab';
 import { LogTerminal } from './components/LogTerminal';
 import { ArmStatus } from './components/ArmStatus';
+import { SensorsPanel, TopicsPanel, PlotPanel } from './components/SimPanels';
 import { useDialog } from './components/useDialog';
 import {
   rosService,
@@ -39,7 +40,7 @@ import {
 
 export const App: React.FC = () => {
   // Navigation active tab
-  const [activeTab, setActiveTab] = useState<'process' | 'logs' | 'status'>('process');
+  const [activeTab, setActiveTab] = useState<'process' | 'logs' | 'status' | 'sensors' | 'topics' | 'plots'>('process');
   const [isAudioMuted, setIsAudioMuted] = useState(() => rosService.isAudioMuted());
 
   // ROS Bridge states
@@ -761,6 +762,36 @@ export const App: React.FC = () => {
               <Cpu size={16} />
               <span>Arm status</span>
             </button>
+
+            <button
+              className={`tab-btn ${activeTab === 'sensors' ? 'active' : ''}`}
+              onClick={() => setActiveTab('sensors')}
+              aria-pressed={activeTab === 'sensors'}
+              aria-controls="inspector-content"
+            >
+              <Activity size={16} />
+              <span>Sensors</span>
+            </button>
+
+            <button
+              className={`tab-btn ${activeTab === 'topics' ? 'active' : ''}`}
+              onClick={() => setActiveTab('topics')}
+              aria-pressed={activeTab === 'topics'}
+              aria-controls="inspector-content"
+            >
+              <Activity size={16} />
+              <span>Topics</span>
+            </button>
+
+            <button
+              className={`tab-btn ${activeTab === 'plots' ? 'active' : ''}`}
+              onClick={() => setActiveTab('plots')}
+              aria-pressed={activeTab === 'plots'}
+              aria-controls="inspector-content"
+            >
+              <Activity size={16} />
+              <span>Plots</span>
+            </button>
           </nav>
 
           {/* Active Tab Viewport */}
@@ -780,6 +811,10 @@ export const App: React.FC = () => {
             {activeTab === 'logs' && (
               <LogTerminal logs={logs} onClearLogs={handleClearLogs} />
             )}
+
+            {activeTab === 'sensors' && <SensorsPanel />}
+            {activeTab === 'topics' && <TopicsPanel />}
+            {activeTab === 'plots' && <PlotPanel />}
 
             {activeTab === 'status' && (
               <ArmStatus

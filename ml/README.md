@@ -7,7 +7,7 @@ This module contains the self-contained Machine Learning model that parses natur
 ## Highlights
 
 - **Zero-Dependency Inference:** Runs in pure Python 3.10 with standard library. No Ollama, no heavy PyTorch/CUDA downloads required.
-- **Pre-Trained Model Included:** `models/nora_nlu_model.json` is trained on 15,000+ examples across direct and indirect everyday phrasing and bundled ready to use out of the box.
+- **Pre-Trained Model Included:** `models/nora_nlu_model.json` is trained on 20,000+ generated examples across direct and indirect everyday phrasing and bundled ready to use out of the box.
 - **Commonsense & Indirect Reasoning:** Supports both direct commands (*"pick up the scissors"*, *"put the red cube on the table"*) and indirect commonsense requests (*"I am hungry"* $\rightarrow$ picks snack/food, *"I am going to play"* $\rightarrow$ picks game controller, *"I am bored"* $\rightarrow$ picks fidget spinner/puzzle, *"I am thirsty"* $\rightarrow$ picks water).
 - **Extensive Entity Ontology:** Recognizes 540+ tabletop objects spanning stationery, food, drinkware, recreation, electronics, tools, and cleaning supplies.
 - **Fast:** Inference runs in **< 1 ms** on any standard CPU.
@@ -22,7 +22,7 @@ ml/
 │   └── examples/
 │       └── seed_commands.jsonl     # Hand-crafted command-intent training pairs
 ├── models/
-│   └── nora_nlu_model.json         # Pre-trained model weights (108 KB)
+│   └── nora_nlu_model.json         # Pre-trained model weights (~1.9 MB)
 ├── src/
 │   └── nora_nlu/
 │       ├── __init__.py             # Public API exports

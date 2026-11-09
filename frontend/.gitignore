@@ -21,3 +21,6 @@ credentials.json
 .netlify
 
 
+
+# generated from ml/ by scripts/build-nlu-model.mjs
+public/nora_nlu_model.json
