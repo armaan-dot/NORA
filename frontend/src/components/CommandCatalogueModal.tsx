@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useDialog } from './useDialog';
 import {
   X,
   Sparkles,
@@ -281,6 +282,7 @@ export const CommandCatalogueModal: React.FC<CommandCatalogueModalProps> = ({
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchFilter, setSearchFilter] = useState<string>('');
+  const dialogRef = useDialog(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -312,7 +314,7 @@ export const CommandCatalogueModal: React.FC<CommandCatalogueModalProps> = ({
 
   return (
     <div className="catalogue-modal-backdrop" onClick={onClose}>
-      <div className="catalogue-modal-card" onClick={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Command catalogue" tabIndex={-1} className="catalogue-modal-card" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="catalogue-header">
           <div className="catalogue-title-wrap">

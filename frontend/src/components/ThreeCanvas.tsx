@@ -376,8 +376,8 @@ export const ThreeCanvas: React.FC = () => {
     // 1. Scene setup
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-    scene.background = new THREE.Color(0x0a0d14);
-    scene.fog = new THREE.FogExp2(0x0a0d14, 0.22);
+    scene.background = new THREE.Color(0x191b1e);
+    scene.fog = new THREE.FogExp2(0x191b1e, 0.22);
 
     // 2. Camera setup - Zoomed out default view for clear perspective
     const width = container.clientWidth;
@@ -421,7 +421,7 @@ export const ThreeCanvas: React.FC = () => {
     scene.add(accentLight);
 
     // 6. Ground Grid & Floor
-    const grid = new THREE.GridHelper(6, 30, 0x00d2ff, 0x1a2333);
+    const grid = new THREE.GridHelper(6, 30, 0x64727f, 0x30353a);
     grid.position.y = -0.001;
     scene.add(grid);
     gridHelperRef.current = grid;
@@ -1280,7 +1280,7 @@ export const ThreeCanvas: React.FC = () => {
             <span className="camera-spec">Intel RealSense D435 • Eye-in-Hand</span>
             <span className="camera-obj-count">
               {scanEvent?.active ? (
-                <span style={{ color: '#00f0ff' }}>
+                <span style={{ color: 'var(--cyan)' }}>
                   {scanEvent.scanMode === 'verification_survey'
                     ? 'Re-scanning frame to verify cleanup...'
                     : 'Scanning tabletop frame...'}
