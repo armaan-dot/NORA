@@ -1,4 +1,26 @@
 import * as ROSLIB from 'roslib';
+import { NluModel } from './nluModel';
+import {
+  solveIK,
+  checkReach,
+  forwardKinematics,
+  tcpPosition,
+  MAX_TABLE_REACH,
+  GRASP_MIN_TCP_HEIGHT,
+  UR5E_GEOMETRY
+} from '../sim/kinematics';
+import { buildWorld, type CollisionWorld } from '../sim/collision';
+import { planJointPath, samplePath, pathLength, type PlanResult } from '../sim/planner';
+import { topicBus } from '../sim/topicBus';
+import * as THREE from 'three';
+import { objectKind } from '../sim/objectMeshes';
+import { findGraspedObject, GRASP_WIDTH, GRIPPER_MAX_OPEN, OBJECT_HEIGHT, dropRegion, restLift, chooseToteSlot, settleHeight, TOTE, MAT, type RestRegion } from '../sim/physics';
+import type { CameraFrame } from '../sim/wristCamera';
+import { associate, type Perceived } from '../sim/vision';
+
+export { UR5E_GEOMETRY, MAX_TABLE_REACH };
+
+type SeenSummary = { detections: Perceived[]; byId: Record<string, Perceived>; ids: Set<string>; names: string[]; count: number };
 import type {
   Intent,
   AffordanceScore,
@@ -308,56 +330,43 @@ export function isPhysicalTask(text: string | null | undefined): boolean {
   });
 }
 
-// Natural curved desk-lamp default home pose: gracefully arched over the table, NOT upright 90 degrees!
-export const DESK_LAMP_HOME_JOINTS: number[] = [0.28, 0.58, 1.15, 0.0, 1.41, 0.0, 0.03];
+// Home pose: arm folded over the table, tool pointing down ~0.36 m above the surface.
+// Pan is offset by -0.37 rad so the laterally-offset wrist ends up in line with the base.
+// Order: [pan, lift, elbow, wrist1, wrist2, wrist3, gripper]
+export const DESK_LAMP_HOME_JOINTS: number[] = [-0.37, -0.35, 1.9, 0.02, -Math.PI / 2, 0.0, 0.03];
 
 export const DEFAULT_TABLETOP_OBJECTS: TabletopObject[] = [
-  {
-    id: 'red_cube',
-    name: 'Red Cube',
-    shape: 'box',
-    color: '#ef4444',
-    position: { x: -0.15, y: 0.48, z: 0.16 },
-    state: 'table',
-    isCustom: false
-  },
-  {
-    id: 'blue_cylinder',
-    name: 'Blue Cylinder',
-    shape: 'cylinder',
-    color: '#3b82f6',
-    position: { x: 0.10, y: 0.495, z: 0.14 },
-    state: 'table',
-    isCustom: false
-  },
-  {
-    id: 'green_sphere',
-    name: 'Green Sphere',
-    shape: 'sphere',
-    color: '#10b981',
-    position: { x: -0.12, y: 0.485, z: -0.16 },
-    state: 'table',
-    isCustom: false
-  },
   {
     id: 'water',
     name: 'Water Glass',
     shape: 'glass',
     color: '#06b6d4',
-    position: { x: 0.12, y: 0.505, z: -0.14 },
+    position: { x: 0.12, y: 0.505, z: 0.0 },
     state: 'table',
     isCustom: false
   },
   {
-    id: 'pen',
-    name: 'Writing Pen',
-    shape: 'cylinder',
-    color: '#2563eb',
-    position: { x: -0.02, y: 0.465, z: 0.18 },
+    id: 'tennis_ball',
+    name: 'Tennis Ball',
+    shape: 'sphere',
+    color: '#84cc16',
+    position: { x: -0.1, y: 0.485, z: 0.14 },
+    state: 'table',
+    isCustom: false
+  },
+  {
+    id: 'coffee_mug',
+    name: 'Coffee Mug',
+    shape: 'mug',
+    color: '#8B4513',
+    position: { x: 0.28, y: 0.492, z: 0.1 },
     state: 'table',
     isCustom: false
   }
 ];
+
+const defaultObjectPositions = (): Record<string, ObjectPosition> =>
+  Object.fromEntries(DEFAULT_TABLETOP_OBJECTS.map((o) => [o.id, { ...o.position }]));
 
 export interface EntityMetadata {
   name: string;
@@ -376,6 +385,11 @@ export function getEntityMetadata(targetNameOrText: string): EntityMetadata | un
   // If this is a physical task without an explicit recognized tabletop item, do NOT fabricate an entity
   if (isPhysicalTask(l) && !hasExplicitObjectEntity(l)) {
     return undefined;
+  }
+
+  // Named sports equipment: never fall through to a generic ball
+  if (l.includes('tennis') || l.includes('racket') || l.includes('racquet')) {
+    return { name: 'Tennis Ball', shape: 'sphere', color: '#84cc16', emoji: '🎾' };
   }
 
   // Food, meals & hunger desires (default representative: Red Apple)
@@ -685,13 +699,7 @@ class RosBridgeService {
   private tabletopObjects: TabletopObject[] = JSON.parse(JSON.stringify(DEFAULT_TABLETOP_OBJECTS));
 
   // Dynamic tabletop object positions map (surfaceY = 0.45)
-  private objectPositions: Record<string, ObjectPosition> = {
-    red_cube: { x: -0.15, y: 0.48, z: 0.16 },
-    blue_cylinder: { x: 0.10, y: 0.495, z: 0.14 },
-    green_sphere: { x: -0.12, y: 0.485, z: -0.16 },
-    water: { x: 0.12, y: 0.505, z: -0.14 },
-    pen: { x: -0.02, y: 0.465, z: 0.18 }
-  };
+  private objectPositions: Record<string, ObjectPosition> = defaultObjectPositions();
 
   // Emergency Stop & Safety Interlock State
   private isEStopped: boolean = false;
@@ -699,6 +707,35 @@ class RosBridgeService {
   private isExecuting: boolean = false;
   private currentExecutionId: number = 0;
   private activeDelayResolver: (() => void) | null = null;
+
+  // Camera perception: the 3D view renders frames from the wrist camera and hands them to us.
+  private perceptionProvider: (() => Promise<CameraFrame>) | null = null;
+  // Number of objects the most recent full-table camera sweep saw (null = no sweep yet)
+  private lastSweepCount: number | null = null;
+  // Last camera estimate per object (used to aim grasps; ignored if the object has since moved).
+  // THE ROBOT'S BELIEF about where objects are: built only from camera frames, refreshed continuously, and
+  // forgotten when the camera looks at the spot and sees bare table. Control logic reads only this, never the
+  // simulator's own object list (which is the physical world).
+  private perceived: Record<string, { position: { x: number; y: number; z: number }; stamp: number; misses?: number }> = {};
+  // What the gripper's finger-stroke sensor says it is holding (null = open, or closed on nothing)
+  private gripHolding: { id: string; width: number } | null = null;
+  // Table-resting height of each object, so a released object can come to rest on the surface below it
+  private objectRestY: Record<string, number> = {};
+  private toteSlot: { x: number; z: number } | null = null;
+  // Where the object being carried back to the table will be put down (chosen from the belief)
+  private tableSpot: { x: number; z: number } | null = null;
+  // Objects whose grasp failed (3 attempts) during the current task: not queued again until the next command
+  private ungraspable = new Set<string>();
+  // THE ROBOT'S OBJECT DATABASE: what each object it has been told about is (name, kind, colour). It never says
+  // where an object is, or whether it is still there: an object removed from the table stays in here.
+  private catalogue: TabletopObject[] = JSON.parse(JSON.stringify(DEFAULT_TABLETOP_OBJECTS));
+  private perceptionTimer: ReturnType<typeof setInterval> | null = null;
+  private perceiving = false;
+
+  // Trained NLU model (same weights as the ROS nlu node). null until loaded, or if loading fails;
+  // in that case the built-in rule parser handles everything.
+  private nlu: NluModel | null = null;
+  private nluReady: Promise<void> = Promise.resolve();
   private eStopListeners: Set<(isStopped: boolean) => void> = new Set();
 
   // Listeners
@@ -722,6 +759,14 @@ class RosBridgeService {
   private audioMuted = false;
 
   constructor() {
+    this.nluReady = NluModel.load('/nora_nlu_model.json')
+      .then((m) => {
+        this.nlu = m;
+      })
+      .catch((err) => {
+        console.warn('Trained NLU model unavailable, using rule-based parser:', err);
+      });
+    this.attachTopicBus();
     try {
       this.audioMuted = localStorage.getItem('nora.audioMuted') === 'true';
     } catch {
@@ -844,47 +889,15 @@ class RosBridgeService {
 
     let pos = params.position;
     if (!pos) {
-      if (chosenZone === 'center') {
-        pos = { x: 0.0, y, z: 0.22 };
-      } else if (chosenZone === 'left') {
-        pos = { x: -0.24, y, z: 0.16 };
-      } else if (chosenZone === 'right') {
-        pos = { x: 0.22, y, z: 0.16 };
-      } else if (chosenZone === 'user') {
-        pos = { x: 0.0, y, z: 0.34 };
-      } else {
-        // Auto: find first clear spot among prime reachable tabletop slots
-        const primeSlots = [
-          { x: 0.0, z: 0.16 },
-          { x: -0.14, z: 0.16 },
-          { x: 0.12, z: 0.14 },
-          { x: -0.12, z: -0.06 },
-          { x: 0.12, z: -0.06 },
-          { x: 0.0, z: -0.14 },
-          { x: -0.10, z: 0.22 },
-          { x: 0.08, z: 0.22 }
-        ];
-
-        let bestSlot = primeSlots[0];
-        let maxMinDist = -1;
-
-        for (const slot of primeSlots) {
-          let minDist = 999;
-          for (const existing of this.tabletopObjects) {
-            const d = Math.hypot(slot.x - existing.position.x, slot.z - existing.position.z);
-            if (d < minDist) minDist = d;
-          }
-          if (minDist > 0.12) {
-            bestSlot = slot;
-            break;
-          }
-          if (minDist > maxMinDist) {
-            maxMinDist = minDist;
-            bestSlot = slot;
-          }
-        }
-        pos = { x: bestSlot.x, y, z: bestSlot.z };
-      }
+      const anchors: Record<string, { x: number; z: number }> = {
+        center: { x: 0.0, z: 0.22 },
+        left: { x: -0.24, z: 0.16 },
+        right: { x: 0.22, z: 0.16 },
+        user: { x: 0.0, z: 0.34 },
+        auto: { x: 0.1, z: 0.05 }
+      };
+      const spot = this.findFreeSpot(anchors[chosenZone] ?? anchors.auto, undefined, chosenZone !== 'user');
+      pos = { x: spot.x, y, z: spot.z };
     } else {
       pos = { ...pos, y };
     }
@@ -900,6 +913,7 @@ class RosBridgeService {
     };
 
     this.tabletopObjects.push(newObj);
+    this.catalogue.push(JSON.parse(JSON.stringify(newObj))); // the robot is told what the new thing is, not where
     this.objectPositions[id] = { ...pos };
 
     this.emitObjectsChange();
@@ -914,6 +928,37 @@ class RosBridgeService {
     });
 
     return newObj;
+  }
+
+  /**
+   * A spot on the table with room for a new object: reachable by the arm, clear of the robot base, the tote and every
+   * object already there, as close to `anchor` as possible. (This is the world placing a thing the user added,
+   * not robot logic.)
+   */
+  private findFreeSpot(
+    anchor: { x: number; z: number },
+    taken: { x: number; z: number }[] = this.tabletopObjects.filter((o) => o.state !== 'held').map((o) => o.position),
+    avoidMat = false
+  ): { x: number; z: number } {
+    const base = this.robotBasePos;
+    let best = anchor;
+    let bestScore = -Infinity;
+    for (let x = -0.12; x <= 0.52; x += 0.04) {
+      for (let z = -0.32; z <= 0.34; z += 0.04) {
+        if (Math.hypot(x - base.x, z - base.z) < 0.24) continue; // robot base
+        if (x > -0.17 && x < 0.07 && z > -0.36 && z < -0.12) continue; // storage tote
+        if (avoidMat && x > MAT.x0 - 0.04 && x < MAT.x1 + 0.04 && z > MAT.z0 - 0.04) continue; // handover mat
+        if (!checkReach(x, base.y + 0.04, z, base).reachable) continue;
+        const gap = taken.length ? Math.min(...taken.map((p) => Math.hypot(p.x - x, p.z - z))) : 1;
+        // roomy spots first (up to 15 cm clearance), then nearest the requested anchor
+        const score = Math.min(gap, 0.15) * 10 - Math.hypot(x - anchor.x, z - anchor.z);
+        if (score > bestScore) {
+          bestScore = score;
+          best = { x: Number(x.toFixed(3)), z: Number(z.toFixed(3)) };
+        }
+      }
+    }
+    return best;
   }
 
   public removeObject(id: string): void {
@@ -952,13 +997,8 @@ class RosBridgeService {
 
   public resetToDefaultObjects(): void {
     this.tabletopObjects = JSON.parse(JSON.stringify(DEFAULT_TABLETOP_OBJECTS));
-    this.objectPositions = {
-      red_cube: { x: -0.15, y: 0.48, z: 0.16 },
-      blue_cylinder: { x: 0.10, y: 0.495, z: 0.14 },
-      green_sphere: { x: -0.12, y: 0.485, z: -0.16 },
-      water: { x: 0.12, y: 0.505, z: -0.14 },
-      pen: { x: -0.02, y: 0.465, z: 0.18 }
-    };
+    for (const d of DEFAULT_TABLETOP_OBJECTS) if (!this.catalogue.some((c) => c.id === d.id)) this.catalogue.push(JSON.parse(JSON.stringify(d)));
+    this.objectPositions = defaultObjectPositions();
 
     this.emitObjectsChange();
     this.positionListeners.forEach((cb) => cb({ ...this.objectPositions }));
@@ -967,7 +1007,7 @@ class RosBridgeService {
       level: 20,
       levelName: 'INFO',
       nodeName: 'tabletop_env',
-      message: '[Workspace] Restored default tabletop objects (Red Cube, Blue Cylinder, Green Sphere, Water Glass, Writing Pen).'
+      message: '[Workspace] Restored default tabletop objects (Water Glass, Tennis Ball, Coffee Mug).'
     });
   }
 
@@ -1105,7 +1145,7 @@ class RosBridgeService {
     const lower = text.toLowerCase().trim();
 
     // 1. Direct exact match with registered objects by ID or exact name
-    for (const obj of this.tabletopObjects) {
+    for (const obj of this.known()) {
       const nameL = obj.name.toLowerCase();
       const idL = obj.id.toLowerCase();
       if (lower === nameL || lower === idL) {
@@ -1114,7 +1154,7 @@ class RosBridgeService {
     }
 
     // 2. Exact substring phrase match for full name or ID (e.g. "red cube", "red apple", "blue cylinder")
-    for (const obj of this.tabletopObjects) {
+    for (const obj of this.known()) {
       const nameL = obj.name.toLowerCase();
       const idL = obj.id.toLowerCase();
       if (lower.includes(nameL) || lower.includes(idL)) {
@@ -1135,7 +1175,7 @@ class RosBridgeService {
     // If an explicit shape/entity noun is mentioned, require strict noun compatibility!
     // A color adjective alone (e.g. "green") MUST NOT match a different noun (e.g. "green sphere" for "tennis ball")!
     if (mentionedNouns.length > 0) {
-      const matchingObjects = this.tabletopObjects.filter((obj) => {
+      const matchingObjects = this.known().filter((obj) => {
         const objNameL = obj.name.toLowerCase();
         const objIdL = obj.id.toLowerCase();
         return mentionedNouns.some((n) => {
@@ -1190,7 +1230,7 @@ class RosBridgeService {
     const concept = this.getConceptForText(text);
     if (concept) {
       for (const matcher of concept.searchMatchers) {
-        const found = this.tabletopObjects.find((o) => {
+        const found = this.known().find((o) => {
           const nameL = o.name.toLowerCase();
           const idL = o.id.toLowerCase();
           return nameL.includes(matcher) || idL.includes(matcher);
@@ -1203,7 +1243,7 @@ class RosBridgeService {
 
     // 4. Color-only disambiguation if NO conflicting noun was specified
     if (mentionedColors.length > 0 && mentionedNouns.length === 0) {
-      for (const obj of this.tabletopObjects) {
+      for (const obj of this.known()) {
         const objNameL = obj.name.toLowerCase();
         const objIdL = obj.id.toLowerCase();
         if (mentionedColors.some((c) => objNameL.includes(c) || objIdL.includes(c))) {
@@ -1220,7 +1260,7 @@ class RosBridgeService {
     const l = raw.toLowerCase().trim();
 
     // 1. Direct match with registered objects by id or exact name
-    for (const o of this.tabletopObjects) {
+    for (const o of this.known()) {
       if (l === o.id.toLowerCase() || l === o.name.toLowerCase()) {
         return o.id;
       }
@@ -1230,7 +1270,7 @@ class RosBridgeService {
     if (obj) return obj.id;
 
     // 2. Direct string contains
-    for (const o of this.tabletopObjects) {
+    for (const o of this.known()) {
       if (l.includes(o.id.toLowerCase()) || l.includes(o.name.toLowerCase())) {
         return o.id;
       }
@@ -1238,85 +1278,85 @@ class RosBridgeService {
 
     // 3. Specific item identification (respecting strict semantics!)
     if (l.includes('scissors') || l.includes('scissor') || l.includes('cut') || l.includes('trim') || l.includes('snip') || l.includes('shears')) {
-      const scissorsObj = this.tabletopObjects.find(
+      const scissorsObj = this.known().find(
         (o) => o.id.toLowerCase().includes('scissor') || o.name.toLowerCase().includes('scissor')
       );
       return scissorsObj ? scissorsObj.id : 'scissors';
     }
 
     if (l.includes('stapler') || l.includes('staple') || l.includes('bind')) {
-      const staplerObj = this.tabletopObjects.find(
+      const staplerObj = this.known().find(
         (o) => o.id.toLowerCase().includes('stapler') || o.name.toLowerCase().includes('stapler')
       );
       return staplerObj ? staplerObj.id : 'stapler';
     }
 
     if (l.includes('eraser') || l.includes('erase') || l.includes('rub out')) {
-      const eraserObj = this.tabletopObjects.find(
+      const eraserObj = this.known().find(
         (o) => o.id.toLowerCase().includes('eraser') || o.name.toLowerCase().includes('eraser')
       );
       return eraserObj ? eraserObj.id : 'eraser';
     }
 
     if (l.includes('ruler') || l.includes('measure') || l.includes('straight line')) {
-      const rulerObj = this.tabletopObjects.find(
+      const rulerObj = this.known().find(
         (o) => o.id.toLowerCase().includes('ruler') || o.name.toLowerCase().includes('ruler')
       );
       return rulerObj ? rulerObj.id : 'ruler';
     }
 
     if (l.includes('highlighter') || l.includes('highlight')) {
-      const hlObj = this.tabletopObjects.find(
+      const hlObj = this.known().find(
         (o) => o.id.toLowerCase().includes('highlighter') || o.name.toLowerCase().includes('highlighter')
       );
       return hlObj ? hlObj.id : 'highlighter';
     }
 
     if (l.includes('tennis') || l.includes('racket') || l.includes('racquet') || (l.includes('play') && l.includes('ball'))) {
-      const tennisObj = this.tabletopObjects.find(
+      const tennisObj = this.known().find(
         (o) => o.id.toLowerCase().includes('tennis') || o.name.toLowerCase().includes('tennis')
       );
       return tennisObj ? tennisObj.id : 'tennis_ball';
     }
 
     if (l.includes('pen') || l.includes('pencil') || l.includes('marker') || l.includes('stationery') || (l.includes('write') && !l.includes('water'))) {
-      const penObj = this.tabletopObjects.find(
+      const penObj = this.known().find(
         (o) => o.id.toLowerCase().includes('pen') || o.name.toLowerCase().includes('pen') || o.name.toLowerCase().includes('pencil')
       );
       return penObj ? penObj.id : 'pen';
     }
 
     if (l.includes('apple') || l.includes('fruit')) {
-      const appleObj = this.tabletopObjects.find(
+      const appleObj = this.known().find(
         (o) => o.shape === 'apple' || o.id.toLowerCase().includes('apple') || o.name.toLowerCase().includes('apple')
       );
       return appleObj ? appleObj.id : 'apple';
     }
 
     if (l.includes('coffee') || (l.includes('tired') && !l.includes('water')) || (l.includes('mug') && !l.includes('water'))) {
-      const mugObj = this.tabletopObjects.find(
+      const mugObj = this.known().find(
         (o) => o.shape === 'mug' || o.id.toLowerCase().includes('coffee') || o.name.toLowerCase().includes('coffee')
       );
       return mugObj ? mugObj.id : 'coffee_mug';
     }
 
     if (l.includes('cube') || l.includes('box') || l.includes('block')) {
-      const cubeObj = this.tabletopObjects.find((o) => o.shape === 'box' || o.id.toLowerCase().includes('cube'));
+      const cubeObj = this.known().find((o) => o.shape === 'box' || o.id.toLowerCase().includes('cube'));
       return cubeObj ? cubeObj.id : 'red_cube';
     }
 
     if (l.includes('cylinder') || (l.includes('blue') && !l.includes('cube') && !l.includes('apple'))) {
-      const cylObj = this.tabletopObjects.find((o) => o.shape === 'cylinder' || o.id.toLowerCase().includes('cylinder'));
+      const cylObj = this.known().find((o) => o.shape === 'cylinder' || o.id.toLowerCase().includes('cylinder'));
       return cylObj ? cylObj.id : 'blue_cylinder';
     }
 
     if (l.includes('water') || l.includes('glass') || l.includes('drink')) {
-      const glassObj = this.tabletopObjects.find((o) => o.shape === 'glass' || o.id.toLowerCase().includes('water'));
+      const glassObj = this.known().find((o) => o.shape === 'glass' || o.id.toLowerCase().includes('water'));
       return glassObj ? glassObj.id : 'water';
     }
 
     if (l.includes('sphere') || (!l.includes('tennis') && l.includes('ball'))) {
-      const sphereObj = this.tabletopObjects.find((o) => o.shape === 'sphere' || o.id.toLowerCase().includes('sphere'));
+      const sphereObj = this.known().find((o) => o.shape === 'sphere' || o.id.toLowerCase().includes('sphere'));
       return sphereObj ? sphereObj.id : 'green_sphere';
     }
 
@@ -1612,6 +1652,17 @@ class RosBridgeService {
   }
 
   private publishAffordanceScore(intent: Intent, topAff: AffordanceScore): void {
+    topicBus.publish('/nora/intent', 'nora_interfaces/msg/Intent', intent);
+    topicBus.publish('/nora/task_affordance', 'std_msgs/msg/String', {
+      task: intent.raw_text,
+      winning_skill: topAff.skill_name,
+      combined_score: topAff.combined_score,
+      usefulness: topAff.usefulness,
+      feasibility: topAff.feasibility,
+      breakdown: topAff.breakdown
+    });
+    topicBus.publish('/nora/affordance_score', 'std_msgs/msg/Float32', { data: topAff.combined_score });
+
     // 1. Publish to ROS 2 log terminal with high visibility
     this.emitLog({
       level: 20,
@@ -1656,6 +1707,7 @@ class RosBridgeService {
 
   private async executeSimulated(text: string): Promise<void> {
     const execId = ++this.currentExecutionId;
+    this.ungraspable.clear(); // a new task gets a fresh try at everything
     this.isCancelled = false;
     this.isExecuting = true;
 
@@ -1680,6 +1732,7 @@ class RosBridgeService {
       await this.delay(200);
       if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
 
+      await this.nluReady;
       const intent = this.parseSimulatedIntent(text);
       if (intent.action === 'cancel_task') {
         await this.cancelTask();
@@ -1689,7 +1742,7 @@ class RosBridgeService {
       level: 20,
       levelName: 'INFO',
       nodeName: 'nora_nlu',
-      message: `[NLU] Parsed intent: action='${intent.action}' target='${intent.target_object || 'none'}' loc='${intent.target_location || 'none'}' conf=${(intent.confidence * 100).toFixed(0)}%`
+      message: `[NLU ${intent.parameters?.nlu_source === 'trained_model' ? `trained model, ${this.nlu?.vocabSize ?? 0} features` : 'rule parser'}] Parsed intent: action='${intent.action}' target='${intent.target_object || 'none'}' loc='${intent.target_location || 'none'}' conf=${(intent.confidence * 100).toFixed(0)}%`
     });
 
     this.notifyPipeline({ stage: 'SCORING', intent });
@@ -1708,7 +1761,7 @@ class RosBridgeService {
     const targetObjName = intent.target_object;
     const targetObj = targetObjName
       ? (this.findObjectFromText(targetObjName) ||
-         this.tabletopObjects.find((o) => o.id === targetObjName || o.name.toLowerCase() === targetObjName.toLowerCase()))
+         this.known().find((o) => o.id === targetObjName || o.name.toLowerCase() === targetObjName.toLowerCase()))
       : null;
     const isMissingObject =
       !isExplicit &&
@@ -1779,7 +1832,7 @@ class RosBridgeService {
         : isMissingObject
         ? `SayCan Perception Guardrail: "${friendlyTarget}" is not present on the tabletop. Please click "+ Add Object" to place one in the workspace.`
         : isReachViolation
-        ? `SayCan Reachability Guardrail: Target "${friendlyTarget}" is positioned too far from the table-mounted arm base (> 0.64m limit). Drag it closer to enable manipulation.`
+        ? `SayCan Reachability Guardrail: Target "${friendlyTarget}" is positioned too far from the table-mounted arm base (> ${MAX_TABLE_REACH.toFixed(2)} m limit). Drag it closer to enable manipulation.`
         : `SayCan Guardrail Triggered: The utterance "${text}" does not correspond to an actionable physical skill. All candidate skills scored below the threshold (0.30). The arm safely remains in idle pose.`;
 
       const gEvent: GuardrailEvent = {
@@ -1801,7 +1854,7 @@ class RosBridgeService {
         : isMissingObject
         ? `[SayCan Object Grounding] Instruction "${text}" rejected: Required object "${friendlyTarget}" is not present on tabletop. Preconditions failed (object_state=0.00).`
         : isReachViolation
-        ? `[SayCan Reachability Guardrail] Target "${friendlyTarget}" is outside table-mounted arm physical reach envelope (> 0.64m from base). Motion aborted for safety.`
+        ? `[SayCan Reachability Guardrail] Target "${friendlyTarget}" is outside table-mounted arm physical reach envelope (> ${MAX_TABLE_REACH.toFixed(2)} m from base). Motion aborted for safety.`
         : `[SayCan Guardrail] Instruction "${text}" rejected: No physically grounded skill scored above threshold (max_score=${topAff ? topAff.combined_score.toFixed(3) : '0.000'} < 0.30).`;
 
       this.emitLog({
@@ -1889,16 +1942,128 @@ class RosBridgeService {
       this.emitLog({
         level: 20,
         levelName: 'INFO',
-        nodeName: 'moveit_ompl',
-        message: `[OMPL RRTConnect] Planning collision-free trajectory for step ${i + 1}/${plan.length}: ${step.skill}`
+        nodeName: 'motion_planner',
+        message: `[Motion] Step ${i + 1}/${plan.length}: ${step.skill}`
       });
 
+      if (step.skill === 'search_object' && step.params?.scan_mode === 'target_check') {
+        // Closed loop: fly the camera above where the object was last seen and look again before reaching for it.
+        const tid = step.targetObject as string;
+        const known = this.perceived[tid]?.position; // only where the camera last saw it
+        const name = this.known().find((o) => o.id === tid)?.name ?? tid.replace(/_/g, ' ');
+        let present = false;
+        if (known) {
+          const lookPose = [...this.solveDynamicIK(known.x, this.robotBasePos.y + 0.45, known.z), this.currentJointPositions[6]];
+          this.emitPerceptionScan({ active: true, targetObject: tid });
+          await this.moveAlongPlan(lookPose, this.buildCollisionWorld(null), { execId, frameMs: 30, abortable: true, label: 'target_check' });
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+          await this.delay(150);
+          const seen = await this.perceive();
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+          present = Boolean(seen.byId[tid]);
+          this.emitPerceptionScan({ active: false, targetObject: tid, detectedCount: seen.count, objectsOnFrame: seen.names });
+        }
+        if (!present) {
+          this.emitLog({
+            level: 30,
+            levelName: 'WARN',
+            nodeName: 'nora_perception',
+            message: `[Perception] ${name} is no longer where it was last seen. Skipping it.`
+          });
+          for (let j = plan.length - 1; j > i; j--) if (plan[j].loopGroup === step.loopGroup) plan.splice(j, 1);
+          delete this.perceived[tid];
+          this.notifyPipeline({ stage: 'EXECUTING', intent, affordances, plan: [...plan], activeStepId: step.id });
+        }
+        step.status = 'completed';
+        continue;
+      }
+
       if (step.skill === 'search_object') {
+        // Loop and re-rack commands: look first, then queue a transfer for every matching object the camera sees.
+        if (step.params?.scan_mode === 'loop_survey') {
+          const source = (step.params.source ?? 'table') as 'table' | 'tray';
+          const destination = (step.params.destination ?? 'tray') as 'tray' | 'table' | 'user';
+          const keywords: string[] = step.params.keywords ?? [];
+          const round = Number(step.params.round ?? 0);
+          const limit: number | null = step.params.count ?? null;
+          const where = source === 'tray' ? 'the storage tote' : 'the table';
+          const what = keywords.length ? keywords.join(' / ') : 'every object';
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: round === 0
+              ? `[On-Arm Camera Perception] Surveying ${where} for ${what}.`
+              : `[On-Arm Camera Perception] Re-checking ${where} for anything matching that is left.`
+          });
+          this.emitArmSpeech({ message: `Looking at ${where} for ${what}...`, subtext: 'RGB-D eye-in-hand camera active', type: 'info' });
+          this.emitPerceptionScan({ active: true, targetObject: 'tabletop_workspace' });
+          await this.simulateJointMotion(step, intent, execId);
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+          const seen = await this.visualSweep(() => false, execId, { exhaustive: true });
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+          let matches = this.seenIn(seen, source).filter((o) => {
+            const entry = this.known().find((k) => k.id === o.id);
+            return entry ? this.objectMatches(entry, keywords) : keywords.length === 0;
+          });
+          const gaveUp = matches.filter((o) => this.ungraspable.has(o.id));
+          if (gaveUp.length) {
+            this.emitLog({ level: 30, levelName: 'WARN', nodeName: 'nora_perception', message: `[Perception] Still sees ${gaveUp.map((o) => o.name).join(', ')}, but grasping it already failed in this task. Leaving it.` });
+            matches = matches.filter((o) => !this.ungraspable.has(o.id));
+          }
+          if (limit !== null && matches.length > limit) matches = matches.slice(0, limit);
+          this.lastSweepCount = matches.length;
+          this.emitPerceptionScan({ active: false, targetObject: 'tabletop_workspace', detectedCount: matches.length, objectsOnFrame: matches.map((o) => o.name) });
+          if (matches.length === 0) {
+            this.emitLog({
+              level: round === 0 ? 30 : 20,
+              levelName: round === 0 ? 'WARN' : 'INFO',
+              nodeName: 'nora_perception',
+              message: round === 0
+                ? `[On-Arm Camera Perception] The camera sees nothing matching ${what} in ${where}. Nothing to do.`
+                : `[On-Arm Camera Perception] Nothing matching is left in ${where}.`
+            });
+            this.emitArmSpeech({
+              message: round === 0 ? `I can't see ${what} in ${where}.` : 'Done: nothing matching is left.',
+              subtext: `Camera survey: 0 matching objects in ${where}`,
+              type: round === 0 ? 'warning' : 'info'
+            });
+          } else {
+            const names = matches.map((o) => o.name).join(', ');
+            this.emitLog({
+              level: 20,
+              levelName: 'INFO',
+              nodeName: 'nora_perception',
+              message: `[On-Arm Camera Perception] Camera sees ${matches.length} matching object(s) in ${where}: [${names}]. Queuing them.`
+            });
+            if (limit !== null && matches.length < limit) {
+              this.emitLog({ level: 30, levelName: 'WARN', nodeName: 'nora_perception', message: `[Perception] Asked for ${limit}, but the camera only sees ${matches.length}.` });
+            }
+            const queued = matches.flatMap((o) => this.buildTransferSteps(o.id, o.name, source, destination));
+            // "all of them": look again afterwards, in case something was missed, added, or a grasp failed
+            if (limit === null && round < 2) {
+              queued.push({
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'search_object',
+                params: { ...step.params, round: round + 1 },
+                status: 'pending',
+                detail: `[Re-check] On-arm camera looks at ${where} again for anything matching that is left`,
+                loopGroup: 'Perception Verification',
+                targetObject: 'tabletop_workspace'
+              });
+            }
+            plan.splice(i + 1, 0, ...queued);
+            this.notifyPipeline({ stage: 'EXECUTING', intent, affordances, plan: [...plan], activeStepId: step.id });
+          }
+          step.status = 'completed';
+          continue;
+        }
+
         // Tabletop workspace post-cleanup verification re-scan with on-arm camera
         if (step.params?.scan_mode === 'verification_survey') {
-          const currentTableItems = this.tabletopObjects.filter((o) => o.state === 'table');
-          const count = currentTableItems.length;
-          const names = currentTableItems.map((o) => o.name).join(', ');
+          let currentTableItems: { id: string; name: string }[] = [];
+          let count = 0;
+          let names = '';
 
           this.emitLog({
             level: 20,
@@ -1916,6 +2081,14 @@ class RosBridgeService {
           await this.simulateJointMotion(step, intent, execId);
           if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
           await this.delay(650);
+          {
+            const seen = await this.visualSweep(() => false, execId, { exhaustive: true });
+            if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+            currentTableItems = this.seenIn(seen, 'table').filter((o) => !this.ungraspable.has(o.id)); // what the camera sees on the table, minus what it already failed to grasp
+            count = currentTableItems.length;
+            names = currentTableItems.map((o) => o.name).join(', ');
+            this.lastSweepCount = count;
+          }
           this.emitPerceptionScan({
             active: false,
             targetObject: 'tabletop_workspace',
@@ -1949,88 +2122,27 @@ class RosBridgeService {
               type: 'warning'
             });
 
+            const round = Number(step.params?.round ?? 0);
             const newSteps: PlanStep[] = [];
-            for (const remainingObj of currentTableItems) {
-              const friendlyName = remainingObj.name;
-              const loopLabel = `Real-Time Clear: ${friendlyName}`;
-              newSteps.push(
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'move_to_pose',
-                  params: { pose_name: 'pre_grasp', target: remainingObj.id },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Align end-effector above ${friendlyName}`,
-                  loopGroup: loopLabel,
-                  targetObject: remainingObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'open_gripper',
-                  params: { stroke_mm: 80 },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Open gripper fingers`,
-                  loopGroup: loopLabel,
-                  targetObject: remainingObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'pick',
-                  params: { target_object: remainingObj.id },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Descend directly to ${friendlyName} and grasp`,
-                  loopGroup: loopLabel,
-                  targetObject: remainingObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'move_to_pose',
-                  params: { pose_name: 'lift', target: remainingObj.id },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Lift ${friendlyName} 18cm vertically`,
-                  loopGroup: loopLabel,
-                  targetObject: remainingObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'move_to_pose',
-                  params: { pose_name: 'approach_target', target: 'tray' },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Transfer ${friendlyName} towards storage tray`,
-                  loopGroup: loopLabel,
-                  targetObject: remainingObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'place',
-                  params: { target_location: 'tray', target_object: remainingObj.id },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Deposit ${friendlyName} inside storage tray`,
-                  loopGroup: loopLabel,
-                  targetObject: remainingObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'open_gripper',
-                  params: { stroke_mm: 80 },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Release grip from ${friendlyName}`,
-                  loopGroup: loopLabel,
-                  targetObject: remainingObj.id
-                }
-              );
+            if (round < 2) {
+              for (const o of currentTableItems) newSteps.push(...this.buildClearSteps(o.id, o.name, 'Real-Time Clear'));
+              newSteps.push({
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'search_object',
+                params: { target_object: 'tabletop_workspace', scan_mode: 'verification_survey', round: round + 1 },
+                status: 'pending',
+                detail: '[Verification Sweep] On-arm camera re-scans the tabletop to confirm nothing is left',
+                loopGroup: 'Perception Verification',
+                targetObject: 'tabletop_workspace'
+              });
+            } else {
+              this.emitLog({
+                level: 30,
+                levelName: 'WARN',
+                nodeName: 'nora_perception',
+                message: `[Verification] The camera still sees ${names} after ${round + 1} clearing passes. Leaving it: it may be out of reach or not graspable.`
+              });
             }
-
-            // Follow-up verification sweep
-            newSteps.push({
-              id: Math.random().toString(36).substring(2, 7),
-              skill: 'search_object',
-              params: { target_object: 'tabletop_workspace', scan_mode: 'verification_survey' },
-              status: 'pending',
-              detail: '[Verification Sweep] On-Arm Camera re-scans tabletop workspace to verify 0 objects remain',
-              loopGroup: 'Perception Verification',
-              targetObject: 'tabletop_workspace'
-            });
-
             plan.splice(i + 1, 0, ...newSteps);
             this.notifyPipeline({
               stage: 'EXECUTING',
@@ -2053,9 +2165,9 @@ class RosBridgeService {
 
         // Tabletop workspace survey with on-arm camera (dynamically scans all objects in live frame)
         if (step.params?.scan_mode === 'frame_survey' || step.targetObject === 'tabletop_workspace') {
-          const currentTableItems = this.tabletopObjects.filter((o) => o.state === 'table');
-          const count = currentTableItems.length;
-          const names = currentTableItems.map((o) => o.name).join(', ');
+          let currentTableItems: { id: string; name: string }[] = [];
+          let count = 0;
+          let names = '';
 
           this.emitLog({
             level: 20,
@@ -2073,6 +2185,14 @@ class RosBridgeService {
           await this.simulateJointMotion(step, intent, execId);
           if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
           await this.delay(500);
+          {
+            const seen = await this.visualSweep(() => false, execId, { exhaustive: true });
+            if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+            currentTableItems = this.seenIn(seen, 'table'); // everything the camera saw lying on the table
+            count = currentTableItems.length;
+            names = currentTableItems.map((o) => o.name).join(', ');
+            this.lastSweepCount = count;
+          }
           this.emitPerceptionScan({
             active: false,
             targetObject: 'tabletop_workspace',
@@ -2104,6 +2224,21 @@ class RosBridgeService {
               subtext: `Live frame detection: ${count} objects found`,
               type: 'info'
             });
+            if (intent.action === 'clean_table') {
+              // Queue exactly what the camera saw, then a verification sweep, ahead of the final go_home
+              const queued = currentTableItems.flatMap((o) => this.buildClearSteps(o.id, o.name));
+              queued.push({
+                id: Math.random().toString(36).substring(2, 7),
+                skill: 'search_object',
+                params: { target_object: 'tabletop_workspace', scan_mode: 'verification_survey' },
+                status: 'pending',
+                detail: '[Verification Sweep] On-arm camera re-scans the tabletop to confirm nothing is left',
+                loopGroup: 'Perception Verification',
+                targetObject: 'tabletop_workspace'
+              });
+              plan.splice(i + 1, 0, ...queued);
+              this.notifyPipeline({ stage: 'EXECUTING', intent, affordances, plan: [...plan], activeStepId: step.id });
+            }
           }
           step.status = 'completed';
           this.emitLog({
@@ -2152,13 +2287,14 @@ class RosBridgeService {
           });
 
           // Check if any candidate from this category is currently present on the table
-          const found = this.tabletopObjects.find((o) => {
+          const isCandidate = (o: TabletopObject) => {
             const oId = o.id.toLowerCase();
             const oName = o.name.toLowerCase();
             return catInfo.candidateIds.some(
               (c) => oId === c || oId.includes(c) || oName.includes(c) || o.shape === c
             );
-          });
+          };
+          let found: TabletopObject | undefined;
 
           this.emitPerceptionScan({ active: true, targetObject: catInfo.defaultId });
           await this.simulateJointMotion(step, intent, execId);
@@ -2166,8 +2302,13 @@ class RosBridgeService {
           await this.delay(450);
           if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
 
+          // Look with the wrist camera: only objects that appear in a rendered frame can be acquired.
+          const seenCat = await this.visualSweep((id) => this.known().some((o) => o.id === id && isCandidate(o)), execId);
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+          found = this.known().find((o) => isCandidate(o) && seenCat.ids.has(o.id));
+
           if (!found) {
-            this.emitPerceptionScan({ active: false, targetObject: catInfo.defaultId, detectedCount: 0 });
+            this.emitPerceptionScan({ active: false, targetObject: catInfo.defaultId, detectedCount: seenCat.count, objectsOnFrame: seenCat.names });
             this.emitLog({
               level: 30,
               levelName: 'WARN',
@@ -2215,14 +2356,15 @@ class RosBridgeService {
           }
 
           // Found category item on table! Acquire it and retarget remaining plan steps
-          const pos = found.position;
+          const det = seenCat.byId[found.id];
+          const pos = det ? det.position : found.position;
           this.emitLog({
             level: 20,
             levelName: 'INFO',
             nodeName: 'nora_perception',
-            message: `[YOLO-World] Target acquired! Found ${found.name} (category: ${catInfo.category}) at coordinates (X: ${pos.x.toFixed(2)}m, Y: ${pos.y.toFixed(2)}m, Z: ${pos.z.toFixed(2)}m) with 99.2% confidence.`
+            message: `[Perception] Target acquired: ${found.name} (category: ${catInfo.category}). Recognised as ${det?.label ?? 'unknown'} (${Math.round((det?.confidence ?? 0) * 100)}% of nearest examples agree); mask ${det?.maskPixels ?? 0} px at ${(det?.depthM ?? 0).toFixed(2)} m depth; estimated position X ${pos.x.toFixed(3)} m, Y ${pos.y.toFixed(3)} m, Z ${pos.z.toFixed(3)} m.`
           });
-          this.emitPerceptionScan({ active: false, targetObject: found.id, detectedPosition: pos, confidence: 0.992, detectedCount: 1, objectsOnFrame: [found.name] });
+          this.emitPerceptionScan({ active: false, targetObject: found.id, detectedPosition: pos, detectedCount: seenCat.count, objectsOnFrame: seenCat.names });
 
           // Update subsequent steps so they pick/deliver the detected item
           for (let j = i + 1; j < plan.length; j++) {
@@ -2233,13 +2375,34 @@ class RosBridgeService {
         } else {
           // Direct item search
           const obj = this.normalizeObjectName(step.targetObject || intent.target_object);
-          const found = this.tabletopObjects.find(
+          // The database entry says WHAT to look for. Whether it is on the table is for the camera to say.
+          const candidate = this.known().find(
             (o) =>
               o.id === obj ||
               o.id === step.targetObject ||
               o.name.toLowerCase() === (step.targetObject || '').toLowerCase()
           );
+          let found = candidate;
+          let seenFirst: SeenSummary | null = null;
           const friendlyTarget = intent.parameters?.target_name || step.targetObject || 'target';
+
+          if (candidate) {
+            this.emitArmSpeech({ message: `Searching for ${candidate.name}...`, subtext: 'On-arm camera scan active', type: 'info' });
+            this.emitPerceptionScan({ active: true, targetObject: obj });
+            this.emitLog({
+              level: 20,
+              levelName: 'INFO',
+              nodeName: 'nora_perception',
+              message: `[Active Vision Search] Initiated visual search for [${candidate.name}] across tabletop workspace.`
+            });
+            await this.simulateJointMotion(step, intent, execId);
+            if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+            await this.delay(450);
+            if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+            seenFirst = await this.visualSweep((id) => id === candidate.id, execId);
+            if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+            if (!seenFirst.ids.has(candidate.id)) found = undefined; // the camera did not find it: as far as the robot knows it is not there
+          }
 
           if (!found) {
             // Object not present on table: perform scan and report missing cleanly without inventing objects
@@ -2255,10 +2418,14 @@ class RosBridgeService {
               nodeName: 'nora_perception',
               message: `[Active Vision Search] Initiated visual search for [${friendlyTarget}] across tabletop workspace.`
             });
-            await this.simulateJointMotion(step, intent, execId);
+            if (!seenFirst) {
+              await this.simulateJointMotion(step, intent, execId);
+              if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+              await this.delay(450);
+            }
+            const seenAbsent: SeenSummary = seenFirst ?? (await this.visualSweep(() => false, execId, { exhaustive: true }));
             if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
-            await this.delay(450);
-            this.emitPerceptionScan({ active: false, targetObject: obj || step.targetObject, detectedCount: 0 });
+            this.emitPerceptionScan({ active: false, targetObject: obj || step.targetObject, detectedCount: seenAbsent.count, objectsOnFrame: seenAbsent.names });
             this.emitLog({
               level: 30,
               levelName: 'WARN',
@@ -2305,35 +2472,31 @@ class RosBridgeService {
             return;
           }
 
-          const pos = found.position;
-          this.emitArmSpeech({
-            message: `Searching for ${found.name}...`,
-            subtext: `On-arm camera scan active`,
-            type: 'info'
-          });
-          this.emitPerceptionScan({ active: true, targetObject: obj });
-          this.emitLog({
-            level: 20,
-            levelName: 'INFO',
-            nodeName: 'nora_perception',
-            message: `[Active Vision Search] Initiated visual search for [${found.name}] across tabletop workspace.`
-          });
-          await this.simulateJointMotion(step, intent, execId);
-          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
-          await this.delay(450);
-          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
-          this.emitLog({
-            level: 20,
-            levelName: 'INFO',
-            nodeName: 'nora_perception',
-            message: `[YOLO-World] Target acquired! [${found.name}] detected at coordinates (X: ${pos.x.toFixed(2)}m, Y: ${pos.y.toFixed(2)}m, Z: ${pos.z.toFixed(2)}m) with 99.2% confidence.`
-          });
-          this.emitArmSpeech({
-            message: `Target acquired: [${found.name}] detected on table!`,
-            subtext: `YOLO-World detection • 99.2% confidence`,
-            type: 'info'
-          });
-          this.emitPerceptionScan({ active: false, targetObject: obj, detectedPosition: pos, confidence: 0.992, detectedCount: 1, objectsOnFrame: [found.name] });
+          // found implies the camera saw it (seenFirst is set whenever a database entry exists)
+          const seenOne = seenFirst as SeenSummary;
+          const det = seenOne.byId[found.id];
+          const seenPos = det.position;
+          if (det) {
+            this.emitLog({
+              level: 20,
+              levelName: 'INFO',
+              nodeName: 'nora_perception',
+              message: `[Perception] Target acquired: [${found.name}]. Recognised as ${det.label} (${Math.round(det.confidence * 100)}% of nearest examples agree); mask ${det.maskPixels} px at ${det.depthM.toFixed(2)} m depth; estimated position X ${seenPos.x.toFixed(3)} m, Y ${seenPos.y.toFixed(3)} m, Z ${seenPos.z.toFixed(3)} m.`
+            });
+            this.emitArmSpeech({
+              message: `Target acquired: [${found.name}] detected on table!`,
+              subtext: `Recognised from RGB-D: ${det.label} • ${Math.round(det.confidence * 100)}% • ${det.depthM.toFixed(2)} m`,
+              type: 'info'
+            });
+          } else {
+            this.emitLog({
+              level: 30,
+              levelName: 'WARN',
+              nodeName: 'nora_perception',
+              message: `[Perception] [${found.name}] was not visible from any scan viewpoint (occluded or out of frame). Continuing with its last known position.`
+            });
+          }
+          this.emitPerceptionScan({ active: false, targetObject: obj, detectedPosition: seenPos, detectedCount: seenOne.count, objectsOnFrame: seenOne.names });
         }
       } else if (step.skill === 'scatter_objects') {
         this.randomizeObjects();
@@ -2356,7 +2519,72 @@ class RosBridgeService {
           this.removeObject(objId);
         }
         await this.delay(200);
+      } else if (step.skill === 'pick') {
+        const ok = await this.executePick(step, intent, execId);
+        if (!ok && step.targetObject) this.ungraspable.add(step.targetObject);
+        if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) {
+          step.status = 'failed';
+          return;
+        }
+        if (!ok) {
+          const failedName = this.known().find((o) => o.id === this.normalizeObjectName(step.targetObject || intent.target_object))?.name ?? 'the object';
+          this.emitLog({ level: 40, levelName: 'ERROR', nodeName: 'nora_gripper', message: `[Gripper] Could not grasp ${failedName} after 3 attempts.` });
+          if (this.isLoopIntent(intent) && step.loopGroup) {
+            // skip just this object and carry on with the rest
+            for (let j = plan.length - 1; j > i; j--) if (plan[j].loopGroup === step.loopGroup) plan.splice(j, 1);
+            await this.openGripper();
+            step.status = 'failed';
+            this.notifyPipeline({ stage: 'EXECUTING', intent, affordances, plan: [...plan], activeStepId: step.id });
+            continue;
+          }
+          this.notifyPipeline({ stage: 'FAILED', intent, affordances, error: `Could not grasp ${failedName}: the gripper closed on nothing or the wrong object after 3 attempts.` });
+          this.stateListeners.forEach((cb) => cb('FAILED'));
+          setTimeout(() => {
+            this.stateListeners.forEach((cb) => cb('IDLE'));
+            this.returnHome();
+          }, 3500);
+          step.status = 'failed';
+          return;
+        }
+      } else if (step.skill === 'open_gripper') {
+        await this.openGripper();
+      } else if (step.skill === 'close_gripper') {
+        await this.closeGripper();
       } else {
+        // Before reaching for an object, the robot must actually know where it is (from the camera).
+        const reachTarget = this.normalizeObjectName(step.targetObject || intent.target_object);
+        const poseName = step.params?.pose_name;
+        const reachesForObject =
+          step.skill === 'move_to_pose' &&
+          reachTarget &&
+          reachTarget !== 'tabletop_workspace' &&
+          !this.gripHolding &&
+          (poseName === 'pre_grasp' || (poseName === 'approach_target' && step.params?.target !== 'tray'));
+        if (reachesForObject && !this.beliefPosition(reachTarget)) {
+          this.emitLog({ level: 20, levelName: 'INFO', nodeName: 'nora_perception', message: '[Perception] No current sighting of the target: looking for it first.' });
+          const got = await this.acquireTarget(reachTarget, execId);
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) {
+            step.status = 'failed';
+            return;
+          }
+          if (!got) {
+            this.emitLog({ level: 40, levelName: 'ERROR', nodeName: 'nora_perception', message: '[Perception] The target could not be found. Stopping.' });
+            if (this.isLoopIntent(intent) && step.loopGroup) {
+              for (let j = plan.length - 1; j >= i; j--) if (plan[j].loopGroup === step.loopGroup) plan.splice(j, 1);
+              this.notifyPipeline({ stage: 'EXECUTING', intent, affordances, plan: [...plan], activeStepId: step.id });
+              i--;
+              continue;
+            }
+            this.notifyPipeline({ stage: 'FAILED', intent, affordances, error: 'Lost track of the target: the camera cannot find it.' });
+            this.stateListeners.forEach((cb) => cb('FAILED'));
+            setTimeout(() => {
+              this.stateListeners.forEach((cb) => cb('IDLE'));
+              this.returnHome();
+            }, 3500);
+            step.status = 'failed';
+            return;
+          }
+        }
         await this.simulateJointMotion(step, intent, execId);
       }
 
@@ -2365,70 +2593,11 @@ class RosBridgeService {
         return;
       }
 
-      // Track item attachment on end-effector and release
-      if (step.skill === 'pick') {
-        const obj = this.normalizeObjectName(step.targetObject || intent.target_object);
-        if (obj) {
-          const found = this.tabletopObjects.find((o) => o.id === obj);
-          if (found) found.state = 'held';
-          this.emitObjectEvent({ name: obj, state: 'held' });
-          this.emitLog({
-            level: 20,
-            levelName: 'INFO',
-            nodeName: 'nora_gripper',
-            message: `Grasp confirmed: [${obj}] securely attached between gripper finger pads.`
-          });
-
-          if (intent.action === 'clean_table') {
-            const friendlyName = found?.name || (obj ? obj.replace(/_/g, ' ') : 'object');
-            this.emitArmSpeech({
-              message: `Clearing ${friendlyName} to storage tray...`,
-              subtext: `On-arm camera tracking [${friendlyName}]`,
-              type: 'info'
-            });
-            this.emitLog({
-              level: 20,
-              levelName: 'INFO',
-              nodeName: 'nora_perception',
-              message: `[On-Arm Camera] Tracking [${friendlyName}] for transfer to storage tray.`
-            });
-          }
-        }
-      } else if (step.skill === 'open_gripper') {
-        const heldObj = this.tabletopObjects.find((o) => o.state === 'held') ||
-          (step.targetObject ? this.tabletopObjects.find((o) => o.id === this.normalizeObjectName(step.targetObject)) : null);
-        if (heldObj && heldObj.state === 'held') {
-          const isUser = intent.action === 'deliver_to_user' || step.params?.target === 'user' || intent.target_location === 'user';
-          const dest = isUser ? 'user' : 'table';
-          const finalPos = isUser
-            ? { x: this.handoverPos.x, y: 0.45 + 0.035, z: this.handoverPos.z }
-            : { ...heldObj.position, y: 0.45 + 0.035 };
-          heldObj.state = dest;
-          heldObj.position = finalPos;
-          this.objectPositions[heldObj.id] = finalPos;
-          this.emitObjectEvent({ name: heldObj.id, state: dest, position: finalPos });
-          this.emitLog({
-            level: 20,
-            levelName: 'INFO',
-            nodeName: 'nora_gripper',
-            message: `Gripper opened: Successfully passed [${heldObj.name}] to operator at table edge.`
-          });
-        }
-      } else if (step.skill === 'place') {
-        const obj = this.normalizeObjectName(step.targetObject || intent.target_object);
-        if (obj) {
-          const targetLoc = step.params?.target_location || intent.target_location;
-          const dest = targetLoc === 'user' ? 'user' : targetLoc === 'table' ? 'table' : 'tray';
-          const found = this.tabletopObjects.find((o) => o.id === obj);
-          if (found) found.state = dest;
-          this.emitObjectEvent({ name: obj, state: dest });
-          this.emitLog({
-            level: 20,
-            levelName: 'INFO',
-            nodeName: 'nora_gripper',
-            message: `Deposit confirmed: [${obj}] successfully placed in [${dest}].`
-          });
-        }
+      // (Attachment and release now happen physically inside executePick / closeGripper / openGripper.)
+      if (step.skill === 'pick' && this.gripHolding && intent.action === 'clean_table') {
+        const heldName = this.known().find((o) => o.id === this.gripHolding?.id)?.name ?? 'object';
+        this.emitArmSpeech({ message: `Clearing ${heldName} to storage tray...`, subtext: `On-arm camera tracking [${heldName}]`, type: 'info' });
+        this.emitLog({ level: 20, levelName: 'INFO', nodeName: 'nora_perception', message: `[On-Arm Camera] Tracking [${heldName}] for transfer to storage tray.` });
       }
 
       step.status = 'completed';
@@ -2439,227 +2608,7 @@ class RosBridgeService {
         message: `[Skill] Step ${i + 1} (${step.skill}) completed successfully.`
       });
 
-      // Real-time tabletop perception: if user adds objects while clean_table is running, clear them too!
-      if (intent.action === 'clean_table') {
-        // Collect all objects that have already been scheduled or are currently being handled
-        const scheduledIds = new Set(
-          plan
-            .filter((p) => p.targetObject && p.targetObject !== 'tabletop_workspace')
-            .map((p) => p.targetObject)
-        );
-
-        // Find any objects currently on the table that are NOT scheduled
-        const unhandledLive = this.tabletopObjects.filter(
-          (o) => o.state === 'table' && !scheduledIds.has(o.id)
-        );
-
-        if (unhandledLive.length > 0) {
-          const nextIsFinal = i + 1 >= plan.length || plan[i + 1]?.skill === 'go_home';
-          if (step.skill === 'open_gripper' || step.skill === 'place' || nextIsFinal) {
-            for (const newObj of unhandledLive) {
-              const friendlyName = newObj.name;
-              const loopLabel = `Real-Time Clear: ${friendlyName}`;
-
-              this.emitLog({
-                level: 20,
-                levelName: 'INFO',
-                nodeName: 'nora_perception',
-                message: `[Real-Time Frame Perception] New object [${friendlyName}] placed on table during cleanup! Appending to live clearing plan.`
-              });
-              this.emitArmSpeech({
-                message: `New object detected on frame: ${friendlyName}! Clearing it as well...`,
-                subtext: `Real-time on-arm camera survey • Dynamic queue update`,
-                type: 'info'
-              });
-
-              const newSteps: PlanStep[] = [
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'move_to_pose',
-                  params: { pose_name: 'pre_grasp', target: newObj.id },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Align end-effector above newly added ${friendlyName}`,
-                  loopGroup: loopLabel,
-                  targetObject: newObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'open_gripper',
-                  params: { stroke_mm: 80 },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Open gripper fingers`,
-                  loopGroup: loopLabel,
-                  targetObject: newObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'pick',
-                  params: { target_object: newObj.id },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Descend directly to ${friendlyName} and grasp`,
-                  loopGroup: loopLabel,
-                  targetObject: newObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'move_to_pose',
-                  params: { pose_name: 'lift', target: newObj.id },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Lift ${friendlyName} 18cm vertically`,
-                  loopGroup: loopLabel,
-                  targetObject: newObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'move_to_pose',
-                  params: { pose_name: 'approach_target', target: 'tray' },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Transfer ${friendlyName} towards storage tray`,
-                  loopGroup: loopLabel,
-                  targetObject: newObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'place',
-                  params: { target_location: 'tray', target_object: newObj.id },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Deposit ${friendlyName} inside storage tray`,
-                  loopGroup: loopLabel,
-                  targetObject: newObj.id
-                },
-                {
-                  id: Math.random().toString(36).substring(2, 7),
-                  skill: 'open_gripper',
-                  params: { stroke_mm: 80 },
-                  status: 'pending',
-                  detail: `[${loopLabel}] Release grip from ${friendlyName}`,
-                  loopGroup: loopLabel,
-                  targetObject: newObj.id
-                }
-              ];
-
-              // Insert before verification_survey if present, otherwise before go_home
-              const targetIdx = plan.findIndex((p, idx) => idx > i && (p.params?.scan_mode === 'verification_survey' || p.skill === 'go_home'));
-              if (targetIdx !== -1) {
-                plan.splice(targetIdx, 0, ...newSteps);
-              } else {
-                plan.push(...newSteps);
-              }
-            }
-
-            // Update UI pipeline in real-time
-            this.notifyPipeline({
-              stage: 'EXECUTING',
-              intent,
-              affordances,
-              plan: [...plan],
-              activeStepId: step.id
-            });
-          }
-        }
-      }
-
-      // Final check: if we are at the go_home step for clean_table but new objects appeared on table:
-      if (intent.action === 'clean_table' && i === plan.length - 1 && step.skill === 'go_home') {
-        const remainingTable = this.tabletopObjects.filter((o) => o.state === 'table');
-        if (remainingTable.length > 0) {
-          step.status = 'pending';
-          for (const remainingObj of remainingTable) {
-            const friendlyName = remainingObj.name;
-            const loopLabel = `Real-Time Clear: ${friendlyName}`;
-            const newSteps: PlanStep[] = [
-              {
-                id: Math.random().toString(36).substring(2, 7),
-                skill: 'move_to_pose',
-                params: { pose_name: 'pre_grasp', target: remainingObj.id },
-                status: 'pending',
-                detail: `[${loopLabel}] Align end-effector above newly added ${friendlyName}`,
-                loopGroup: loopLabel,
-                targetObject: remainingObj.id
-              },
-              {
-                id: Math.random().toString(36).substring(2, 7),
-                skill: 'open_gripper',
-                params: { stroke_mm: 80 },
-                status: 'pending',
-                detail: `[${loopLabel}] Open gripper fingers`,
-                loopGroup: loopLabel,
-                targetObject: remainingObj.id
-              },
-              {
-                id: Math.random().toString(36).substring(2, 7),
-                skill: 'pick',
-                params: { target_object: remainingObj.id },
-                status: 'pending',
-                detail: `[${loopLabel}] Descend directly to ${friendlyName} and grasp`,
-                loopGroup: loopLabel,
-                targetObject: remainingObj.id
-              },
-              {
-                id: Math.random().toString(36).substring(2, 7),
-                skill: 'move_to_pose',
-                params: { pose_name: 'lift', target: remainingObj.id },
-                status: 'pending',
-                detail: `[${loopLabel}] Lift ${friendlyName} 18cm vertically`,
-                loopGroup: loopLabel,
-                targetObject: remainingObj.id
-              },
-              {
-                id: Math.random().toString(36).substring(2, 7),
-                skill: 'move_to_pose',
-                params: { pose_name: 'approach_target', target: 'tray' },
-                status: 'pending',
-                detail: `[${loopLabel}] Transfer ${friendlyName} towards storage tray`,
-                loopGroup: loopLabel,
-                targetObject: remainingObj.id
-              },
-              {
-                id: Math.random().toString(36).substring(2, 7),
-                skill: 'place',
-                params: { target_location: 'tray', target_object: remainingObj.id },
-                status: 'pending',
-                detail: `[${loopLabel}] Deposit ${friendlyName} inside storage tray`,
-                loopGroup: loopLabel,
-                targetObject: remainingObj.id
-              },
-              {
-                id: Math.random().toString(36).substring(2, 7),
-                skill: 'open_gripper',
-                params: { stroke_mm: 80 },
-                status: 'pending',
-                detail: `[${loopLabel}] Release grip from ${friendlyName}`,
-                loopGroup: loopLabel,
-                targetObject: remainingObj.id
-              }
-            ];
-            plan.splice(i, 0, ...newSteps);
-          }
-          // Follow-up verification sweep to confirm table is completely clear
-          plan.splice(i, 0, {
-            id: Math.random().toString(36).substring(2, 7),
-            skill: 'search_object',
-            params: { target_object: 'tabletop_workspace', scan_mode: 'verification_survey' },
-            status: 'pending',
-            detail: '[Verification Sweep] On-Arm Camera re-scans tabletop workspace to verify 0 objects remain',
-            loopGroup: 'Perception Verification',
-            targetObject: 'tabletop_workspace'
-          });
-          this.emitArmSpeech({
-            message: `Additional objects detected on tabletop! Clearing them before retracting...`,
-            subtext: `Real-time frame perception • Remaining: ${remainingTable.length}`,
-            type: 'info'
-          });
-          this.notifyPipeline({
-            stage: 'EXECUTING',
-            intent,
-            affordances,
-            plan: [...plan],
-            activeStepId: plan[i]?.id
-          });
-          i--;
-          continue;
-        }
-      }
+      // Objects that appear or remain during a clean are found by the verification sweep below, which uses the camera.
     }
 
     if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
@@ -2677,7 +2626,7 @@ class RosBridgeService {
     });
 
     if (intent.action === 'clean_table') {
-      const remaining = this.tabletopObjects.filter((o) => o.state === 'table').length;
+      const remaining = this.lastSweepCount ?? 0; // what the last camera sweep saw
       if (remaining === 0) {
         this.emitArmSpeech({
           message: 'Tabletop fully clear! All objects safely stored in tray.',
@@ -2797,7 +2746,6 @@ class RosBridgeService {
       lower.includes('empty the table');
 
     if (isCleanCommand) {
-      const liveTableItems = this.tabletopObjects.filter((o) => o.state === 'table');
       return {
         version: '1.0',
         command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
@@ -2807,8 +2755,8 @@ class RosBridgeService {
         target_location: 'tray',
         parameters: {
           is_loop: true,
-          loop_targets: liveTableItems.map((o) => o.id),
-          loop_count: liveTableItems.length,
+          loop_targets: [], // decided by the camera survey when the task runs
+          loop_count: null,
           source: 'table',
           destination: 'tray',
           dynamic_frame_scan: true
@@ -2817,10 +2765,13 @@ class RosBridgeService {
       };
     }
 
-    // 2. Exact or partial match with seed commands
-    const seed = SEED_COMMANDS.find(
-      (s) => s.instruction.toLowerCase() === lower || lower.includes(s.instruction.toLowerCase())
-    );
+    // 2. Canned answers for the seed commands. Only used when the trained model could not be loaded;
+    //    otherwise these phrases go through the model like everything else.
+    const seed = this.nlu
+      ? undefined
+      : SEED_COMMANDS.find(
+          (s) => s.instruction.toLowerCase() === lower || lower.includes(s.instruction.toLowerCase())
+        );
     if (seed) {
       return {
         ...seed.intent,
@@ -2832,7 +2783,7 @@ class RosBridgeService {
     // 2. Dynamic Loop Detection for ANY repetitive or multi-object command
     const loop = this.detectLoopIntent(text);
     if (loop) {
-      if (loop.targets.length === 0) {
+      if ((loop as any).missingConcept) {
         const missingTarget = (loop as any).missingConcept || 'objects';
         return {
           version: '1.0',
@@ -2844,7 +2795,8 @@ class RosBridgeService {
           parameters: {
             is_loop: true,
             loop_targets: [],
-            loop_count: 0,
+            loop_keywords: [missingTarget],
+            loop_count: null,
             source: loop.source,
             destination: loop.destination,
             missing_target: missingTarget
@@ -2857,11 +2809,12 @@ class RosBridgeService {
         command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
         raw_text: text,
         action: loop.actionName,
-        target_object: loop.targets.join(', '),
+        target_object: loop.targets.length ? loop.targets.join(', ') : 'all_objects',
         target_location: loop.destination,
         parameters: {
           is_loop: true,
           loop_targets: loop.targets,
+          loop_keywords: loop.keywords,
           loop_count: loop.count,
           source: loop.source,
           destination: loop.destination,
@@ -2944,7 +2897,13 @@ class RosBridgeService {
       };
     }
 
-    // 5. Explicit Actuator / Pose Commands
+    // 5. Trained NLU model decides the action for natural-language commands.
+    //    Simulator controls (clean/delete/scatter/loop), search and impossible-verb filters ran above;
+    //    anything the model cannot ground to a concrete skill falls through to the rule parser below.
+    const modelIntent = this.nlu && !this.looksLikeSearch(lower) ? this.intentFromTrainedModel(text) : null;
+    if (modelIntent) return modelIntent;
+
+    // 5b. Explicit Actuator / Pose Commands (rule fallback)
     if (lower.includes('home') || lower.includes('park') || lower.includes('return to home')) {
       return {
         version: '1.0',
@@ -3164,10 +3123,282 @@ class RosBridgeService {
     };
   }
 
+  public setPerceptionProvider(fn: (() => Promise<CameraFrame>) | null): void {
+    this.perceptionProvider = fn;
+    if (this.perceptionTimer) {
+      clearInterval(this.perceptionTimer);
+      this.perceptionTimer = null;
+    }
+    if (fn) {
+      // The camera runs continuously like a real sensor: the belief is refreshed from every frame,
+      // whether or not a command is running.
+      this.perceptionTimer = setInterval(() => {
+        if (this.perceiving || (typeof document !== 'undefined' && document.hidden)) return;
+        void this.perceive().catch(() => undefined);
+      }, 800);
+    }
+  }
+
+  /** The believed position of an object, or null if the robot has not seen it (or has seen it gone). */
+  /** The object database (what things are), with objects the camera currently believes are on the table first. */
+  private known(): TabletopObject[] {
+    const believed = this.catalogue.filter((o) => this.perceived[o.id]);
+    return [...believed, ...this.catalogue.filter((o) => !this.perceived[o.id])];
+  }
+
+  private beliefPosition(id: string | null | undefined): { x: number; y: number; z: number } | null {
+    if (!id) return null;
+    const p = this.perceived[id];
+    return p && Date.now() - p.stamp < 180000 ? p.position : null;
+  }
+
+  /** Believed positions of everything the robot thinks is on the table. */
+  public getBelief(): { id: string; name: string; position: { x: number; y: number; z: number }; ageMs: number }[] {
+    return Object.entries(this.perceived).map(([id, b]) => ({
+      id,
+      name: this.known().find((o) => o.id === id)?.name ?? id.replace(/_/g, ' '),
+      position: b.position,
+      ageMs: Date.now() - b.stamp
+    }));
+  }
+
+  /**
+   * Refresh the belief from one frame. Objects it recognised are updated. An object it believes is somewhere the
+   * camera can clearly see, but where the camera sees bare table, is forgotten after two such frames.
+   */
+  private updateBelief(frame: CameraFrame, detections: Perceived[]): void {
+    const now = Date.now();
+    const seen = new Set<string>();
+    for (const d of detections) {
+      seen.add(d.id);
+      const prev = this.perceived[d.id];
+      if (d.truncated && prev) {
+        // a cropped view only confirms an object it already has; it must not drag the position around
+        prev.stamp = now;
+        prev.misses = 0;
+        continue;
+      }
+      this.perceived[d.id] = { position: d.position, stamp: now, misses: 0 };
+    }
+
+    const M = new THREE.Matrix4().compose(new THREE.Vector3(...frame.position), new THREE.Quaternion(...frame.quaternion), new THREE.Vector3(1, 1, 1));
+    const inv = M.clone().invert();
+    const rot = new THREE.Quaternion(...frame.quaternion);
+    const { fx, fy, cx, cy } = frame.intrinsics;
+    const tableY = this.robotBasePos.y;
+    for (const [id, b] of Object.entries(this.perceived)) {
+      if (seen.has(id)) continue;
+      if (id === this.gripHolding?.id) {
+        delete this.perceived[id];
+        continue;
+      }
+      const p = new THREE.Vector3(b.position.x, tableY + 0.03, b.position.z).applyMatrix4(inv); // camera frame, looks down -Z
+      const z = -p.z;
+      if (z < 0.25) continue; // behind or too close to judge
+      const u = cx + (p.x / z) * fx;
+      const v = cy - (p.y / z) * fy;
+      if (u < 14 || v < 14 || u > frame.width - 14 || v > frame.height - 14) continue; // not in view
+      const depth = frame.depth[Math.round(v) * frame.width + Math.round(u)];
+      const ray = new THREE.Vector3((u - cx) / fx, -(v - cy) / fy, -1).applyQuaternion(rot);
+      if (ray.y > -1e-3) continue;
+      const tableDepth = (tableY - frame.position[1]) / ray.y; // distance along the optical axis to bare table
+      if (depth > 0 && Math.abs(depth - tableDepth) < 0.012) {
+        b.misses = (b.misses ?? 0) + 1;
+        if (b.misses >= 2) {
+          delete this.perceived[id];
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'nora_perception',
+            message: `[Perception] ${this.known().find((o) => o.id === id)?.name ?? id} is no longer where it was last seen: the camera sees bare table there. Forgetting it.`
+          });
+        }
+      }
+    }
+  }
+
+  /** What the wrist camera sees right now. Falls back to the object list only if no camera is attached. */
+  private async perceive(): Promise<{
+    detections: Perceived[];
+    byId: Record<string, Perceived>;
+    ids: Set<string>;
+    names: string[];
+    count: number;
+  }> {
+    this.perceiving = true;
+    try {
+    let detections: Perceived[] = [];
+    let frame: CameraFrame | null = null;
+    if (this.perceptionProvider) {
+      try {
+        frame = await this.perceptionProvider();
+      } catch (err) {
+        this.emitLog({
+          level: 40,
+          levelName: 'ERROR',
+          nodeName: 'nora_perception',
+          message: `[Perception] Camera pipeline failed (${err instanceof Error ? err.message : String(err)}). The robot cannot see until it recovers.`
+        });
+      }
+    }
+    if (frame) {
+      // The camera names what it sees (kind + colour) from pixels; matching that to an entry in the
+      // object database is a separate step. Held objects are in the gripper, not on the table.
+      const registry = this.known()
+        .filter((o) => o.id !== this.gripHolding?.id)
+        .map((o) => ({ id: o.id, name: o.name, shape: o.shape, color: o.color }));
+      const lastSeen = Object.fromEntries(Object.entries(this.perceived).map(([id, p]) => [id, { x: p.position.x, z: p.position.z }]));
+      const matched = associate(frame.detections, registry, lastSeen);
+      detections = matched.filter((m) => m.id).map((m) => ({ ...m.rec, id: m.id as string }));
+      this.updateBelief(frame, detections);
+    } else {
+      this.emitLog({
+        level: 40,
+        levelName: 'ERROR',
+        nodeName: 'nora_perception',
+        message: '[Perception] No camera frame available: the robot cannot see the table.'
+      });
+      detections = [];
+    }
+    return this.summarizePerception(detections);
+    } finally {
+      this.perceiving = false;
+    }
+  }
+
+  private summarizePerception(detections: Perceived[]) {
+    const byId: Record<string, Perceived> = {};
+    // keep the better view of each object: a complete one beats a cropped one, then the larger mask
+    const better = (a: Perceived, b: Perceived) => (a.truncated === b.truncated ? a.maskPixels > b.maskPixels : !a.truncated);
+    for (const d of detections) if (!byId[d.id] || better(d, byId[d.id])) byId[d.id] = d;
+    const ids = new Set(Object.keys(byId));
+    const names = [...ids].map((id) => this.known().find((o) => o.id === id)?.name ?? id);
+    return { detections: Object.values(byId), byId, ids, names, count: ids.size };
+  }
+
+  /**
+   * Look at the table from the current pose; if `wanted` is not (all) in view, move the camera to further
+   * overhead poses and merge what each frame sees. Stops early once every wanted object has been seen.
+   */
+  private async visualSweep(
+    wanted: (id: string) => boolean,
+    execId?: number,
+    opts: { exhaustive?: boolean } = {}
+  ) {
+    let seen = await this.perceive();
+    const satisfied = () => !opts.exhaustive && seen.detections.some((d) => wanted(d.id));
+    if (satisfied()) return seen;
+
+    const base = this.robotBasePos;
+    const viewpoints: [number, number][] = [
+      [0.1, 0.0],
+      [0.3, 0.16],
+      [-0.05, 0.2],
+      [0.3, -0.16],
+      [-0.05, -0.2]
+    ];
+    for (const [cx, cz] of viewpoints) {
+      if (this.isEStopped || this.isCancelled || (execId && execId !== this.currentExecutionId)) return seen;
+      const pose = [...this.solveDynamicIK(cx, base.y + 0.45, cz), this.currentJointPositions[6]];
+      await this.moveAlongPlan(pose, this.buildCollisionWorld(null), {
+        execId,
+        frameMs: 30,
+        abortable: true,
+        label: 'scan_viewpoint'
+      });
+      await this.delay(180);
+      const next = await this.perceive();
+      seen = this.summarizePerception([...seen.detections, ...next.detections]);
+      if (satisfied()) break;
+    }
+    return seen;
+  }
+
+  private looksLikeSearch(lower: string): boolean {
+    return (
+      lower.startsWith('search') ||
+      lower.startsWith('find') ||
+      lower.startsWith('where is') ||
+      lower.startsWith('scan for') ||
+      lower.startsWith('locate') ||
+      lower.startsWith('detect') ||
+      lower.includes('search for') ||
+      lower.includes('find the') ||
+      lower.includes('scan the')
+    );
+  }
+
+  /** Resolve the object a command refers to: the user's words first, then the model's target. */
+  private groundTarget(text: string, modelObject: string | null): { id: string; name: string } | null {
+    const hint = modelObject ? modelObject.replace(/_/g, ' ') : null;
+    const obj = this.findObjectFromText(text) ?? (hint ? this.findObjectFromText(hint) : null);
+    if (obj) return { id: obj.id, name: obj.name };
+    const concept = this.getConceptForText(text) ?? (hint ? this.getConceptForText(hint) : null);
+    if (concept) {
+      const id = concept.id === 'tennis' ? 'tennis_ball' : concept.id === 'coffee' ? 'coffee_mug' : concept.id;
+      return { id, name: concept.defaultName };
+    }
+    const normalized = this.normalizeObjectName(text) ?? this.normalizeObjectName(modelObject);
+    if (normalized) return { id: normalized, name: normalized.replace(/_/g, ' ') };
+    // A recognised object that is not on the table: keep it so the missing-object guardrail can offer to place it.
+    if (modelObject) return { id: modelObject, name: hint as string };
+    return null;
+  }
+
+  /** Map a trained-model prediction to the simulator's intent schema; null = let the rule parser decide. */
+  private intentFromTrainedModel(text: string): Intent | null {
+    const pred = this.nlu?.predict(text);
+    if (!pred) return null;
+    const base = {
+      version: '1.0',
+      command_id: 'cmd-' + Math.random().toString(36).substring(2, 9),
+      raw_text: text,
+      confidence: pred.confidence
+    };
+    const meta = { nlu_source: 'trained_model', nlu_action: pred.action };
+
+    switch (pred.action) {
+      case 'explicit_blocked':
+        return {
+          ...base,
+          action: 'explicit_blocked',
+          target_object: null,
+          target_location: null,
+          parameters: { ...meta, reason: 'Cannot process explicit words.', error: 'Cannot process explicit words.', is_explicit: true },
+          confidence: 0
+        };
+      case 'go_home':
+      case 'open_gripper':
+      case 'close_gripper':
+        return { ...base, action: pred.action, target_object: null, target_location: null, parameters: meta };
+      case 'pick':
+      case 'place': {
+        const lower = text.toLowerCase();
+        const target = this.groundTarget(text, pred.target_object);
+        if (!target) return null;
+        const params = { ...meta, ...pred.parameters, target_name: target.name };
+        if (pred.action === 'pick') {
+          const handover =
+            pred.target_location === 'user' ||
+            /(give|hand|pass|bring|fetch|serve|get me)/.test(lower);
+          return handover
+            ? { ...base, action: 'deliver_to_user', target_object: target.id, target_location: 'user', parameters: { ...params, activity_context: text } }
+            : { ...base, action: 'pick', target_object: target.id, target_location: 'table', parameters: params };
+        }
+        const dest = lower.includes('table') || pred.target_location === 'table' ? 'table' : pred.target_location === 'user' ? 'user' : 'tray';
+        return { ...base, action: 'place', target_object: target.id, target_location: dest, parameters: params };
+      }
+      default:
+        // move_to_pose and unknown are not simulator skills
+        return null;
+    }
+  }
+
   public detectLoopIntent(text: string): {
     isLoop: boolean;
     targets: string[];
-    count: number;
+    keywords: string[];
+    count: number | null;
     source: 'table' | 'tray';
     destination: 'tray' | 'table' | 'user';
     actionName: string;
@@ -3237,7 +3468,9 @@ class RosBridgeService {
       'table', 'tray', 'user', 'here', 'there', 'please', 'with', 'from', 'into', 'some',
       'like', 'thing', 'things', 'play', 'right', 'this', 'just', 'also', 'that', 'should',
       'hello', 'hey', 'could', 'would', 'will', 'all', 'every', 'each', 'both', 'times',
-      'loop', 'repeat', 'again', 'iterate', 'objects', 'items', 'stuff', 'pieces', 'blocks'
+      'loop', 'repeat', 'again', 'iterate', 'objects', 'items', 'stuff', 'pieces', 'blocks',
+      'move', 'carry', 'transfer', 'storage', 'tote', 'bin', 'rack', 'rerack', 'back', 'return', 'clean', 'clear',
+      'tidy', 'empty', 'workspace', 'them', 'these', 'those', 'onto', 'out', 'away', 'everything', 'entire'
     ]);
 
     const targetKeywords = new Set<string>();
@@ -3256,24 +3489,8 @@ class RosBridgeService {
 
     if (hasSpecificObjectFilter) {
       // Filter existing tabletop objects matching ANY of the target keywords (by name, shape, id)
-      for (const obj of this.tabletopObjects) {
-        const nameTokens = obj.name.toLowerCase().split(/[^a-z0-9]+/);
-        const idTokens = obj.id.toLowerCase().split(/[^a-z0-9]+/);
-        const shapeL = obj.shape.toLowerCase();
-
-        let matched = false;
-        for (const kw of targetKeywords) {
-          if (
-            nameTokens.includes(kw) ||
-            idTokens.includes(kw) ||
-            shapeL === kw ||
-            obj.name.toLowerCase().includes(kw) ||
-            obj.id.toLowerCase().includes(kw)
-          ) {
-            matched = true;
-            break;
-          }
-        }
+      for (const obj of this.known()) {
+        const matched = this.objectMatches(obj, [...targetKeywords]);
 
         if (matched && !extractedTargets.includes(obj.id)) {
           extractedTargets.push(obj.id);
@@ -3281,7 +3498,7 @@ class RosBridgeService {
       }
     } else {
       // No specific object name was given (e.g. "clean table", "clear all", "rerack all items")
-      for (const obj of this.tabletopObjects) {
+      for (const obj of this.known()) {
         const nameL = obj.name.toLowerCase();
         const idL = obj.id.toLowerCase();
         if (lower.includes(nameL) || lower.includes(idL)) {
@@ -3315,12 +3532,12 @@ class RosBridgeService {
 
     // Determine targets
     let finalTargets: string[] = [];
-    if (hasSpecificObjectFilter) {
+    if (hasSpecificObjectFilter && (extractedTargets.length > 0 || !(isClean || isRerack || hasAllGeneral))) {
       finalTargets = extractedTargets;
       if (finalTargets.length === 0) {
         // Specific item requested (e.g. "apples"), but 0 exist on the tabletop!
         // Do NOT pick random objects or defaults. Flag missing concept for SayCan guardrail.
-        const missing = Array.from(targetKeywords)[0] || 'requested objects';
+        const missing = Array.from(targetKeywords).find((k) => targetKeywords.has(getStem(k)) && getStem(k) === k) || Array.from(targetKeywords)[0] || 'requested objects';
         return {
           isLoop: true,
           targets: [],
@@ -3331,20 +3548,18 @@ class RosBridgeService {
           missingConcept: missing
         } as any;
       }
-    } else if (isClean) {
-      finalTargets = this.tabletopObjects.filter((o) => o.state === 'table').map((o) => o.id);
-    } else if (isRerack) {
-      finalTargets = this.tabletopObjects.filter((o) => o.state === 'tray').map((o) => o.id);
-    } else if (hasAllGeneral) {
-      finalTargets = this.tabletopObjects
-        .filter((o) => o.state === 'table')
-        .map((o) => o.id);
+    } else if (isClean || isRerack || hasAllGeneral) {
+      finalTargets = []; // "everything": the camera survey decides what that is
     } else {
       finalTargets = extractedTargets;
     }
 
     // Determine count
-    const finalCount = count !== null ? Math.max(1, count) : finalTargets.length;
+    const finalCount = count !== null ? Math.max(1, count) : null; // null = every matching object the camera finds
+    // Words that name a kind of object in the database; the survey matches what it sees against these.
+    const finalKeywords = finalTargets.length
+      ? [...targetKeywords].filter((kw) => this.known().some((o) => this.objectMatches(o, [kw])))
+      : [];
 
     // Determine source and destination
     let source: 'table' | 'tray' = 'table';
@@ -3377,6 +3592,7 @@ class RosBridgeService {
     return {
       isLoop: true,
       targets: finalTargets,
+      keywords: finalKeywords,
       count: finalCount,
       source,
       destination,
@@ -3410,7 +3626,7 @@ class RosBridgeService {
         .sort((a, b) => b.combined_score - a.combined_score);
     }
 
-    const isHoldingObject = this.tabletopObjects.some((o) => o.state === 'held');
+    const isHoldingObject = this.gripHolding !== null;
 
     const isLoopAction =
       Boolean(intent.parameters?.is_loop) ||
@@ -3419,11 +3635,12 @@ class RosBridgeService {
     // Dynamic Kinematic Reachability & Tabletop Presence Grounding
     let targetDistFromBase: number | null = null;
     let targetExistsOnTable = false;
+    let planTarget: TabletopObject | null = null;
     const targetObjName = intent.target_object;
     if (targetObjName && targetObjName !== 'null' && targetObjName !== 'none') {
       let foundObj =
         this.findObjectFromText(targetObjName) ||
-        this.tabletopObjects.find(
+        this.known().find(
           (o) =>
             o.id.toLowerCase() === targetObjName.toLowerCase() ||
             o.name.toLowerCase() === targetObjName.toLowerCase()
@@ -3432,7 +3649,7 @@ class RosBridgeService {
       if (!foundObj) {
         const cat = CATEGORY_SEARCH_MAP[targetObjName.toLowerCase()];
         if (cat) {
-          foundObj = this.tabletopObjects.find((o) => {
+          foundObj = this.known().find((o) => {
             const oId = o.id.toLowerCase();
             const oName = o.name.toLowerCase();
             return cat.candidateIds.some((c) => oId === c || oId.includes(c) || oName.includes(c) || o.shape === c);
@@ -3440,12 +3657,17 @@ class RosBridgeService {
         }
       }
 
-      if (foundObj) {
+      // "On the table" means the robot has seen it there. If it has not looked yet, active perception comes first.
+      const believedPos = foundObj ? this.beliefPosition(foundObj.id) : null;
+      if (foundObj && believedPos) {
         targetExistsOnTable = true;
-        targetDistFromBase = Math.hypot(foundObj.position.x - this.robotBasePos.x, foundObj.position.z - this.robotBasePos.z);
+        planTarget = { ...foundObj, position: { ...foundObj.position, ...believedPos } };
+        targetDistFromBase = Math.hypot(believedPos.x - this.robotBasePos.x, believedPos.z - this.robotBasePos.z);
       }
     }
-    const isTargetOutOfReach = targetDistFromBase !== null && targetDistFromBase > 0.64;
+    const isTargetOutOfReach =
+      planTarget !== null &&
+      !checkReach(planTarget.position.x, Math.max(planTarget.position.y, this.robotBasePos.y + GRASP_MIN_TCP_HEIGHT), planTarget.position.z, this.robotBasePos).reachable;
     const isTargetMissing = Boolean(
       targetObjName &&
       targetObjName !== 'none' &&
@@ -3456,6 +3678,9 @@ class RosBridgeService {
       intent.action !== 'clean_table' &&
       !targetExistsOnTable
     );
+
+    // Real motion check: can the arm reach the pre-grasp pose and descend to the object without hitting anything?
+    const approach = planTarget && !isTargetOutOfReach ? this.assessApproach(planTarget) : null;
 
     const results: AffordanceScore[] = candidateSkills.map((skill) => {
       let usefulness = 0.15;
@@ -3478,12 +3703,12 @@ class RosBridgeService {
       } else if (targetDistFromBase !== null) {
         if (isTargetOutOfReach) {
           if (['pick', 'deliver_to_user', 'place', 'move_to_pose'].includes(skill)) {
-            // Target is beyond 0.64m physical arm envelope: drop reachability to trigger SayCan guardrail
+            // IK cannot reach the target (verified through forward kinematics): drop reachability to trigger the SayCan guardrail
             reachability = 0.05;
             collision_free = 0.30;
           }
         } else {
-          reachability = Math.min(0.99, Math.max(0.78, 0.98 - (targetDistFromBase / 0.64) * 0.10));
+          reachability = Math.min(0.99, Math.max(0.78, 0.98 - (targetDistFromBase / MAX_TABLE_REACH) * 0.10));
         }
       }
 
@@ -3529,6 +3754,11 @@ class RosBridgeService {
           collision_free = 0.99;
           object_state = 0.99;
         }
+      }
+
+      // Collision feasibility comes from the planner, not a constant
+      if (approach && ['pick', 'deliver_to_user', 'move_to_pose'].includes(skill)) {
+        collision_free = Math.min(collision_free, approach.score);
       }
 
       // 2. Semantic Task Usefulness Grounding
@@ -3607,245 +3837,131 @@ class RosBridgeService {
     return results;
   }
 
+  /** Pick one object and store it in the tray. It begins with a fresh camera check, so a vanished object is skipped. */
+  private buildClearSteps(objId: string, name: string, tag = 'Clear'): PlanStep[] {
+    return this.buildTransferSteps(objId, name, 'table', 'tray', tag);
+  }
+
+  /**
+   * Move one object from where the camera saw it to a destination: look at it again, grasp with feedback, carry,
+   * put it down, let go. A vanished object is skipped by the first step; a failed grasp skips the rest of the group.
+   */
+  private buildTransferSteps(
+    objId: string,
+    name: string,
+    source: 'table' | 'tray',
+    destination: 'tray' | 'table' | 'user',
+    tag?: string
+  ): PlanStep[] {
+    const id = () => Math.random().toString(36).substring(2, 7);
+    const verb = tag ?? (source === 'tray' ? 'Re-rack' : destination === 'user' ? 'Deliver' : destination === 'table' ? 'Move' : 'Clear');
+    const label = `${verb}: ${name}`;
+    const base = { status: 'pending' as const, loopGroup: label, targetObject: objId };
+    const from = source === 'tray' ? 'the storage tote' : 'the table';
+    const steps: PlanStep[] = [
+      { id: id(), skill: 'search_object', params: { target_object: objId, scan_mode: 'target_check' }, detail: `[${label}] Look at ${name} before reaching for it`, ...base },
+      { id: id(), skill: 'move_to_pose', params: { pose_name: 'pre_grasp', target: objId }, detail: `[${label}] Align end-effector above ${name} in ${from}`, ...base },
+      { id: id(), skill: 'open_gripper', params: { stroke_mm: 80 }, detail: `[${label}] Open gripper fingers`, ...base },
+      { id: id(), skill: 'pick', params: { target_object: objId }, detail: `[${label}] Descend to ${name} and grasp`, ...base },
+      { id: id(), skill: 'move_to_pose', params: { pose_name: 'lift', target: objId }, detail: `[${label}] Lift ${name} clear`, ...base }
+    ];
+    if (destination === 'tray') {
+      steps.push(
+        { id: id(), skill: 'move_to_pose', params: { pose_name: 'approach_target', target: 'tray' }, detail: `[${label}] Carry ${name} to the storage tote`, ...base },
+        { id: id(), skill: 'place', params: { target_location: 'tray', target_object: objId }, detail: `[${label}] Lower ${name} into the tote`, ...base }
+      );
+    } else if (destination === 'user') {
+      steps.push(
+        { id: id(), skill: 'move_to_pose', params: { pose_name: 'handover', target: 'user' }, detail: `[${label}] Carry ${name} to the handover mat`, ...base },
+        { id: id(), skill: 'place', params: { target_location: 'user', target_object: objId }, detail: `[${label}] Lower ${name} onto the handover mat`, ...base }
+      );
+    } else {
+      steps.push(
+        { id: id(), skill: 'move_to_pose', params: { pose_name: 'table_spot', target: 'table' }, detail: `[${label}] Carry ${name} to a free spot on the table`, ...base },
+        { id: id(), skill: 'place', params: { target_location: 'table', target_object: objId }, detail: `[${label}] Lower ${name} onto the table`, ...base }
+      );
+    }
+    steps.push({ id: id(), skill: 'open_gripper', params: { stroke_mm: 80 }, detail: `[${label}] Release grip`, ...base });
+    return steps;
+  }
+
+  private isLoopIntent(intent: Intent): boolean {
+    return Boolean(intent.parameters?.is_loop) || ['clean_table', 'rerack_table', 'loop_task'].includes(intent.action);
+  }
+
+  /** Does a database entry fit any of the words the user used ("balls", "cups", ...)? No words = anything fits. */
+  private objectMatches(obj: TabletopObject, keywords: string[]): boolean {
+    if (!keywords.length) return true;
+    const SYNONYMS: Record<string, string[]> = {
+      cup: ['mug', 'glass'], drink: ['glass', 'mug', 'can', 'water', 'coffee', 'soda'], beverage: ['glass', 'mug', 'can'],
+      fruit: ['apple', 'orange', 'banana'], food: ['apple', 'orange', 'banana'], ball: ['ball', 'sphere'],
+      stationery: ['pen', 'pencil', 'ruler', 'eraser', 'stapler', 'scissors', 'notebook', 'book'],
+      toy: ['ball', 'cube', 'block'], block: ['cube', 'box'], bottle: ['can', 'cylinder']
+    };
+    keywords = [...new Set(keywords.flatMap((k) => [k, ...(SYNONYMS[k] ?? [])]))];
+    const nameL = obj.name.toLowerCase();
+    const idL = obj.id.toLowerCase();
+    const shapeL = obj.shape.toLowerCase();
+    const nameTokens = nameL.split(/[^a-z0-9]+/);
+    const idTokens = idL.split(/[^a-z0-9]+/);
+    return keywords.some((kw) => nameTokens.includes(kw) || idTokens.includes(kw) || shapeL === kw || nameL.includes(kw) || idL.includes(kw));
+  }
+
+  /**
+   * Objects the camera saw in one part of the workspace, judged only from where it saw them
+   * (the tote gets a small margin, since things lean on its walls).
+   */
+  private seenIn(seen: SeenSummary, region: RestRegion): { id: string; name: string }[] {
+    const regionOf = (x: number, z: number): RestRegion => {
+      const m = 0.025;
+      if (x >= TOTE.x0 - m && x <= TOTE.x1 + m && z >= TOTE.z0 - m && z <= TOTE.z1 + m) return 'tray';
+      const i = 0.03; // the mat counts only when the object is clearly on it
+      if (x > MAT.x0 + i && x < MAT.x1 - i && z > MAT.z0 + i && z < MAT.z1 - i) return 'user';
+      return 'table';
+    };
+    return seen.detections
+      .filter((d) => regionOf(d.position.x, d.position.z) === region)
+      .map((d) => ({ id: d.id, name: this.known().find((o) => o.id === d.id)?.name ?? d.id.replace(/_/g, ' ') }));
+  }
+
   private buildGeneralizedLoopPlan(intent: Intent): PlanStep[] {
     const id = () => Math.random().toString(36).substring(2, 7);
     const isCleanTable = intent.action === 'clean_table';
+    const park: PlanStep = { id: id(), skill: 'go_home', params: {}, status: 'pending', detail: 'Retract arm to the home pose' };
 
-    // Live Frame Perception: clean_table dynamically checks whatever objects are on the tabletop right now!
-    let loopTargets: string[] = [];
+    // Clean table: look, then park. The survey queues a pick-and-place for every object it actually sees.
     if (isCleanTable) {
-      loopTargets = this.tabletopObjects
-        .filter((o) => o.state === 'table')
-        .map((o) => o.id);
-    } else if (intent.parameters?.loop_targets && intent.parameters.loop_targets.length > 0) {
-      loopTargets = intent.parameters.loop_targets;
-    } else {
-      const src = intent.parameters?.source || (intent.action === 'rerack_table' ? 'tray' : 'table');
-      loopTargets = this.tabletopObjects
-        .filter((o) => (src === 'tray' ? o.state === 'tray' : o.state === 'table'))
-        .map((o) => o.id);
-    }
-
-    const count: number = isCleanTable ? loopTargets.length : (intent.parameters?.loop_count || loopTargets.length);
-    const source: 'table' | 'tray' =
-      intent.parameters?.source || (intent.action === 'rerack_table' ? 'tray' : 'table');
-    const destination: 'tray' | 'table' | 'user' =
-      intent.parameters?.destination || (intent.action === 'rerack_table' ? 'table' : 'tray');
-
-    // If clean_table is called and 0 objects are present on the tabletop:
-    if (isCleanTable && loopTargets.length === 0) {
       return [
         {
           id: id(),
           skill: 'search_object',
           params: { target_object: 'tabletop_workspace', scan_mode: 'frame_survey' },
           status: 'pending',
-          detail: '[Visual Survey] On-Arm Camera tabletop workspace sweep & object detection',
+          detail: '[Visual Survey] On-arm camera sweeps the tabletop; objects it sees are queued for clearing',
           targetObject: 'tabletop_workspace'
         },
-        {
-          id: id(),
-          skill: 'go_home',
-          params: {},
-          status: 'pending',
-          detail: 'Standby: Tabletop is already clear (0 objects detected on frame). Retract arm to home pose.'
-        }
+        park
       ];
     }
 
-    // Build execution items array repeating or slicing as needed
-    const executionItems: string[] = [];
-    for (let i = 0; i < count; i++) {
-      executionItems.push(loopTargets[i % loopTargets.length]);
-    }
-
-    const plan: PlanStep[] = [];
-
-    // Prepend On-Arm Camera workspace sweep for clean table
-    if (isCleanTable) {
-      plan.push({
+    // Loops and re-rack: the same. Which objects, and how many, is decided by the camera when the survey runs.
+    const isRerack = intent.action === 'rerack_table';
+    const source: 'table' | 'tray' = intent.parameters?.source || (isRerack ? 'tray' : 'table');
+    const destination: 'tray' | 'table' | 'user' = intent.parameters?.destination || (isRerack ? 'table' : 'tray');
+    const keywords: string[] = intent.parameters?.loop_keywords ?? [];
+    const count: number | null = intent.parameters?.loop_count ?? null;
+    const where = source === 'tray' ? 'storage tote' : 'tabletop';
+    return [
+      {
         id: id(),
         skill: 'search_object',
-        params: { target_object: 'tabletop_workspace', scan_mode: 'frame_survey' },
+        params: { target_object: 'tabletop_workspace', scan_mode: 'loop_survey', source, destination, keywords, count, round: 0 },
         status: 'pending',
-        detail: `[Visual Survey] On-Arm Camera tabletop workspace sweep: ${executionItems.length} object(s) detected on frame`,
+        detail: `[Visual Survey] On-arm camera looks at the ${where} for ${keywords.length ? keywords.join(' / ') : 'every object'}; what it sees is queued`,
         targetObject: 'tabletop_workspace'
-      });
-    }
-
-    executionItems.forEach((item, index) => {
-      const friendlyName = item.replace(/_/g, ' ');
-      const actionVerb = source === 'tray' ? 'Re-rack' : destination === 'user' ? 'Deliver' : 'Clear';
-      const loopLabel = isCleanTable
-        ? `Clear Object ${index + 1}/${executionItems.length}: ${friendlyName}`
-        : `Loop ${index + 1}/${executionItems.length}: ${actionVerb} ${friendlyName}`;
-
-      if (source === 'tray') {
-        plan.push(
-          {
-            id: id(),
-            skill: 'move_to_pose',
-            params: { pose_name: 'approach_target', target: 'tray' },
-            status: 'pending',
-            detail: `[${loopLabel}] Move above storage tray for ${friendlyName}`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'open_gripper',
-            params: { stroke_mm: 80 },
-            status: 'pending',
-            detail: `[${loopLabel}] Open gripper fingers`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'pick',
-            params: { target_object: item, from_tray: true },
-            status: 'pending',
-            detail: `[${loopLabel}] Grip ${friendlyName} from storage tray`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'move_to_pose',
-            params: { pose_name: 'pre_grasp', target: item },
-            status: 'pending',
-            detail: `[${loopLabel}] Transfer ${friendlyName} back to tabletop station`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'place',
-            params: { target_location: 'table', target_object: item },
-            status: 'pending',
-            detail: `[${loopLabel}] Place ${friendlyName} on tabletop staging spot`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'open_gripper',
-            params: { stroke_mm: 80 },
-            status: 'pending',
-            detail: `[${loopLabel}] Release grip from ${friendlyName}`,
-            loopGroup: loopLabel,
-            targetObject: item
-          }
-        );
-      } else {
-        const isUserDest = destination === 'user';
-        if (!isCleanTable) {
-          plan.push({
-            id: id(),
-            skill: 'search_object',
-            params: { target_object: item },
-            status: 'pending',
-            detail: `[${loopLabel}] Active visual search & YOLO scan for ${friendlyName}`,
-            loopGroup: loopLabel,
-            targetObject: item
-          });
-        }
-
-        plan.push(
-          {
-            id: id(),
-            skill: 'move_to_pose',
-            params: { pose_name: 'pre_grasp', target: item },
-            status: 'pending',
-            detail: `[${loopLabel}] Align end-effector above detected ${friendlyName}`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'open_gripper',
-            params: { stroke_mm: 80 },
-            status: 'pending',
-            detail: `[${loopLabel}] Open gripper fingers`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'pick',
-            params: { target_object: item },
-            status: 'pending',
-            detail: `[${loopLabel}] Descend directly to ${friendlyName} and grasp`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'move_to_pose',
-            params: { pose_name: 'lift', target: item },
-            status: 'pending',
-            detail: `[${loopLabel}] Lift ${friendlyName} 18cm vertically`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'move_to_pose',
-            params: {
-              pose_name: isUserDest ? 'handover' : 'approach_target',
-              target: destination
-            },
-            status: 'pending',
-            detail: `[${loopLabel}] Transfer ${friendlyName} towards ${destination}`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'place',
-            params: { target_location: destination, target_object: item },
-            status: 'pending',
-            detail: `[${loopLabel}] Deposit ${friendlyName} inside ${destination}`,
-            loopGroup: loopLabel,
-            targetObject: item
-          },
-          {
-            id: id(),
-            skill: 'open_gripper',
-            params: { stroke_mm: 80 },
-            status: 'pending',
-            detail: `[${loopLabel}] Release grip from ${friendlyName}`,
-            loopGroup: loopLabel,
-            targetObject: item
-          }
-        );
-      }
-    });
-
-    if (isCleanTable) {
-      plan.push({
-        id: id(),
-        skill: 'search_object',
-        params: { target_object: 'tabletop_workspace', scan_mode: 'verification_survey' },
-        status: 'pending',
-        detail: '[Verification Sweep] On-Arm Camera re-scans tabletop workspace to verify 0 objects remain',
-        loopGroup: 'Perception Verification',
-        targetObject: 'tabletop_workspace'
-      });
-    }
-
-    plan.push({
-      id: id(),
-      skill: 'go_home',
-      params: {},
-      status: 'pending',
-      detail: isCleanTable
-        ? `[Final Retract] Tabletop clear & verification confirmed. Retract arm to home transit pose.`
-        : `Final: Loop sequence completed (${executionItems.length} iterations). Retract arm to home transit pose.`,
-      loopGroup: 'Final Retract'
-    });
-
-    return plan;
+      },
+      park
+    ];
   }
 
   private generatePlanSteps(intent: Intent): PlanStep[] {
@@ -3937,7 +4053,7 @@ class RosBridgeService {
           skill: 'search_object',
           params: { target_object: objName },
           status: 'pending',
-          detail: `Active RGB-D visual search & YOLO scan for ${friendlyName} (no prior coordinates assumed)`,
+          detail: `Active RGB-D visual search & segmentation scan for ${friendlyName} (no prior coordinates assumed)`,
           targetObject: objName
         },
         {
@@ -4007,7 +4123,7 @@ class RosBridgeService {
           skill: 'search_object',
           params: { target_object: objName },
           status: 'pending',
-          detail: `Active RGB-D visual sweep & YOLO reticle detection for ${friendlyName}`,
+          detail: `Active RGB-D visual sweep & target localisation for ${friendlyName}`,
           targetObject: objName
         },
         {
@@ -4029,7 +4145,7 @@ class RosBridgeService {
           skill: 'search_object',
           params: { target_object: objName },
           status: 'pending',
-          detail: `Active RGB-D visual search & YOLO scan for ${friendlyName} (no prior coordinates assumed)`,
+          detail: `Active RGB-D visual search & segmentation scan for ${friendlyName} (no prior coordinates assumed)`,
           targetObject: objName
         },
         {
@@ -4070,7 +4186,7 @@ class RosBridgeService {
     if (intent.action === 'place') {
       const loc = intent.target_location || 'tray';
       const objName = intent.target_object;
-      const isHoldingObject = this.tabletopObjects.some((o) => o.state === 'held');
+      const isHoldingObject = this.gripHolding !== null;
 
       if (!isHoldingObject && objName && objName !== 'object') {
         const friendlyName = objName.replace(/_/g, ' ');
@@ -4213,43 +4329,10 @@ class RosBridgeService {
     ];
   }
 
-  // Exact 6-DOF Closed-Form Inverse Kinematics for Table-Mounted NORA Arm
+  // Closed-form IK for the UR5e-style arm, tool pointing straight down (see sim/kinematics.ts).
+  // Returns [shoulder_pan, shoulder_lift, elbow, wrist1, wrist2, wrist3].
   public solveDynamicIK(tx: number, ty: number, tz: number): number[] {
-    const L1 = 0.32;
-    const L2 = 0.32;
-    const L3 = 0.245; // Exact distance from joint 5 to TCP between gripper finger pads
-
-    // 1. Coordinates relative to side-mounted base
-    const dx = tx - this.robotBasePos.x;
-    const dz = tz - this.robotBasePos.z;
-
-    // 2. Azimuth yaw (joint 1 rotates around robot +Z which is Three.js +Y)
-    const yaw = Math.atan2(-dz, dx);
-
-    // 3. Radial distance from arm base on the table
-    const rtarget = Math.hypot(dx, dz);
-    const R = Math.max(0.18, Math.min(0.62, rtarget));
-
-    // 4. Vertical offset relative to shoulder pitch joint (joint2 height is surfaceY + 0.22m = 0.67m)
-    const Y = (ty + L3) - (this.robotBasePos.y + 0.22);
-
-    // 5. Distance to wrist center (clamped to 0.635m strictly inside 2-link 0.64m envelope)
-    const D = Math.min(0.635, Math.max(0.12, Math.hypot(R, Y)));
-
-    // 6. Law of cosines for elbow pitch (joint 3)
-    const cosAngle = Math.max(-0.9999, Math.min(0.9999, (D * D - L1 * L1 - L2 * L2) / (2 * L1 * L2)));
-    const j3 = Math.acos(cosAngle);
-
-    // 7. Shoulder pitch (joint 2)
-    const gamma = Math.atan2(R, Y);
-    const cosBeta = Math.max(-0.9999, Math.min(0.9999, (L1 * L1 + D * D - L2 * L2) / (2 * L1 * D)));
-    const beta = Math.acos(cosBeta);
-    const j2 = gamma - beta;
-
-    // 8. Wrist pitch (joint 5) orienting the gripper perfectly vertical top-down
-    const j5 = Math.PI - (j2 + j3);
-
-    return [yaw, j2, j3, 0.0, j5, 0.0];
+    return solveIK(tx, ty, tz, this.robotBasePos);
   }
 
   // Calculate target joint angles dynamically for each skill step
@@ -4257,19 +4340,26 @@ class RosBridgeService {
     const curr = [...this.currentJointPositions];
     const targetObj = (step.targetObject || intent.target_object || '').toLowerCase();
     const normObj = this.normalizeObjectName(targetObj);
-    const resolvedObj = normObj ? this.tabletopObjects.find((o) => o.id === normObj || o.name.toLowerCase().includes(normObj)) : null;
-    const objPos = resolvedObj ? resolvedObj.position : this.getObjectPosition(normObj || '');
+    const resolvedObj = normObj ? this.known().find((o) => o.id === normObj || o.name.toLowerCase().includes(normObj)) : null;
+    // The robot only knows where things are from what its camera has seen. With no belief it holds position.
+    const here = tcpPosition(curr.slice(0, 6), this.robotBasePos);
+    const believed = resolvedObj ? this.beliefPosition(resolvedObj.id) : null;
+    const objPos = believed ?? { x: here.x, y: here.y - 0.12, z: here.z };
     const poseName = step.params?.pose_name || '';
 
     if (skill === 'search_object') {
       if (step.params?.scan_mode === 'frame_survey' || step.targetObject === 'tabletop_workspace') {
         // Wide-angle overhead scan pose with on-arm camera surveying entire tabletop workspace
-        return [0.0, 0.45, 0.85, 0.0, 1.15, 0.0, curr[6]];
+        // Raised pose with the camera tilted ~45 degrees down toward the table centre
+        // (pan offset compensates for the wrist sitting off the arm plane)
+        return [-0.33, -0.3, 1.3, Math.PI / 4 - 1.0, -Math.PI / 2, 0.0, curr[6]];
       }
+      if (!believed) return [-0.33, -0.3, 1.3, Math.PI / 4 - 1.0, -Math.PI / 2, 0.0, curr[6]]; // nothing to look toward yet: survey pose
       const dx = objPos.x - this.robotBasePos.x;
       const dz = objPos.z - this.robotBasePos.z;
       const yaw = Math.atan2(-dz, dx);
-      return [yaw, 0.35, 0.95, 0.0, 0.85, 0.0, curr[6]];
+      // Look toward the target with the camera tilted ~70 degrees down
+      return [yaw - 0.3, -0.2, 1.45, 1.2 - 1.25, -Math.PI / 2, 0.0, curr[6]];
     }
 
     if (skill === 'move_to_pose') {
@@ -4277,16 +4367,28 @@ class RosBridgeService {
         const sol = this.solveDynamicIK(objPos.x, objPos.y + 0.12, objPos.z);
         return [...sol, curr[6]];
       } else if (poseName === 'lift') {
+        if (this.gripHolding) {
+          // carrying something: lift straight up from where the tool is
+          const up = this.solveDynamicIK(here.x, Math.max(here.y + 0.1, this.robotBasePos.y + 0.2), here.z);
+          return [...up, curr[6]];
+        }
         const sol = this.solveDynamicIK(objPos.x, objPos.y + 0.16, objPos.z);
         return [...sol, curr[6]];
       } else if (poseName === 'handover') {
-        // Move directly to operator handover station at front table edge!
-        const sol = this.solveDynamicIK(this.handoverPos.x, this.handoverPos.y, this.handoverPos.z);
+        // To the handover mat, over a part of it that the camera believes is free
+        const spot = this.nextMatSpot();
+        const sol = this.solveDynamicIK(spot.x, this.handoverPos.y, spot.z);
+        return [...sol, curr[6]];
+      } else if (poseName === 'table_spot') {
+        // carrying something back to the table: above a free spot, chosen from what the camera believes is there
+        const spot = this.nextTableSpot();
+        const sol = this.solveDynamicIK(spot.x, this.robotBasePos.y + 0.16, spot.z);
         return [...sol, curr[6]];
       } else if (poseName === 'approach_target') {
         const isTray = step.params?.target === 'tray' || intent.target_location === 'tray';
         if (isTray) {
-          const sol = this.solveDynamicIK(-0.05, 0.45 + 0.14, -0.24);
+          const slot = this.nextToteSlot();
+          const sol = this.solveDynamicIK(slot.x, Math.max(this.robotBasePos.y + 0.14, this.toteStackTop(slot) + 0.14), slot.z);
           return [...sol, curr[6]];
         }
         const sol = this.solveDynamicIK(objPos.x, objPos.y + 0.12, objPos.z);
@@ -4298,23 +4400,29 @@ class RosBridgeService {
 
     if (skill === 'pick') {
       // Descend end-effector directly to object center height for a snug grip
-      const sol = this.solveDynamicIK(objPos.x, objPos.y, objPos.z);
-      return [...sol, 0.015];
+      const sol = this.solveDynamicIK(objPos.x, Math.max(objPos.y, this.robotBasePos.y + GRASP_MIN_TCP_HEIGHT), objPos.z);
+      return [...sol, GRIPPER_MAX_OPEN]; // descend with the fingers open; closing is a separate, physical act
     }
 
     if (skill === 'place') {
-      const isPlaceTable = step.params?.target_location === 'table';
-      if (isPlaceTable) {
-        const sol = this.solveDynamicIK(objPos.x, objPos.y + 0.02, objPos.z);
-        return [...sol, 0.07];
+      const loc = step.params?.target_location;
+      if (loc === 'table' || loc === 'user') {
+        // lower until the held object is just above the surface under the tool (table or handover mat), still holding
+        const heldEntry = this.gripHolding ? this.known().find((o) => o.id === this.gripHolding?.id) : undefined;
+        const half = heldEntry ? OBJECT_HEIGHT[objectKind(heldEntry)] / 2 : 0.04;
+        const surface = this.robotBasePos.y + (loc === 'user' ? MAT.top : 0);
+        const sol = this.solveDynamicIK(here.x, Math.max(surface + half, this.robotBasePos.y + GRASP_MIN_TCP_HEIGHT) + 0.012, here.z);
+        return [...sol, curr[6]]; // keep holding until the release step
       } else {
-        const sol = this.solveDynamicIK(-0.05, 0.45 + 0.04, -0.24);
-        return [...sol, 0.07];
+        const slot = this.nextToteSlot();
+        // release just above whatever is already piled there
+        const sol = this.solveDynamicIK(slot.x, Math.max(this.robotBasePos.y + 0.06, this.toteStackTop(slot) + 0.05), slot.z);
+        return [...sol, curr[6]]; // keep holding until the release step
       }
     }
 
     if (skill === 'open_gripper') {
-      return [curr[0], curr[1], curr[2], curr[3], curr[4], curr[5], 0.07];
+      return [curr[0], curr[1], curr[2], curr[3], curr[4], curr[5], GRIPPER_MAX_OPEN];
     }
 
     if (skill === 'close_gripper') {
@@ -4329,36 +4437,332 @@ class RosBridgeService {
     return [curr[0], curr[1], curr[2], curr[3], curr[4], curr[5], curr[6]];
   }
 
-  // Smooth continuous multi-waypoint interpolation with instant E-Stop and cancellation safety check
-  private async simulateJointMotion(step: PlanStep, intent: Intent, execId?: number): Promise<void> {
-    const jointNames = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper_joint'];
-    const startPositions = [...this.currentJointPositions];
-    const targetPositions = this.getTargetPositionsForSkill(step.skill, step, intent);
+  /** Plan home->pre-grasp->grasp for an object and turn the result into a 0..1 collision-free score. */
+  private assessApproach(obj: TabletopObject): { score: number; clearance: number | null; detail: string } {
+    const base = this.robotBasePos;
+    const gy = Math.max(obj.position.y, base.y + GRASP_MIN_TCP_HEIGHT);
+    const world = this.buildCollisionWorld(obj.id);
+    const start = this.currentJointPositions.slice(0, 6);
+    const pre = solveIK(obj.position.x, gy + 0.12, obj.position.z, base);
+    const grasp = solveIK(obj.position.x, gy, obj.position.z, base);
 
-    const steps = 24;
-    for (let s = 1; s <= steps; s++) {
-      if (this.isEStopped || this.isCancelled || (execId && execId !== this.currentExecutionId)) {
-        return;
-      }
+    const toPre = planJointPath(start, pre, base, world);
+    const descend = toPre.ok ? planJointPath(pre, grasp, base, world) : toPre;
+    const ok = toPre.ok && descend.ok;
+    const clearance = ok ? Math.min(toPre.minClearance, descend.minClearance) : null;
+    const score = ok ? 0.8 + 0.19 * Math.min(1, Math.max(0, (clearance as number) / 0.02)) : 0.1;
+    const detail = ok
+      ? `min clearance ${((clearance as number) * 1000).toFixed(0)} mm`
+      : (toPre.ok ? descend.reason : toPre.reason) ?? 'blocked';
 
-      const t = s / steps;
-      // Cosine ease-in-out: smooth acceleration and deceleration
-      const ease = (1 - Math.cos(t * Math.PI)) / 2;
-      const currentPos = startPositions.map((start, i) => start + (targetPositions[i] - start) * ease);
+    this.emitLog({
+      level: ok ? 20 : 30,
+      levelName: ok ? 'INFO' : 'WARN',
+      nodeName: 'motion_planner',
+      message: `[Planner] Approach check for "${obj.name}": ${ok ? 'collision-free path found' : 'NO collision-free approach'} (${detail})`
+    });
+    return { score, clearance, detail };
+  }
 
-      this.currentJointPositions = [...currentPos];
-      this.jointListeners.forEach((cb) =>
-        cb({
-          names: jointNames,
-          positions: this.currentJointPositions,
-          timestamp: Date.now()
-        })
-      );
-      await this.delay(45);
-      if (this.isEStopped || this.isCancelled || (execId && execId !== this.currentExecutionId)) {
-        return;
-      }
+  /** Collision world built from the robot's BELIEF about the table (not from the simulator's object list). */
+  private buildCollisionWorld(allowRaw?: string | null): CollisionWorld {
+    const resolved = allowRaw
+      ? this.findObjectFromText(allowRaw) ?? this.known().find((o) => o.id === allowRaw)
+      : null;
+    return buildWorld(
+      Object.entries(this.perceived)
+        .filter(([id]) => id !== this.gripHolding?.id)
+        .map(([id, b]) => ({ id, x: b.position.x, y: b.position.y, z: b.position.z, held: false })),
+      { allowId: resolved?.id ?? null, tableTopY: this.robotBasePos.y }
+    );
+  }
+
+  /** Height of the pile at a tote slot, from what the robot believes is there. */
+  private toteStackTop(slot: { x: number; z: number }): number {
+    let top = this.robotBasePos.y + 0.005;
+    for (const [id, b] of Object.entries(this.perceived)) {
+      if (Math.hypot(b.position.x - slot.x, b.position.z - slot.z) >= 0.045) continue;
+      const entry = this.known().find((o) => o.id === id);
+      const h = entry ? OBJECT_HEIGHT[objectKind(entry)] : 0.06;
+      top = Math.max(top, b.position.y + h / 2);
     }
+    return top;
+  }
+
+  /** Where on the handover mat to put the next thing: the centre, or the free part of it furthest from what is there. */
+  private nextMatSpot(): { x: number; z: number } {
+    if (!this.tableSpot) {
+      const onMat = Object.entries(this.perceived)
+        .filter(([id]) => id !== this.gripHolding?.id)
+        .map(([, b]) => b.position)
+        .filter((p) => dropRegion(p.x, p.z) === 'user');
+      const centre = { x: this.handoverPos.x, z: this.handoverPos.z };
+      let best = centre;
+      let bestScore = -Infinity;
+      for (let x = MAT.x0 + 0.04; x <= MAT.x1 - 0.04; x += 0.02) {
+        for (let z = MAT.z0 + 0.04; z <= MAT.z1 - 0.04; z += 0.02) {
+          if (!checkReach(x, this.robotBasePos.y + 0.04, z, this.robotBasePos).reachable) continue;
+          const gap = onMat.length ? Math.min(...onMat.map((p) => Math.hypot(p.x - x, p.z - z))) : 1;
+          const score = Math.min(gap, 0.1) * 10 - Math.hypot(x - centre.x, z - centre.z);
+          if (score > bestScore) {
+            bestScore = score;
+            best = { x: Number(x.toFixed(3)), z: Number(z.toFixed(3)) };
+          }
+        }
+      }
+      this.tableSpot = best;
+      this.emitLog({ level: 20, levelName: 'INFO', nodeName: 'motion_planner', message: `[Planner] Handover spot (${best.x.toFixed(2)}, ${best.z.toFixed(2)}) chosen; ${onMat.length} object(s) believed on the mat.` });
+    }
+    return this.tableSpot;
+  }
+
+  /** A free spot on the table for something the robot is putting back, judged from what the camera believes is there. */
+  private nextTableSpot(): { x: number; z: number } {
+    if (!this.tableSpot) {
+      const taken = Object.entries(this.perceived)
+        .filter(([id]) => id !== this.gripHolding?.id)
+        .map(([, b]) => b.position);
+      this.tableSpot = this.findFreeSpot({ x: 0.18, z: 0.02 }, taken, true);
+    }
+    return this.tableSpot;
+  }
+
+  /** Where to put the next object in the tote: the free spot furthest from what the robot believes is already there. */
+  private nextToteSlot(): { x: number; z: number } {
+    if (!this.toteSlot) {
+      const occupied = Object.values(this.perceived)
+        .map((b) => b.position)
+        .filter((p) => dropRegion(p.x, p.z) === 'tray');
+      this.toteSlot = chooseToteSlot(occupied);
+    }
+    return this.toteSlot;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Gripper. The robot commands motion; the WORLD decides what physically happens. The robot only learns the
+  // outcome through the finger-stroke sensor and its camera.
+  // ---------------------------------------------------------------------------------------------
+
+  /** Close the fingers. Returns what the stroke sensor reports (holding + width); width 0 = closed on nothing. */
+  private async closeGripper(): Promise<{ holding: boolean; width: number }> {
+    const tcp = tcpPosition(this.currentJointPositions.slice(0, 6), this.robotBasePos);
+    const opening = this.currentJointPositions[6];
+    // --- the world's response ---
+    const hit = findGraspedObject(
+      { x: tcp.x, y: tcp.y, z: tcp.z },
+      this.tabletopObjects
+        .filter((o) => o.state !== 'held')
+        .map((o) => ({ id: o.id, kind: objectKind(o), x: o.position.x, y: o.position.y, z: o.position.z })),
+      opening
+    );
+    const end = hit ? hit.width : 0;
+    for (let f = 1; f <= 10; f++) {
+      const ease = (1 - Math.cos((f / 10) * Math.PI)) / 2;
+      this.currentJointPositions[6] = opening + (end - opening) * ease;
+      this.publishJointState();
+      await this.motionSleep(35);
+    }
+    if (hit) {
+      const obj = this.tabletopObjects.find((o) => o.id === hit.id);
+      if (obj) {
+        this.objectRestY[obj.id] ??= obj.position.y;
+        obj.state = 'held';
+        this.emitObjectEvent({ name: obj.id, state: 'held' });
+      }
+      this.gripHolding = { id: hit.id, width: hit.width };
+      delete this.perceived[hit.id]; // it is in the hand now, not on the table
+    }
+    return { holding: Boolean(hit), width: end };
+  }
+
+  /** Open the fingers. Anything held is released and falls to the surface below the tool. */
+  private async openGripper(): Promise<void> {
+    const start = this.currentJointPositions[6];
+    for (let f = 1; f <= 10; f++) {
+      const ease = (1 - Math.cos((f / 10) * Math.PI)) / 2;
+      this.currentJointPositions[6] = start + (GRIPPER_MAX_OPEN - start) * ease;
+      this.publishJointState();
+      await this.motionSleep(30);
+    }
+    const held = this.gripHolding;
+    this.gripHolding = null;
+    this.toteSlot = null;
+    this.tableSpot = null;
+    if (!held) return;
+    // --- the world's response: gravity ---
+    const obj = this.tabletopObjects.find((o) => o.id === held.id);
+    if (!obj) return;
+    const tcp = tcpPosition(this.currentJointPositions.slice(0, 6), this.robotBasePos);
+    const region = dropRegion(tcp.x, tcp.z);
+    // gravity: it falls until it meets the surface, or whatever is already lying there
+    const ownRestY = this.objectRestY[obj.id] ?? obj.position.y;
+    const ownHalf = ownRestY - this.robotBasePos.y;
+    const below = this.tabletopObjects
+      .filter((o) => o.id !== obj.id && o.state !== 'held')
+      .map((o) => ({ x: o.position.x, z: o.position.z, y: o.position.y, height: OBJECT_HEIGHT[objectKind(o)] }));
+    const dropX = Number(tcp.x.toFixed(3));
+    const dropZ = Number(tcp.z.toFixed(3));
+    const pos = { x: dropX, y: settleHeight(this.robotBasePos.y + restLift(region), ownHalf, dropX, dropZ, below), z: dropZ };
+    obj.state = region;
+    obj.position = pos;
+    this.objectPositions[obj.id] = pos;
+    // The robot knows where it just put something (it did the action); the camera will confirm or correct this.
+    this.perceived[obj.id] = { position: { ...pos }, stamp: Date.now(), misses: 0 };
+    this.emitObjectEvent({ name: obj.id, state: region, position: pos });
+    this.emitObjectsChange();
+    this.positionListeners.forEach((cb) => cb({ ...this.objectPositions }));
+    this.emitLog({
+      level: 20,
+      levelName: 'INFO',
+      nodeName: 'nora_gripper',
+      message: `[Gripper] Released ${obj.name}: it dropped onto the ${region === 'tray' ? 'storage tray' : region === 'user' ? 'handover mat' : 'table'}.`
+    });
+  }
+
+  /** Look at where an object is believed to be (from above) and refresh the belief. True if the camera sees it. */
+  private async acquireTarget(id: string | null, execId?: number, fresh = false): Promise<boolean> {
+    if (!id) return false;
+    if (!fresh && this.beliefPosition(id)) return true;
+    const t0 = Date.now();
+    const last = this.perceived[id]?.position;
+    if (last) {
+      const pose = [...this.solveDynamicIK(last.x, this.robotBasePos.y + 0.45, last.z), this.currentJointPositions[6]];
+      await this.moveAlongPlan(pose, this.buildCollisionWorld(id), { execId, frameMs: 30, abortable: true, label: 'look_at_target' }); // the tool may be touching the target
+      if (this.isEStopped || this.isCancelled || (execId && execId !== this.currentExecutionId)) return false;
+      await this.delay(150);
+      await this.perceive();
+      if ((this.perceived[id]?.stamp ?? 0) >= t0) return true;
+    }
+    const seen = await this.visualSweep((sid) => sid === id, execId);
+    return seen.ids.has(id);
+  }
+
+  /** Grasp with feedback: descend, close, read the finger stroke; if it closed on nothing or the wrong thing, look again and retry. */
+  private async executePick(step: PlanStep, intent: Intent, execId?: number): Promise<boolean> {
+    const tid = this.normalizeObjectName(step.targetObject || intent.target_object);
+    const entry = tid ? this.known().find((o) => o.id === tid) : undefined; // database entry (what it is), not where it is
+    const name = entry?.name ?? (tid ?? 'object');
+    const expectedWidth = entry ? GRASP_WIDTH[objectKind(entry)] : null;
+    const aborted = () => this.isEStopped || this.isCancelled || Boolean(execId && execId !== this.currentExecutionId);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (aborted()) return false;
+      if (attempt > 1) {
+        this.emitLog({ level: 30, levelName: 'WARN', nodeName: 'nora_gripper', message: `[Gripper] Grasp attempt ${attempt - 1} failed. Looking at ${name} again before retrying.` });
+        if (!(await this.acquireTarget(tid, execId, true))) return false;
+        const b = this.beliefPosition(tid);
+        if (!b) return false;
+        const pre = [...this.solveDynamicIK(b.x, Math.max(b.y, this.robotBasePos.y + GRASP_MIN_TCP_HEIGHT) + 0.12, b.z), GRIPPER_MAX_OPEN];
+        await this.moveAlongPlan(pre, this.buildCollisionWorld(tid), { execId, frameMs: 35, abortable: true, label: 'regrasp_approach' });
+        if (aborted()) return false;
+      }
+      const target = this.getTargetPositionsForSkill('pick', step, intent);
+      await this.moveAlongPlan(target, this.buildCollisionWorld(tid), { execId, frameMs: 45, abortable: true, label: attempt > 1 ? 'pick_retry' : 'pick' });
+      if (aborted()) return false;
+      const res = await this.closeGripper();
+      if (!res.holding) {
+        this.emitLog({ level: 30, levelName: 'WARN', nodeName: 'nora_gripper', message: '[Gripper] Fingers closed on nothing (stroke 0 mm): the object was not where the camera placed it.' });
+        await this.openGripper();
+        continue;
+      }
+      if (expectedWidth !== null && Math.abs(res.width - expectedWidth) > 0.015) {
+        this.emitLog({
+          level: 30,
+          levelName: 'WARN',
+          nodeName: 'nora_gripper',
+          message: `[Gripper] Closed on something ${(res.width * 1000).toFixed(0)} mm wide but ${name} should be about ${(expectedWidth * 1000).toFixed(0)} mm: wrong object. Putting it back.`
+        });
+        await this.openGripper();
+        continue;
+      }
+      this.emitLog({ level: 20, levelName: 'INFO', nodeName: 'nora_gripper', message: `Grasp confirmed: [${tid}] held, finger stroke ${(res.width * 1000).toFixed(0)} mm.` });
+      return true;
+    }
+    return false;
+  }
+
+  private publishJointState(): void {
+    const names = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper_joint'];
+    this.jointListeners.forEach((cb) =>
+      cb({ names, positions: [...this.currentJointPositions], timestamp: Date.now() })
+    );
+  }
+
+  /**
+   * Plan a collision-free joint path to `target` and play it back. Falls back to a direct (unplanned)
+   * move, clearly logged, if no path exists.
+   */
+  private async moveAlongPlan(
+    target: number[],
+    world: CollisionWorld,
+    opts: { execId?: number; frameMs: number; abortable: boolean; label: string }
+  ): Promise<PlanResult> {
+    const start = [...this.currentJointPositions];
+    const plan = planJointPath(start.slice(0, 6), target.slice(0, 6), this.robotBasePos, world);
+
+    // MoveIt-style: expose the plan on a topic and as a TCP polyline for the 3D view.
+    const tcpPath: [number, number, number][] = [];
+    const pathForViz = plan.ok ? plan.path : [start.slice(0, 6), target.slice(0, 6)];
+    for (let k = 0; k <= 24; k++) {
+      const p = tcpPosition(samplePath(pathForViz, k / 24), this.robotBasePos);
+      tcpPath.push([p.x, p.y, p.z]);
+    }
+    topicBus.publish('/move_group/display_planned_path', 'moveit_msgs/msg/DisplayTrajectory', {
+      label: opts.label,
+      planner: 'RRTConnect (sim/planner.ts)',
+      success: plan.ok,
+      waypoints: plan.path.length,
+      iterations: plan.iterations,
+      planning_time_ms: Number(plan.planningMs.toFixed(2)),
+      min_clearance_m: plan.ok ? Number(plan.minClearance.toFixed(4)) : null,
+      nearest_obstacle: plan.nearest,
+      reason: plan.reason ?? null,
+      tcp_path: tcpPath
+    });
+
+    if (plan.ok) {
+      this.emitLog({
+        level: 20,
+        levelName: 'INFO',
+        nodeName: 'motion_planner',
+        message: `[Planner] RRTConnect ${opts.label}: ${plan.path.length} waypoints, ${plan.iterations} iterations, ${plan.planningMs.toFixed(1)} ms, min clearance ${(plan.minClearance * 1000).toFixed(0)} mm (${plan.nearest})`
+      });
+    } else {
+      this.emitLog({
+        level: 30,
+        levelName: 'WARN',
+        nodeName: 'motion_planner',
+        message: `[Planner] ${opts.label}: ${plan.reason}. Executing direct, unplanned motion.`
+      });
+    }
+
+    const path = plan.ok ? plan.path : [start.slice(0, 6), target.slice(0, 6)];
+    const frames = Math.max(24, Math.min(80, Math.round(pathLength(path) / 0.03)));
+    const gripStart = start[6];
+    const gripEnd = target[6] ?? start[6];
+    const aborted = () =>
+      this.isEStopped || (opts.abortable && (this.isCancelled || (opts.execId && opts.execId !== this.currentExecutionId)));
+
+    for (let f = 1; f <= frames; f++) {
+      if (aborted()) return plan;
+      const ease = (1 - Math.cos((f / frames) * Math.PI)) / 2; // smooth accel / decel
+      this.currentJointPositions = [...samplePath(path, ease), gripStart + (gripEnd - gripStart) * ease];
+      this.publishJointState();
+      await (opts.abortable ? this.delay(opts.frameMs) : this.motionSleep(opts.frameMs));
+      if (aborted()) return plan;
+    }
+    return plan;
+  }
+
+  // Plan a collision-free path for a skill step and execute it, with E-Stop / cancel safety checks.
+  private async simulateJointMotion(step: PlanStep, intent: Intent, execId?: number): Promise<void> {
+    const targetPositions = this.getTargetPositionsForSkill(step.skill, step, intent);
+    const world = this.buildCollisionWorld(step.targetObject || intent.target_object);
+    await this.moveAlongPlan(targetPositions, world, {
+      execId,
+      frameMs: 45,
+      abortable: true,
+      label: step.skill
+    });
   }
 
   public emergencyStop(): void {
@@ -4518,13 +4922,13 @@ class RosBridgeService {
     if (this.isEStopped || this.isCancelled) return;
     const jointNames = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper_joint'];
     const basePose = [...this.currentJointPositions];
-    const j6 = basePose[5] || 0.0;
+    const j5 = basePose[4] ?? -Math.PI / 2;
 
-    // Expressive head-shake refusal oscillation on wrist yaw
+    // Head-shake refusal: wiggle wrist 2 so the tool sweeps side to side
     const offsets = [0.22, -0.22, 0.16, -0.16, 0.0];
     for (const offset of offsets) {
       if (this.isEStopped || this.isCancelled) return;
-      this.currentJointPositions[5] = j6 + offset;
+      this.currentJointPositions[4] = j5 + offset;
       this.jointListeners.forEach((cb) =>
         cb({
           names: jointNames,
@@ -4534,7 +4938,7 @@ class RosBridgeService {
       );
       await this.delay(120);
     }
-    this.currentJointPositions[5] = j6;
+    this.currentJointPositions[4] = j5;
     this.jointListeners.forEach((cb) =>
       cb({
         names: jointNames,
@@ -4546,6 +4950,29 @@ class RosBridgeService {
 
   private notifyConnection(connected: boolean): void {
     this.connectionListeners.forEach((cb) => cb(connected, this.wsUrl));
+  }
+
+  /** Mirror simulator state onto ROS-style topics (read by the Topics / Plots / Sensors panels). */
+  private attachTopicBus(): void {
+    topicBus.retain('/joint_states', 1800); // ~40 s of motion for the Plots panel
+    let lastTf = 0;
+    this.jointListeners.add((js) => {
+      topicBus.publish('/joint_states', 'sensor_msgs/msg/JointState', { name: js.names, position: js.positions });
+      const now = performance.now();
+      if (now - lastTf < 100) return; // /tf at 10 Hz, derived from forward kinematics
+      lastTf = now;
+      const frames = forwardKinematics(js.positions.slice(0, 6), this.robotBasePos);
+      const names = ['base_link', 'link1', 'link2', 'link3', 'link4', 'link5', 'link6', 'gripper_link'];
+      const transforms = names.slice(1).map((child, i) => {
+        const rel = frames[i].clone().invert().multiply(frames[i + 1]);
+        const p = rel.elements;
+        return { parent: names[i], child, translation: [p[12], p[13], p[14]].map((v) => Number(v.toFixed(4))) };
+      });
+      topicBus.publish('/tf', 'tf2_msgs/msg/TFMessage', { transforms });
+    });
+    this.logListeners.add((log) => topicBus.publish('/rosout', 'rcl_interfaces/msg/Log', log));
+    this.pipelineListeners.add((data) => topicBus.publish('/nora/orchestrator/state', 'nora_interfaces/msg/PipelineState', data));
+    this.perceptionListeners.add((evt) => topicBus.publish('/nora/perception/scan', 'nora_interfaces/msg/PerceptionScan', evt));
   }
 
   private emitLog(log: Omit<RosLog, 'id' | 'timestamp'>): void {
@@ -4580,20 +5007,8 @@ class RosBridgeService {
     // 4. Cancel active vision scans
     this.emitPerceptionScan({ active: false });
 
-    // 5. If an object was being held during cancellation, safely deposit it onto table
-    const heldObj = this.tabletopObjects.find((o) => o.state === 'held');
-    if (heldObj) {
-      heldObj.state = 'table';
-      heldObj.position = {
-        x: Number((heldObj.position?.x ?? 0.0).toFixed(3)),
-        y: 0.485,
-        z: Number((heldObj.position?.z ?? 0.15).toFixed(3))
-      };
-      this.objectPositions[heldObj.id] = heldObj.position;
-      this.emitObjectEvent({ name: heldObj.id, state: 'table', position: heldObj.position });
-      this.emitObjectsChange();
-      this.positionListeners.forEach((cb) => cb({ ...this.objectPositions }));
-    }
+    // 5. If something is in the gripper, release it: it falls to whatever is below
+    if (this.gripHolding) await this.openGripper();
 
     // Open gripper
     this.currentJointPositions[6] = 0.03;
@@ -4644,36 +5059,14 @@ class RosBridgeService {
   }
 
   public async returnHome(): Promise<void> {
-    const jointNames = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper_joint'];
-    const startPositions = [...this.currentJointPositions];
-    const targetPositions = [...DESK_LAMP_HOME_JOINTS];
-
-    const steps = 24;
-    for (let s = 1; s <= steps; s++) {
-      if (this.isEStopped) return;
-      const t = s / steps;
-      const ease = (1 - Math.cos(t * Math.PI)) / 2;
-      const currentPos = startPositions.map((start, i) => start + (targetPositions[i] - start) * ease);
-
-      this.currentJointPositions = [...currentPos];
-      this.jointListeners.forEach((cb) =>
-        cb({
-          names: jointNames,
-          positions: [...this.currentJointPositions],
-          timestamp: Date.now()
-        })
-      );
-      await this.motionSleep(25);
-    }
-
+    await this.moveAlongPlan([...DESK_LAMP_HOME_JOINTS], this.buildCollisionWorld(null), {
+      frameMs: 25,
+      abortable: false,
+      label: 'return_home'
+    });
+    if (this.isEStopped) return;
     this.currentJointPositions = [...DESK_LAMP_HOME_JOINTS];
-    this.jointListeners.forEach((cb) =>
-      cb({
-        names: jointNames,
-        positions: [...this.currentJointPositions],
-        timestamp: Date.now()
-      })
-    );
+    this.publishJointState();
   }
 
   public motionSleep(ms: number): Promise<void> {
