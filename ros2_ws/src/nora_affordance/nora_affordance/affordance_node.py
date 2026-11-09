@@ -5,6 +5,8 @@ ROS 2 node: AffordanceNode
 
 Exposes:
   - Service ``/nora/score_affordances`` (nora_interfaces/srv/ScoreAffordances)
+  - Topic ``/nora/affordance_score`` (std_msgs/Float32): combined score of the best skill from the
+    most recent request, so Foxglove / rqt_plot can chart it.
 
 The node scores each candidate skill using:
   - usefulness: :class:`LLMUsefulnessScorer`
@@ -19,6 +21,7 @@ from typing import Any
 
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import Float32
 
 from nora_affordance.scorers.feasibility_collision import CollisionScorer
 from nora_affordance.scorers.feasibility_reachability import ReachabilityScorer
@@ -29,6 +32,7 @@ from nora_interfaces.msg import AffordanceScore, Intent
 from nora_interfaces.srv import ScoreAffordances
 
 _SERVICE_SCORE = "/nora/score_affordances"
+_TOPIC_SCORE = "/nora/affordance_score"
 
 
 def _clamp01(value: float) -> float:
@@ -70,6 +74,7 @@ class AffordanceNode(Node):
         self._collision_scorer = CollisionScorer()
         self._object_state_scorer = ObjectStateScorer()
 
+        self._score_pub = self.create_publisher(Float32, _TOPIC_SCORE, 10)
         self._score_srv = self.create_service(
             ScoreAffordances,
             _SERVICE_SCORE,
@@ -116,6 +121,10 @@ class AffordanceNode(Node):
             scored.append(score_msg)
 
         scored.sort(key=lambda score: score.combined_score, reverse=True)
+        if scored:
+            top = Float32()
+            top.data = float(scored[0].combined_score)
+            self._score_pub.publish(top)
         response.scores = scored
         return response
 
