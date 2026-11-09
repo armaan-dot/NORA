@@ -1,256 +1,398 @@
 <?xml version="1.0"?>
-<robot name="nora_arm">
-  <!-- Material Definitions -->
-  <material name="dark_grey">
-    <color rgba="0.2 0.22 0.25 1.0"/>
-  </material>
-  <material name="cyan_accent">
-    <color rgba="0.0 0.94 1.0 1.0"/>
-  </material>
-  <material name="orange">
-    <color rgba="1.0 0.45 0.0 1.0"/>
-  </material>
-  <material name="silver">
-    <color rgba="0.75 0.75 0.8 1.0"/>
-  </material>
+<!--
+  NORA arm - UR5e-style 6-DOF manipulator for the web digital twin.
 
-  <!-- Base Link: Mount on table -->
+  Kinematics follow the UR5e (d1 = 0.1625, a2 = 0.425, a3 = 0.3922,
+  d4 = 0.1333, d5 = 0.0997, d6 = 0.0996) but are expressed in a
+  "straight-up" zero pose: with every joint at 0 the arm points vertically
+  and the tool flange faces sideways (+Y).
+
+    joint1  shoulder pan   (Z)
+    joint2  shoulder lift  (Y)
+    joint3  elbow          (Y)
+    joint4  wrist 1        (Y)
+    joint5  wrist 2        (Z, along wrist link)
+    joint6  wrist 3        (tool roll)
+    gripper_joint          finger stroke (0 = closed, 0.085 = fully open)
+
+  Top-down tool pose: joint2 + joint3 + joint4 = pi/2 and joint5 = -pi/2.
+  Geometry is primitive-only (no meshes) so it loads anywhere.
+-->
+<robot name="nora_arm">
+  <material name="ur_aluminium"><color rgba="0.80 0.82 0.84 1.0"/></material>
+  <material name="ur_cap"><color rgba="0.45 0.62 0.80 1.0"/></material>
+  <material name="ur_seal"><color rgba="0.10 0.11 0.12 1.0"/></material>
+  <material name="steel"><color rgba="0.55 0.57 0.60 1.0"/></material>
+  <material name="gripper_body"><color rgba="0.16 0.17 0.19 1.0"/></material>
+  <material name="gripper_pad"><color rgba="0.06 0.06 0.07 1.0"/></material>
+
+  <!-- ============================ Base ============================ -->
   <link name="base_link">
+    <!-- mounting plate -->
     <visual>
-      <origin xyz="0 0 0.04" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="0.09" length="0.08"/>
-      </geometry>
-      <material name="dark_grey"/>
+      <origin xyz="0 0 0.006" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.095" length="0.012"/></geometry>
+      <material name="ur_seal"/>
+    </visual>
+    <!-- base housing -->
+    <visual>
+      <origin xyz="0 0 0.046" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.075" length="0.068"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <!-- base joint cap ring -->
+    <visual>
+      <origin xyz="0 0 0.083" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.0755" length="0.006"/></geometry>
+      <material name="ur_cap"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.04" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="0.09" length="0.08"/>
-      </geometry>
+      <origin xyz="0 0 0.043" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.095" length="0.086"/></geometry>
     </collision>
   </link>
 
-  <!-- Joint 1: Base Yaw -->
   <joint name="joint1" type="revolute">
     <parent link="base_link"/>
-    <child  link="link1"/>
-    <origin xyz="0 0 0.08" rpy="0 0 0"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0.086" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-3.14159" upper="3.14159" effort="150.0" velocity="1.5"/>
+    <limit lower="-6.2832" upper="6.2832" effort="150.0" velocity="3.14"/>
   </joint>
 
+  <!-- ====================== Shoulder (link1) ====================== -->
   <link name="link1">
+    <!-- seal ring between base and shoulder -->
     <visual>
-      <origin xyz="0 0 0.07" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="0.065" length="0.14"/>
-      </geometry>
-      <material name="silver"/>
+      <origin xyz="0 0 0.002" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.076" length="0.004"/></geometry>
+      <material name="ur_seal"/>
+    </visual>
+    <!-- vertical shoulder drum -->
+    <visual>
+      <origin xyz="0 0 0.0383" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.075" length="0.0685"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <!-- horizontal shoulder-lift motor drum -->
+    <visual>
+      <origin xyz="0 0.020 0.0765" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.075" length="0.12"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <!-- shoulder-lift end cap -->
+    <visual>
+      <origin xyz="0 -0.045 0.0765" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.0755" length="0.010"/></geometry>
+      <material name="ur_cap"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.07" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="0.065" length="0.14"/>
-      </geometry>
+      <origin xyz="0 0.020 0.0765" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.075" length="0.13"/></geometry>
     </collision>
   </link>
 
-  <!-- Joint 2: Shoulder Pitch -->
   <joint name="joint2" type="revolute">
     <parent link="link1"/>
-    <child  link="link2"/>
-    <origin xyz="0 0 0.14" rpy="0 0 0"/>
+    <child link="link2"/>
+    <origin xyz="0 0 0.0765" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-2.0944" upper="2.0944" effort="150.0" velocity="1.5"/>
+    <limit lower="-6.2832" upper="6.2832" effort="150.0" velocity="3.14"/>
   </joint>
 
+  <!-- ===================== Upper arm (link2) ====================== -->
   <link name="link2">
+    <!-- seal ring at shoulder -->
     <visual>
-      <origin xyz="0 0 0.16" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.07 0.07 0.32"/>
-      </geometry>
-      <material name="cyan_accent"/>
+      <origin xyz="0 0.0825 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.076" length="0.005"/></geometry>
+      <material name="ur_seal"/>
+    </visual>
+    <!-- outer shoulder drum -->
+    <visual>
+      <origin xyz="0 0.120 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.075" length="0.070"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0.159 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.0755" length="0.008"/></geometry>
+      <material name="ur_cap"/>
+    </visual>
+    <!-- upper arm tube -->
+    <visual>
+      <origin xyz="0 0.120 0.2125" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.054" length="0.33"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <!-- elbow drum (outer half) -->
+    <visual>
+      <origin xyz="0 0.095 0.425" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.060" length="0.120"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0.159 0.425" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.0605" length="0.008"/></geometry>
+      <material name="ur_cap"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.16" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.07 0.07 0.32"/>
-      </geometry>
+      <origin xyz="0 0.120 0.2125" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.06" length="0.55"/></geometry>
     </collision>
   </link>
 
-  <!-- Joint 3: Elbow Pitch -->
   <joint name="joint3" type="revolute">
     <parent link="link2"/>
-    <child  link="link3"/>
-    <origin xyz="0 0 0.32" rpy="0 0 0"/>
+    <child link="link3"/>
+    <origin xyz="0 0 0.425" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-2.3562" upper="2.3562" effort="100.0" velocity="1.5"/>
+    <limit lower="-3.1416" upper="3.1416" effort="150.0" velocity="3.14"/>
   </joint>
 
+  <!-- ====================== Forearm (link3) ======================= -->
   <link name="link3">
+    <!-- seal ring at elbow -->
     <visual>
-      <origin xyz="0 0 0.09" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="0.035" length="0.18"/>
-      </geometry>
-      <material name="silver"/>
+      <origin xyz="0 0.0325 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.061" length="0.005"/></geometry>
+      <material name="ur_seal"/>
+    </visual>
+    <!-- inner elbow drum -->
+    <visual>
+      <origin xyz="0 0.0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.060" length="0.060"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <visual>
+      <origin xyz="0 -0.034 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.0605" length="0.008"/></geometry>
+      <material name="ur_cap"/>
+    </visual>
+    <!-- forearm tube, slight taper toward the wrist -->
+    <visual>
+      <origin xyz="0 0 0.196" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.040" length="0.30"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <!-- wrist 1 drum (inner half) -->
+    <visual>
+      <origin xyz="0 0.040 0.3922" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.100"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <visual>
+      <origin xyz="0 -0.0135 0.3922" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.0455" length="0.007"/></geometry>
+      <material name="ur_cap"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.09" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="0.035" length="0.18"/>
-      </geometry>
+      <origin xyz="0 0 0.196" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.48"/></geometry>
     </collision>
   </link>
 
-  <!-- Joint 4: Forearm Roll -->
   <joint name="joint4" type="revolute">
     <parent link="link3"/>
-    <child  link="link4"/>
-    <origin xyz="0 0 0.18" rpy="0 0 0"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-3.14159" upper="3.14159" effort="100.0" velocity="1.0"/>
+    <child link="link4"/>
+    <origin xyz="0 0 0.3922" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-6.2832" upper="6.2832" effort="28.0" velocity="3.14"/>
   </joint>
 
+  <!-- ======================= Wrist 1 (link4) ====================== -->
   <link name="link4">
     <visual>
-      <origin xyz="0 0 0.07" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.06 0.06 0.14"/>
-      </geometry>
-      <material name="dark_grey"/>
+      <origin xyz="0 0.0925 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.046" length="0.005"/></geometry>
+      <material name="ur_seal"/>
+    </visual>
+    <!-- outer wrist 1 drum -->
+    <visual>
+      <origin xyz="0 0.1140 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.039"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <!-- rounded elbow of the L-shaped wrist housing -->
+    <visual>
+      <origin xyz="0 0.1333 0" rpy="0 0 0"/>
+      <geometry><sphere radius="0.045"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <!-- riser toward wrist 2 -->
+    <visual>
+      <origin xyz="0 0.1333 0.040" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.080"/></geometry>
+      <material name="ur_aluminium"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.07" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.06 0.06 0.14"/>
-      </geometry>
+      <origin xyz="0 0.1333 0.040" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.10"/></geometry>
     </collision>
   </link>
 
-  <!-- Joint 5: Wrist Pitch -->
   <joint name="joint5" type="revolute">
     <parent link="link4"/>
-    <child  link="link5"/>
-    <origin xyz="0 0 0.14" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="-3.14159" upper="3.14159" effort="100.0" velocity="1.0"/>
+    <child link="link5"/>
+    <origin xyz="0 0.1333 0.0997" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-6.2832" upper="6.2832" effort="28.0" velocity="3.14"/>
   </joint>
 
+  <!-- ======================= Wrist 2 (link5) ====================== -->
   <link name="link5">
     <visual>
-      <origin xyz="0 0 0.05" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="0.03" length="0.10"/>
-      </geometry>
-      <material name="silver"/>
+      <origin xyz="0 0 -0.0175" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.046" length="0.005"/></geometry>
+      <material name="ur_seal"/>
+    </visual>
+    <!-- wrist 2 drum -->
+    <visual>
+      <origin xyz="0 0 0.006" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.042"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.0305" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.0455" length="0.007"/></geometry>
+      <material name="ur_cap"/>
+    </visual>
+    <!-- branch toward wrist 3 -->
+    <visual>
+      <origin xyz="0 0.030 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.060"/></geometry>
+      <material name="ur_aluminium"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.05" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="0.03" length="0.10"/>
-      </geometry>
+      <origin xyz="0 0.030 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.09"/></geometry>
     </collision>
   </link>
 
-  <!-- Joint 6: Wrist Roll -->
   <joint name="joint6" type="revolute">
     <parent link="link5"/>
-    <child  link="link6"/>
-    <origin xyz="0 0 0.10" rpy="0 0 0"/>
+    <child link="link6"/>
+    <origin xyz="0 0.0596 0" rpy="-1.5708 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-3.14159" upper="3.14159" effort="100.0" velocity="1.0"/>
+    <limit lower="-6.2832" upper="6.2832" effort="28.0" velocity="3.14"/>
   </joint>
 
+  <!-- ===================== Wrist 3 / flange (link6) =============== -->
   <link name="link6">
     <visual>
-      <origin xyz="0 0 0.03" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="0.025" length="0.06"/>
-      </geometry>
-      <material name="dark_grey"/>
+      <origin xyz="0 0 0.0025" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.046" length="0.005"/></geometry>
+      <material name="ur_seal"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0.018" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.026"/></geometry>
+      <material name="ur_aluminium"/>
+    </visual>
+    <!-- ISO tool flange -->
+    <visual>
+      <origin xyz="0 0 0.035" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.0315" length="0.008"/></geometry>
+      <material name="steel"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.03" rpy="0 0 0"/>
-      <geometry>
-        <cylinder radius="0.025" length="0.06"/>
-      </geometry>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.04"/></geometry>
     </collision>
   </link>
 
-  <!-- Gripper Joint -->
-  <joint name="gripper_joint" type="prismatic">
+  <joint name="gripper_mount_joint" type="fixed">
     <parent link="link6"/>
-    <child  link="gripper_link"/>
-    <origin xyz="0 0 0.06" rpy="0 0 0"/>
-    <axis xyz="1 0 0"/>
-    <limit lower="0.0" upper="0.08" effort="50.0" velocity="0.5"/>
+    <child link="gripper_link"/>
+    <origin xyz="0 0 0.039" rpy="0 0 0"/>
   </joint>
 
-  <!-- Gripper Palm Link -->
+  <!-- ================= Parallel-jaw gripper (gripper_link) ========= -->
+  <!-- TCP (between finger pads) is at z = 0.11 in this frame -->
   <link name="gripper_link">
+    <!-- coupling -->
     <visual>
-      <origin xyz="0 0 0.03" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.08 0.04 0.06"/>
-      </geometry>
-      <material name="orange"/>
+      <origin xyz="0 0 0.006" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.034" length="0.012"/></geometry>
+      <material name="steel"/>
+    </visual>
+    <!-- gripper body -->
+    <visual>
+      <origin xyz="0 0 0.0445" rpy="0 0 0"/>
+      <geometry><box size="0.078 0.044 0.065"/></geometry>
+      <material name="gripper_body"/>
+    </visual>
+    <!-- finger guide rail -->
+    <visual>
+      <origin xyz="0 0 0.0795" rpy="0 0 0"/>
+      <geometry><box size="0.110 0.030 0.005"/></geometry>
+      <material name="steel"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.03" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.08 0.04 0.06"/>
-      </geometry>
+      <origin xyz="0 0 0.040" rpy="0 0 0"/>
+      <geometry><box size="0.11 0.044 0.08"/></geometry>
     </collision>
   </link>
 
-  <!-- Left Finger -->
-  <joint name="left_finger_joint" type="fixed">
+  <!-- Driver joint: value = total opening stroke. Fingers mimic it. -->
+  <joint name="gripper_joint" type="prismatic">
+    <parent link="gripper_link"/>
+    <child link="gripper_driver_link"/>
+    <origin xyz="0 0 0.08" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0.0" upper="0.085" effort="50.0" velocity="0.15"/>
+  </joint>
+  <link name="gripper_driver_link"/>
+
+  <joint name="left_finger_joint" type="prismatic">
     <parent link="gripper_link"/>
     <child link="left_finger_link"/>
-    <origin xyz="-0.03 0 0.06" rpy="0 0 0"/>
+    <origin xyz="-0.012 0 0.082" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.05" upper="0.0" effort="50.0" velocity="0.15"/>
+    <mimic joint="gripper_joint" multiplier="-0.5" offset="0"/>
   </joint>
 
   <link name="left_finger_link">
     <visual>
-      <origin xyz="0 0 0.025" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.012 0.025 0.05"/>
-      </geometry>
-      <material name="dark_grey"/>
+      <origin xyz="-0.004 0 0.026" rpy="0 0 0"/>
+      <geometry><box size="0.012 0.030 0.052"/></geometry>
+      <material name="gripper_body"/>
+    </visual>
+    <visual>
+      <origin xyz="0.0035 0 0.034" rpy="0 0 0"/>
+      <geometry><box size="0.004 0.026 0.032"/></geometry>
+      <material name="gripper_pad"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.025" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.012 0.025 0.05"/>
-      </geometry>
+      <origin xyz="0 0 0.026" rpy="0 0 0"/>
+      <geometry><box size="0.016 0.030 0.052"/></geometry>
     </collision>
   </link>
 
-  <!-- Right Finger -->
-  <joint name="right_finger_joint" type="fixed">
+  <joint name="right_finger_joint" type="prismatic">
     <parent link="gripper_link"/>
     <child link="right_finger_link"/>
-    <origin xyz="0.03 0 0.06" rpy="0 0 0"/>
+    <origin xyz="0.012 0 0.082" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0.0" upper="0.05" effort="50.0" velocity="0.15"/>
+    <mimic joint="gripper_joint" multiplier="0.5" offset="0"/>
   </joint>
 
   <link name="right_finger_link">
     <visual>
-      <origin xyz="0 0 0.025" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.012 0.025 0.05"/>
-      </geometry>
-      <material name="dark_grey"/>
+      <origin xyz="0.004 0 0.026" rpy="0 0 0"/>
+      <geometry><box size="0.012 0.030 0.052"/></geometry>
+      <material name="gripper_body"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.0035 0 0.034" rpy="0 0 0"/>
+      <geometry><box size="0.004 0.026 0.032"/></geometry>
+      <material name="gripper_pad"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0.025" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.012 0.025 0.05"/>
-      </geometry>
+      <origin xyz="0 0 0.026" rpy="0 0 0"/>
+      <geometry><box size="0.016 0.030 0.052"/></geometry>
     </collision>
   </link>
 </robot>
-
