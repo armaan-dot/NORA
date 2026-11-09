@@ -26,7 +26,8 @@ export const LogTerminal: React.FC<LogTerminalProps> = ({ logs, onClearLogs }) =
 
   useEffect(() => {
     if (autoScroll && terminalEndRef.current) {
-      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      const viewport = terminalEndRef.current.parentElement;
+      if (viewport) viewport.scrollTop = viewport.scrollHeight;
     }
   }, [filteredLogs, autoScroll]);
 
@@ -42,26 +43,34 @@ export const LogTerminal: React.FC<LogTerminalProps> = ({ logs, onClearLogs }) =
 
         <div className="toolbar-right">
           {/* Filter Pills */}
-          <div className="filter-pill-group">
+          <div className="filter-pill-group" role="group" aria-label="Filter logs by severity">
             <button
+              type="button"
+              aria-pressed={filterLevel === 'ALL'}
               className={`filter-btn ${filterLevel === 'ALL' ? 'active' : ''}`}
               onClick={() => setFilterLevel('ALL')}
             >
               ALL
             </button>
             <button
+              type="button"
+              aria-pressed={filterLevel === 'INFO'}
               className={`filter-btn btn-info ${filterLevel === 'INFO' ? 'active' : ''}`}
               onClick={() => setFilterLevel('INFO')}
             >
               INFO
             </button>
             <button
+              type="button"
+              aria-pressed={filterLevel === 'WARN'}
               className={`filter-btn btn-warn ${filterLevel === 'WARN' ? 'active' : ''}`}
               onClick={() => setFilterLevel('WARN')}
             >
               WARN
             </button>
             <button
+              type="button"
+              aria-pressed={filterLevel === 'ERROR'}
               className={`filter-btn btn-error ${filterLevel === 'ERROR' ? 'active' : ''}`}
               onClick={() => setFilterLevel('ERROR')}
             >
@@ -75,6 +84,7 @@ export const LogTerminal: React.FC<LogTerminalProps> = ({ logs, onClearLogs }) =
             <input
               type="text"
               placeholder="Filter node or msg..."
+              aria-label="Filter logs by node or message"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -84,6 +94,7 @@ export const LogTerminal: React.FC<LogTerminalProps> = ({ logs, onClearLogs }) =
           <button
             className={`tool-action-btn ${autoScroll ? 'active' : ''}`}
             title="Auto-scroll to bottom"
+            aria-pressed={autoScroll}
             onClick={() => setAutoScroll(!autoScroll)}
           >
             <ArrowDownToLine size={14} />
@@ -103,8 +114,10 @@ export const LogTerminal: React.FC<LogTerminalProps> = ({ logs, onClearLogs }) =
       {/* Terminal Viewport */}
       <div className="terminal-viewport">
         {filteredLogs.length === 0 ? (
-          <div className="terminal-empty">
-            <span>No log messages received yet. Send a command or wait for ROS nodes.</span>
+          <div className="terminal-empty" role="status">
+            <span>{logs.length === 0
+              ? 'No log messages received yet. Send a command or wait for ROS nodes.'
+              : `No logs match ${filterLevel === 'ALL' ? 'the current search' : `the ${filterLevel} filter${searchTerm ? ' and search' : ''}`}.`}</span>
           </div>
         ) : (
           filteredLogs.map((log) => {

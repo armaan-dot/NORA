@@ -719,7 +719,15 @@ class RosBridgeService {
   private jointStatesSub: ROSLIB.Topic | null = null;
   private orchStateSub: ROSLIB.Topic | null = null;
 
-  constructor() {}
+  private audioMuted = false;
+
+  constructor() {
+    try {
+      this.audioMuted = localStorage.getItem('nora.audioMuted') === 'true';
+    } catch {
+      // Audio remains available when browser storage is disabled.
+    }
+  }
 
   public init(url: string = 'ws://localhost:9090'): void {
     this.wsUrl = url;
@@ -4462,9 +4470,29 @@ class RosBridgeService {
     return () => this.armSpeechListeners.delete(cb);
   }
 
+  public isAudioMuted(): boolean {
+    return this.audioMuted;
+  }
+
+  public setAudioMuted(muted: boolean): void {
+    this.audioMuted = muted;
+    try {
+      localStorage.setItem('nora.audioMuted', String(muted));
+    } catch {
+      // Keep the current preference even when it cannot be saved.
+    }
+    if (muted && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // Speech synthesis is optional.
+      }
+    }
+  }
+
   public emitArmSpeech(event: ArmSpeechEvent): void {
     this.armSpeechListeners.forEach((cb) => cb(event));
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    if (!this.audioMuted && typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(event.message);
