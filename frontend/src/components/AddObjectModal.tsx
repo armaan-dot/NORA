@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useDialog } from './useDialog';
 import {
   X,
   Plus,
@@ -79,7 +78,6 @@ const COLOR_SWATCHES = [
 ];
 
 export const AddObjectModal: React.FC<AddObjectModalProps> = ({ isOpen, onClose, onObjectAdded }) => {
-  const dialogRef = useDialog(isOpen, onClose);
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'drinks' | 'food' | 'stationery' | 'primitives'>('all');
   const [name, setName] = useState('Coffee Mug');
   const [shape, setShape] = useState<ObjectShape>('mug');
@@ -168,7 +166,7 @@ export const AddObjectModal: React.FC<AddObjectModalProps> = ({ isOpen, onClose,
 
   return (
     <div className="settings-modal-backdrop" onClick={onClose}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Add workspace object" tabIndex={-1} className="add-object-modal-card" onClick={(e) => e.stopPropagation()}>
+      <div className="add-object-modal-card" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="modal-header-row">
           <div className="modal-title-wrap">

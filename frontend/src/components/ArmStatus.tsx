@@ -31,13 +31,13 @@ export const ArmStatus: React.FC<ArmStatusProps> = ({
   onGoHome
 }) => {
   const jointNames = [
-    'joint1 (Base Yaw)',
-    'joint2 (Shoulder Pitch)',
-    'joint3 (Elbow Pitch)',
-    'joint4 (Forearm Roll)',
-    'joint5 (Wrist Pitch)',
-    'joint6 (Wrist Roll)',
-    'gripper_joint (Palm Stroke)'
+    'joint1 (Shoulder Pan)',
+    'joint2 (Shoulder Lift)',
+    'joint3 (Elbow)',
+    'joint4 (Wrist 1)',
+    'joint5 (Wrist 2)',
+    'joint6 (Wrist 3)',
+    'gripper_joint (Finger Stroke)'
   ];
 
   return (
