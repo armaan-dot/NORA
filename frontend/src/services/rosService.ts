@@ -7,14 +7,20 @@ import {
   tcpPosition,
   MAX_TABLE_REACH,
   GRASP_MIN_TCP_HEIGHT,
-  UR5E_GEOMETRY
+  TCP_OFFSET_Z,
+  JOINT_MAX_TORQUE,
+  UR5E_GEOMETRY,
+  linePath,
+  wristForJawYaw
 } from '../sim/kinematics';
 import { buildWorld, type CollisionWorld } from '../sim/collision';
-import { planJointPath, samplePath, pathLength, type PlanResult } from '../sim/planner';
+import { planJointPath, samplePath, pathClearance, type PlanResult } from '../sim/planner';
 import { topicBus } from '../sim/topicBus';
 import * as THREE from 'three';
-import { objectKind } from '../sim/objectMeshes';
-import { findGraspedObject, GRASP_WIDTH, GRIPPER_MAX_OPEN, OBJECT_HEIGHT, dropRegion, restLift, chooseToteSlot, settleHeight, TOTE, MAT, type RestRegion } from '../sim/physics';
+import { objectKind, footprintRadius } from '../sim/objectMeshes';
+import { GRASP_WIDTH, GRIPPER_FORCE, GRIPPER_MAX_OPEN, OBJECT_HEIGHT, FINGER_TIP_Z, dropRegion, restLift, chooseToteSlot, TOTE, TOTE_GEOM, MAT, type RestRegion } from '../sim/physics';
+import { physicsFor } from '../sim/objectPhysics';
+import { simWorld } from '../sim/world';
 import type { CameraFrame } from '../sim/wristCamera';
 import { associate, type Perceived } from '../sim/vision';
 
@@ -716,16 +722,38 @@ class RosBridgeService {
   // THE ROBOT'S BELIEF about where objects are: built only from camera frames, refreshed continuously, and
   // forgotten when the camera looks at the spot and sees bare table. Control logic reads only this, never the
   // simulator's own object list (which is the physical world).
-  private perceived: Record<string, { position: { x: number; y: number; z: number }; stamp: number; misses?: number }> = {};
-  // What the gripper's finger-stroke sensor says it is holding (null = open, or closed on nothing)
-  private gripHolding: { id: string; width: number } | null = null;
-  // Table-resting height of each object, so a released object can come to rest on the surface below it
-  private objectRestY: Record<string, number> = {};
+  private perceived: Record<
+    string,
+    {
+      position: { x: number; y: number; z: number };
+      stamp: number;
+      misses?: number;
+      /** Top-surface rectangle and height above the table, as the camera measured them. */
+      top?: { yaw: number; major: number; minor: number; x: number; z: number };
+      height?: number;
+      /** True if this estimate came from a look straight down at the object (accurate enough to grasp from). */
+      refined?: boolean;
+    }
+  > = {};
+  // What the robot infers it is holding from the finger-gap sensor (null = open, or closed on nothing).
+  // `drop` is how far the object's underside hangs below the tool point, remembered from the grasp.
+  private gripHolding: { id: string; width: number; drop: number; major: number } | null = null;
   private toteSlot: { x: number; z: number } | null = null;
   // Where the object being carried back to the table will be put down (chosen from the belief)
   private tableSpot: { x: number; z: number } | null = null;
+  // Remember completed placements even when a later table-only camera sweep cannot see the mat.
+  private matPlacements = new Map<string, { x: number; z: number; radius: number }>();
+  private matSlotBlocked = false;
   // Objects whose grasp failed (3 attempts) during the current task: not queued again until the next command
   private ungraspable = new Set<string>();
+  // Why the most recent grasp gave up (for the operator-facing error)
+  private lastGraspFailure = '';
+  // Where the object now in the hand was grasped (for relative destinations such as "to the right")
+  private pickOrigin: { x: number; z: number } | null = null;
+  // Joints that hit their torque limit during the most recent motion (null = none)
+  private lastSaturation: { label: string; joints: number[]; peakRatio: number } | null = null;
+  // Last fingertip force-sensor reading taken on a lifted object
+  private gripReading: { id: string; squeeze_n: number; carried_n: number; min_squeeze_n: number; margin: number } | null = null;
   // THE ROBOT'S OBJECT DATABASE: what each object it has been told about is (name, kind, colour). It never says
   // where an object is, or whether it is still there: an object removed from the table stays in here.
   private catalogue: TabletopObject[] = JSON.parse(JSON.stringify(DEFAULT_TABLETOP_OBJECTS));
@@ -772,6 +800,99 @@ class RosBridgeService {
     } catch {
       // Audio remains available when browser storage is disabled.
     }
+    this.startWorld();
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // The physical world (sim/world.ts). This service keeps the list of things the USER has put on the table and
+  // mirrors their true poses for the 3D view and the object list. Robot logic never reads those poses: it gets
+  // joint encoders, the finger-gap sensor and camera frames.
+  // ---------------------------------------------------------------------------------------------
+
+  private startWorld(): void {
+    void simWorld
+      .init(this.robotBasePos)
+      .then(() => {
+        simWorld.teleportArm(this.currentJointPositions.slice(0, 6), this.currentJointPositions[6]);
+        this.reconcileWorld();
+        let lastMirror = 0;
+        simWorld.onFrame(() => {
+          if (!this.connected) {
+            // encoders: six joint angles and the measured gap between the finger pads
+            this.currentJointPositions = [...simWorld.jointPositions(), simWorld.fingerGap];
+            this.publishJointState();
+          }
+          const now = performance.now();
+          if (now - lastMirror > 120) {
+            lastMirror = now;
+            this.mirrorWorld();
+          }
+        });
+        simWorld.start();
+        this.emitLog({
+          level: 20,
+          levelName: 'INFO',
+          nodeName: 'physics',
+          message: '[Physics] Rigid-body world running: 240 Hz fixed step, gravity 9.81 m/s^2, friction contacts, force-limited gripper.'
+        });
+      })
+      .catch((err) => {
+        console.error('Physics engine failed to start:', err);
+        this.emitLog({ level: 50, levelName: 'FATAL', nodeName: 'physics', message: `[Physics] The physics engine failed to start (${err instanceof Error ? err.message : String(err)}). Nothing will move.` });
+      });
+  }
+
+  /** Make the bodies in the world match the list of objects the user has on the table. */
+  private reconcileWorld(): void {
+    if (!simWorld.isReady) return;
+    const ids = new Set(this.tabletopObjects.map((o) => o.id));
+    for (const id of simWorld.objectIds()) if (!ids.has(id)) simWorld.remove(id);
+    for (const o of this.tabletopObjects) if (!simWorld.has(o.id)) simWorld.spawn(o, { x: o.position.x, z: o.position.z });
+  }
+
+  /** Copy true object poses out of the world for the UI (object list, coordinates, held / tray / mat badges). */
+  private mirrorWorld(): void {
+    let moved = false;
+    let stateChanged = false;
+    for (const o of this.tabletopObjects) {
+      const p = simWorld.pose(o.id);
+      if (!p) continue;
+      if (Math.abs(p.x - o.position.x) > 5e-4 || Math.abs(p.y - o.position.y) > 5e-4 || Math.abs(p.z - o.position.z) > 5e-4) {
+        o.position = { x: Number(p.x.toFixed(4)), y: Number(p.y.toFixed(4)), z: Number(p.z.toFixed(4)) };
+        this.objectPositions[o.id] = o.position;
+        moved = true;
+      }
+      const state: TabletopObject['state'] = simWorld.isPinched(o.id) ? 'held' : dropRegion(p.x, p.z);
+      if (state !== o.state) {
+        o.state = state;
+        stateChanged = true;
+        this.emitObjectEvent({ name: o.id, state, position: o.position });
+      }
+    }
+    if (moved) this.positionListeners.forEach((cb) => cb({ ...this.objectPositions }));
+    if (stateChanged) this.emitObjectsChange();
+    topicBus.publish('/nora/gripper/state', 'nora_interfaces/msg/GripperState', {
+      gap_m: Number(simWorld.fingerGap.toFixed(4)),
+      commanded_gap_m: Number(simWorld.gripperGoal.toFixed(4)),
+      effort_n: Number(simWorld.gripEffort.toFixed(1)),
+      holding: this.gripHolding ? this.gripHolding.id : null,
+      pad_squeeze_left_n: Number(simWorld.tactile.squeezeLeft.toFixed(2)),
+      pad_squeeze_right_n: Number(simWorld.tactile.squeezeRight.toFixed(2)),
+      pad_carried_n: simWorld.tactile.lifted ? Number(simWorld.tactile.carried.toFixed(2)) : null,
+      contact_confirmed: simWorld.tactile.pinched,
+      surface_contact: simWorld.tactile.supported,
+      slip_speed_m_s: Number(simWorld.tactile.slipSpeed.toFixed(4)),
+      pad_contact_left: simWorld.tactile.contactLeft,
+      pad_contact_right: simWorld.tactile.contactRight,
+      last_grip_reading: this.gripReading
+    });
+    topicBus.publish('/nora/physics/stats', 'nora_interfaces/msg/PhysicsStats', {
+      sim_time_s: Number(simWorld.time.toFixed(3)),
+      step_hz: 240,
+      step_cost_ms: Number(simWorld.stepMs.toFixed(3)),
+      real_time_factor: Number(simWorld.realTimeFactor.toFixed(2)),
+      bodies: simWorld.bodyCount
+    });
   }
 
   public init(url: string = 'ws://localhost:9090'): void {
@@ -873,17 +994,15 @@ class RosBridgeService {
     position?: ObjectPosition;
     spawnZone?: 'center' | 'left' | 'right' | 'user' | 'auto';
     zone?: 'center' | 'left' | 'right' | 'user' | 'auto';
+    /** Mass override (kg); omit for the kind's real mass. */
+    mass?: number;
   }): TabletopObject {
     const cleanName = params.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '_') || 'item';
     const uniqueSuffix = Math.random().toString(36).substring(2, 6);
     const id = `${cleanName}_${uniqueSuffix}`;
 
-    // Vertical height based on shape geometry
-    let y = 0.48;
-    if (params.shape === 'cylinder') y = 0.495;
-    else if (params.shape === 'sphere' || params.shape === 'apple') y = 0.485;
-    else if (params.shape === 'glass') y = 0.505;
-    else if (params.shape === 'mug') y = 0.492;
+    // It is set down resting on the table: its centre sits one rest half-height above the surface
+    const y = this.robotBasePos.y + physicsFor({ name: params.name, shape: params.shape }).restHalf;
 
     const chosenZone = params.spawnZone || params.zone || 'auto';
 
@@ -909,12 +1028,14 @@ class RosBridgeService {
       color: params.color,
       position: pos,
       state: 'table',
-      isCustom: true
+      isCustom: true,
+      ...(params.mass && params.mass > 0 ? { mass: params.mass } : {})
     };
 
     this.tabletopObjects.push(newObj);
     this.catalogue.push(JSON.parse(JSON.stringify(newObj))); // the robot is told what the new thing is, not where
     this.objectPositions[id] = { ...pos };
+    this.reconcileWorld();
 
     this.emitObjectsChange();
     this.positionListeners.forEach((cb) => cb({ ...this.objectPositions }));
@@ -943,10 +1064,11 @@ class RosBridgeService {
     const base = this.robotBasePos;
     let best = anchor;
     let bestScore = -Infinity;
-    for (let x = -0.12; x <= 0.52; x += 0.04) {
+    const toteHalf = TOTE_GEOM.size / 2 + 0.05;
+    for (let x = -0.16; x <= 0.52; x += 0.04) {
       for (let z = -0.32; z <= 0.34; z += 0.04) {
         if (Math.hypot(x - base.x, z - base.z) < 0.24) continue; // robot base
-        if (x > -0.17 && x < 0.07 && z > -0.36 && z < -0.12) continue; // storage tote
+        if (Math.abs(x - TOTE_GEOM.cx) < toteHalf && Math.abs(z - TOTE_GEOM.cz) < toteHalf) continue; // storage tote
         if (avoidMat && x > MAT.x0 - 0.04 && x < MAT.x1 + 0.04 && z > MAT.z0 - 0.04) continue; // handover mat
         if (!checkReach(x, base.y + 0.04, z, base).reachable) continue;
         const gap = taken.length ? Math.min(...taken.map((p) => Math.hypot(p.x - x, p.z - z))) : 1;
@@ -962,10 +1084,12 @@ class RosBridgeService {
   }
 
   public removeObject(id: string): void {
+    this.matPlacements.delete(id);
     const idx = this.tabletopObjects.findIndex((o) => o.id === id);
     if (idx !== -1) {
       const removed = this.tabletopObjects.splice(idx, 1)[0];
       delete this.objectPositions[id];
+      this.reconcileWorld();
 
       this.emitObjectsChange();
       this.positionListeners.forEach((cb) => cb({ ...this.objectPositions }));
@@ -980,9 +1104,11 @@ class RosBridgeService {
   }
 
   public clearAllObjects(): void {
+    this.matPlacements.clear();
     const count = this.tabletopObjects.length;
     this.tabletopObjects = [];
     this.objectPositions = {};
+    this.reconcileWorld();
 
     this.emitObjectsChange();
     this.positionListeners.forEach((cb) => cb({}));
@@ -996,9 +1122,12 @@ class RosBridgeService {
   }
 
   public resetToDefaultObjects(): void {
+    this.matPlacements.clear();
     this.tabletopObjects = JSON.parse(JSON.stringify(DEFAULT_TABLETOP_OBJECTS));
     for (const d of DEFAULT_TABLETOP_OBJECTS) if (!this.catalogue.some((c) => c.id === d.id)) this.catalogue.push(JSON.parse(JSON.stringify(d)));
     this.objectPositions = defaultObjectPositions();
+    if (simWorld.isReady) simWorld.clearObjects();
+    this.reconcileWorld();
 
     this.emitObjectsChange();
     this.positionListeners.forEach((cb) => cb({ ...this.objectPositions }));
@@ -1029,11 +1158,17 @@ class RosBridgeService {
     return { ...this.objectPositions };
   }
 
-  public setObjectPosition(name: string, pos: ObjectPosition): void {
-    const key = this.normalizeObjectName(name) || name;
+  /** The user picks an object up and sets it down at (x, z), optionally turned to `yaw`. It settles under gravity. */
+  public setObjectPosition(name: string, pos: ObjectPosition, yaw?: number, tipped = false): void {
+    const key = this.tabletopObjects.some((o) => o.id === name) ? name : this.normalizeObjectName(name) || name;
     if (key) {
-      this.objectPositions[key] = { ...pos };
       const obj = this.tabletopObjects.find((o) => o.id === key);
+      if (obj && simWorld.isReady) {
+        simWorld.place(key, { x: pos.x, z: pos.z, yaw, tipped });
+        const p = simWorld.pose(key);
+        if (p) pos = { x: p.x, y: p.y, z: p.z };
+      }
+      this.objectPositions[key] = { ...pos };
       if (obj) {
         obj.position = { ...pos };
       }
@@ -1049,27 +1184,16 @@ class RosBridgeService {
   }
 
   public randomizeObjects(): void {
+    this.matPlacements.clear();
     const total = this.tabletopObjects.length;
-    this.tabletopObjects.forEach((obj, i) => {
-      const angle = (i * ((2 * Math.PI) / Math.max(1, total))) + (Math.random() * 0.4 - 0.2);
-      const radius = 0.18 + Math.random() * 0.16;
-      let x = Math.max(-0.20, Math.min(0.24, Math.cos(angle) * radius));
-      let z = Math.max(-0.18, Math.min(0.22, 0.05 - Math.sin(angle) * radius));
-
-      // Keep clear of storage tray at (-0.05, -0.24)
-      if (Math.hypot(x - (-0.05), z - (-0.24)) < 0.14) {
-        z = -0.08;
-      }
-      // Keep clear of robot base at (-0.35, -0.05)
-      if (Math.hypot(x - (-0.35), z - (-0.05)) < 0.16) {
-        x = -0.15;
-      }
-
-      const pos = {
-        x: Number(x.toFixed(3)),
-        y: obj.position.y,
-        z: Number(z.toFixed(3))
-      };
+    // Each object is set down at a random reachable spot with a random turn, clear of the base, the tote and the others.
+    const taken: { x: number; z: number }[] = [];
+    this.tabletopObjects.forEach((obj) => {
+      const anchor = { x: -0.1 + Math.random() * 0.55, z: -0.28 + Math.random() * 0.56 };
+      const spot = this.findFreeSpot(anchor, taken, false);
+      taken.push(spot);
+      const pos = { x: spot.x, y: this.robotBasePos.y + physicsFor(obj).restHalf, z: spot.z };
+      if (simWorld.isReady) simWorld.place(obj.id, { x: spot.x, z: spot.z, yaw: Math.random() * Math.PI * 2 });
       obj.position = pos;
       obj.state = 'table';
       this.objectPositions[obj.id] = pos;
@@ -1099,10 +1223,20 @@ class RosBridgeService {
   }
 
   public resetObjects(): void {
+    this.matPlacements.clear();
     // Reset default objects to original positions, retain custom objects but place on table
+    const taken: { x: number; z: number }[] = DEFAULT_TABLETOP_OBJECTS.map((d) => ({ x: d.position.x, z: d.position.z }));
     this.tabletopObjects = this.tabletopObjects.map((obj) => {
       const def = DEFAULT_TABLETOP_OBJECTS.find((d) => d.id === obj.id);
-      const pos = def ? { ...def.position } : { ...obj.position };
+      let pos: ObjectPosition;
+      if (def) pos = { ...def.position };
+      else {
+        // objects the user added are stood back up on a free part of the table near where they are now
+        const spot = this.findFreeSpot({ x: obj.position.x, z: obj.position.z }, taken, true);
+        taken.push(spot);
+        pos = { x: spot.x, y: this.robotBasePos.y + physicsFor(obj).restHalf, z: spot.z };
+      }
+      if (simWorld.isReady) simWorld.place(obj.id, { x: pos.x, z: pos.z });
       return {
         ...obj,
         position: pos,
@@ -1996,7 +2130,7 @@ class RosBridgeService {
               ? `[On-Arm Camera Perception] Surveying ${where} for ${what}.`
               : `[On-Arm Camera Perception] Re-checking ${where} for anything matching that is left.`
           });
-          this.emitArmSpeech({ message: `Looking at ${where} for ${what}...`, subtext: 'RGB-D eye-in-hand camera active', type: 'info' });
+          this.emitArmSpeech({ message: `Looking at ${where} for ${what}.`, subtext: 'Wrist camera survey', type: 'info' });
           this.emitPerceptionScan({ active: true, targetObject: 'tabletop_workspace' });
           await this.simulateJointMotion(step, intent, execId);
           if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
@@ -2024,8 +2158,8 @@ class RosBridgeService {
                 : `[On-Arm Camera Perception] Nothing matching is left in ${where}.`
             });
             this.emitArmSpeech({
-              message: round === 0 ? `I can't see ${what} in ${where}.` : 'Done: nothing matching is left.',
-              subtext: `Camera survey: 0 matching objects in ${where}`,
+              message: round === 0 ? `Camera sees no ${what} in ${where}.` : `Camera sees no more ${what} in ${where}.`,
+              subtext: 'Survey result: 0 matches',
               type: round === 0 ? 'warning' : 'info'
             });
           } else {
@@ -2072,8 +2206,8 @@ class RosBridgeService {
             message: `[On-Arm Camera Perception] Initiating post-cleanup tabletop verification re-scan to confirm all objects removed.`
           });
           this.emitArmSpeech({
-            message: 'Re-scanning tabletop workspace with on-arm camera to verify all objects are removed...',
-            subtext: 'RGB-D Eye-in-Hand camera active • Post-cleanup verification',
+            message: 'Looking over the table again to check nothing is left.',
+            subtext: 'Wrist camera re-check',
             type: 'info'
           });
 
@@ -2105,8 +2239,8 @@ class RosBridgeService {
               message: `✅ [Verification Confirmed] Re-scan complete: 0 objects detected on frame. All objects have been verified removed from tabletop.`
             });
             this.emitArmSpeech({
-              message: 'Verification confirmed! On-arm camera detected 0 objects on frame. Table is completely clean.',
-              subtext: 'Perception verification • Tabletop 100% clear',
+              message: 'Re-check: the camera sees 0 objects on the table.',
+              subtext: 'It does not look on the floor or count what is in the tote',
               type: 'info'
             });
           } else {
@@ -2117,8 +2251,8 @@ class RosBridgeService {
               message: `⚠️ [Verification Alert] Re-scan detected ${count} remaining object(s) on frame: [${names}]. Queuing real-time removal before final parking...`
             });
             this.emitArmSpeech({
-              message: `Verification detected ${count} remaining object${count > 1 ? 's' : ''} on frame: ${names}. Clearing them now...`,
-              subtext: `Dynamic queue update • ${count} objects detected`,
+              message: `Re-check: the camera still sees ${count} object${count > 1 ? 's' : ''} on the table (${names}). Picking ${count > 1 ? 'them' : 'it'} up.`,
+              subtext: `${count} added to the queue`,
               type: 'warning'
             });
 
@@ -2176,8 +2310,8 @@ class RosBridgeService {
             message: `[On-Arm Camera Perception] Initiating tabletop workspace survey sweep.`
           });
           this.emitArmSpeech({
-            message: 'Scanning tabletop workspace with on-arm camera...',
-            subtext: 'RGB-D Eye-in-Hand camera active',
+            message: 'Surveying the table.',
+            subtext: 'Wrist camera survey',
             type: 'info'
           });
 
@@ -2208,8 +2342,8 @@ class RosBridgeService {
               message: `[On-Arm Camera Perception] Tabletop workspace sweep complete: 0 objects detected on frame. Table is already clear.`
             });
             this.emitArmSpeech({
-              message: 'Tabletop is already clear! On-arm camera detected 0 objects on frame.',
-              subtext: 'Workspace clear • 0 objects detected',
+              message: 'The camera sees 0 objects on the table. Nothing to clear.',
+              subtext: 'Survey result: 0 objects',
               type: 'info'
             });
           } else {
@@ -2220,8 +2354,8 @@ class RosBridgeService {
               message: `[On-Arm Camera Perception] Visual sweep active. Detected ${count} object(s) on frame: [${names}]. Executing clear workspace sequence...`
             });
             this.emitArmSpeech({
-              message: `On-arm camera detected ${count} object${count > 1 ? 's' : ''} on frame: ${names}. Clearing workspace...`,
-              subtext: `Live frame detection: ${count} objects found`,
+              message: `Camera sees ${count} object${count > 1 ? 's' : ''} on the table: ${names}.`,
+              subtext: 'Queued for the tote, one at a time',
               type: 'info'
             });
             if (intent.action === 'clean_table') {
@@ -2281,8 +2415,8 @@ class RosBridgeService {
             message: `[Category Grounding] Query "${catInfo.category}" maps to candidate item [${catInfo.defaultName}]. Scanning tabletop...`
           });
           this.emitArmSpeech({
-            message: `Searching ${catInfo.category}... searching for ${catInfo.defaultName}`,
-            subtext: `Category grounding: [${catInfo.category}] -> [${catInfo.defaultName}]`,
+            message: `Looking for ${catInfo.defaultName} (${catInfo.category}).`,
+            subtext: 'Wrist camera search',
             type: 'info'
           });
 
@@ -2323,8 +2457,8 @@ class RosBridgeService {
             });
 
             this.emitArmSpeech({
-              message: `${catInfo.defaultName} was not found on the table`,
-              subtext: `SayCan Guardrail • ${catInfo.defaultName} is not present on tabletop`,
+              message: `Camera did not find ${catInfo.defaultName} from any viewpoint.`,
+              subtext: 'Task stopped: nothing to pick',
               type: 'warning'
             });
 
@@ -2387,7 +2521,7 @@ class RosBridgeService {
           const friendlyTarget = intent.parameters?.target_name || step.targetObject || 'target';
 
           if (candidate) {
-            this.emitArmSpeech({ message: `Searching for ${candidate.name}...`, subtext: 'On-arm camera scan active', type: 'info' });
+            this.emitArmSpeech({ message: `Looking for ${candidate.name}.`, subtext: 'Wrist camera search', type: 'info' });
             this.emitPerceptionScan({ active: true, targetObject: obj });
             this.emitLog({
               level: 20,
@@ -2407,8 +2541,8 @@ class RosBridgeService {
           if (!found) {
             // Object not present on table: perform scan and report missing cleanly without inventing objects
             this.emitArmSpeech({
-              message: `Scanning tabletop workspace for ${friendlyTarget}...`,
-              subtext: `On-arm camera search active`,
+              message: `Looking for ${friendlyTarget}.`,
+              subtext: 'Wrist camera search',
               type: 'info'
             });
             this.emitPerceptionScan({ active: true, targetObject: obj || step.targetObject });
@@ -2440,8 +2574,8 @@ class RosBridgeService {
             });
 
             this.emitArmSpeech({
-              message: `${friendlyTarget} was not found on the table`,
-              subtext: `SayCan Guardrail • ${friendlyTarget} is not present on tabletop`,
+              message: `Camera did not find ${friendlyTarget} from any viewpoint.`,
+              subtext: 'Task stopped: nothing to pick',
               type: 'warning'
             });
 
@@ -2484,8 +2618,8 @@ class RosBridgeService {
               message: `[Perception] Target acquired: [${found.name}]. Recognised as ${det.label} (${Math.round(det.confidence * 100)}% of nearest examples agree); mask ${det.maskPixels} px at ${det.depthM.toFixed(2)} m depth; estimated position X ${seenPos.x.toFixed(3)} m, Y ${seenPos.y.toFixed(3)} m, Z ${seenPos.z.toFixed(3)} m.`
             });
             this.emitArmSpeech({
-              message: `Target acquired: [${found.name}] detected on table!`,
-              subtext: `Recognised from RGB-D: ${det.label} • ${Math.round(det.confidence * 100)}% • ${det.depthM.toFixed(2)} m`,
+              message: `Found ${found.name} at x ${seenPos.x.toFixed(2)} m, z ${seenPos.z.toFixed(2)} m.`,
+              subtext: `Camera calls it "${det.label}" (${Math.round(det.confidence * 100)}% of nearest examples agree), ${det.depthM.toFixed(2)} m from the lens`,
               type: 'info'
             });
           } else {
@@ -2528,7 +2662,7 @@ class RosBridgeService {
         }
         if (!ok) {
           const failedName = this.known().find((o) => o.id === this.normalizeObjectName(step.targetObject || intent.target_object))?.name ?? 'the object';
-          this.emitLog({ level: 40, levelName: 'ERROR', nodeName: 'nora_gripper', message: `[Gripper] Could not grasp ${failedName} after 3 attempts.` });
+          this.emitLog({ level: 40, levelName: 'ERROR', nodeName: 'nora_gripper', message: `[Gripper] Could not grasp ${failedName}: ${this.lastGraspFailure}.` });
           if (this.isLoopIntent(intent) && step.loopGroup) {
             // skip just this object and carry on with the rest
             for (let j = plan.length - 1; j > i; j--) if (plan[j].loopGroup === step.loopGroup) plan.splice(j, 1);
@@ -2537,13 +2671,27 @@ class RosBridgeService {
             this.notifyPipeline({ stage: 'EXECUTING', intent, affordances, plan: [...plan], activeStepId: step.id });
             continue;
           }
-          this.notifyPipeline({ stage: 'FAILED', intent, affordances, error: `Could not grasp ${failedName}: the gripper closed on nothing or the wrong object after 3 attempts.` });
+          this.notifyPipeline({ stage: 'FAILED', intent, affordances, error: `Could not grasp ${failedName}: ${this.lastGraspFailure}.` });
           this.stateListeners.forEach((cb) => cb('FAILED'));
           setTimeout(() => {
             this.stateListeners.forEach((cb) => cb('IDLE'));
             this.returnHome();
           }, 3500);
           step.status = 'failed';
+          return;
+        }
+      } else if (step.skill === 'place') {
+        const placed = await this.placeHeldObject(step, execId);
+        if (!placed) {
+          step.status = 'failed';
+          if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) return;
+          const error = step.params?.target_location === 'user' && this.matSlotBlocked
+            ? 'No clear space on the handover mat. Remove an object before retrying; the gripper remains closed.'
+            : 'Placement stopped: stable surface contact was not confirmed. The gripper remains closed.';
+          this.emitArmSpeech({ message: 'Could not set the object down.', subtext: error, type: 'warning' });
+          this.emitLog({ level: 40, levelName: 'ERROR', nodeName: 'nora_gripper', message: error });
+          this.notifyPipeline({ stage: 'FAILED', intent, affordances, plan: [...plan], error });
+          this.stateListeners.forEach((cb) => cb('FAILED'));
           return;
         }
       } else if (step.skill === 'open_gripper') {
@@ -2593,11 +2741,74 @@ class RosBridgeService {
         return;
       }
 
+      // Carrying: the finger gap is watched. If it has collapsed, the object slipped out on the way.
+      if (this.gripLost()) {
+        const lost = this.gripHolding as { id: string; width: number };
+        const lostName = this.known().find((o) => o.id === lost.id)?.name ?? 'the object';
+        this.emitLog({
+          level: 40,
+          levelName: 'ERROR',
+          nodeName: 'nora_gripper',
+          message: `[Gripper] Lost ${lostName} during ${step.skill === 'move_to_pose' ? step.params?.pose_name ?? 'a move' : step.skill}: the finger gap fell from ${(lost.width * 1000).toFixed(0)} mm to ${(simWorld.fingerGap * 1000).toFixed(0)} mm. It slipped out of the grasp.`
+        });
+        this.gripHolding = null;
+        this.toteSlot = null;
+        this.tableSpot = null;
+        step.status = 'failed';
+        if (this.isLoopIntent(intent) && step.loopGroup) {
+          // skip the rest of this object's steps; the next survey will find it again wherever it landed
+          for (let j = plan.length - 1; j > i; j--) if (plan[j].loopGroup === step.loopGroup) plan.splice(j, 1);
+          this.notifyPipeline({ stage: 'EXECUTING', intent, affordances, plan: [...plan], activeStepId: step.id });
+          continue;
+        }
+        const lostError = step.params?.pose_name === 'lift'
+          ? `Lift failed: ${lostName} did not come up. The pads slid off it (${GRIPPER_FORCE} N squeeze per finger): it is too heavy or too slippery for this grip.`
+          : `Dropped ${lostName}: it slipped out of the gripper while being carried.`;
+        this.emitArmSpeech({ message: step.params?.pose_name === 'lift' ? 'Lift failed.' : `Dropped ${lostName}.`, subtext: lostError, type: 'warning' });
+        this.notifyPipeline({ stage: 'FAILED', intent, affordances, error: lostError });
+        this.stateListeners.forEach((cb) => cb('FAILED'));
+        setTimeout(() => {
+          this.stateListeners.forEach((cb) => cb('IDLE'));
+          this.returnHome();
+        }, 3500);
+        return;
+      }
+
+      if (step.skill === 'move_to_pose' && step.params?.pose_name === 'lift' && this.gripHolding) {
+        const liftFailure = await this.checkLift();
+        if (liftFailure && !(this.isEStopped || this.isCancelled || execId !== this.currentExecutionId)) {
+          this.emitLog({ level: 40, levelName: 'ERROR', nodeName: 'nora_gripper', message: `[Lift] Failed: ${liftFailure}.` });
+          this.emitArmSpeech({ message: 'Lift failed.', subtext: liftFailure, type: 'warning' });
+          // put it back down where it is (it is still over its own spot) and let go
+          const here = tcpPosition(this.currentJointPositions.slice(0, 6), this.robotBasePos);
+          const drop = this.gripHolding?.drop ?? 0.04;
+          await this.moveLinear({ x: here.x, y: this.robotBasePos.y + Math.max(drop, GRASP_MIN_TCP_HEIGHT) + 0.004, z: here.z }, null, { abortable: false, label: 'set back down', speed: 0.2 });
+          await this.openGripper();
+          if (step.targetObject) this.ungraspable.add(step.targetObject);
+          step.status = 'failed';
+          if (this.isLoopIntent(intent) && step.loopGroup) {
+            for (let j = plan.length - 1; j > i; j--) if (plan[j].loopGroup === step.loopGroup) plan.splice(j, 1);
+            this.notifyPipeline({ stage: 'EXECUTING', intent, affordances, plan: [...plan], activeStepId: step.id });
+            continue;
+          }
+          this.notifyPipeline({ stage: 'FAILED', intent, affordances, error: `Lift failed: ${liftFailure}.` });
+          this.stateListeners.forEach((cb) => cb('FAILED'));
+          setTimeout(() => {
+            this.stateListeners.forEach((cb) => cb('IDLE'));
+            this.returnHome();
+          }, 3500);
+          return;
+        }
+      }
+      if (this.isEStopped || this.isCancelled || execId !== this.currentExecutionId) {
+        step.status = 'failed';
+        return;
+      }
+
       // (Attachment and release now happen physically inside executePick / closeGripper / openGripper.)
       if (step.skill === 'pick' && this.gripHolding && intent.action === 'clean_table') {
         const heldName = this.known().find((o) => o.id === this.gripHolding?.id)?.name ?? 'object';
-        this.emitArmSpeech({ message: `Clearing ${heldName} to storage tray...`, subtext: `On-arm camera tracking [${heldName}]`, type: 'info' });
-        this.emitLog({ level: 20, levelName: 'INFO', nodeName: 'nora_perception', message: `[On-Arm Camera] Tracking [${heldName}] for transfer to storage tray.` });
+                this.emitLog({ level: 20, levelName: 'INFO', nodeName: 'nora_perception', message: `[Orchestrator] Holding ${heldName}; carrying it to the storage tote.` });
       }
 
       step.status = 'completed';
@@ -2629,8 +2840,8 @@ class RosBridgeService {
       const remaining = this.lastSweepCount ?? 0; // what the last camera sweep saw
       if (remaining === 0) {
         this.emitArmSpeech({
-          message: 'Tabletop fully clear! All objects safely stored in tray.',
-          subtext: 'Perception verification: 0 objects on frame',
+          message: 'Finished. The last camera sweep saw 0 objects on the table.',
+          subtext: 'The sweep covers the table only, not the floor or the tote',
           type: 'info'
         });
         this.emitLog({
@@ -3178,7 +3389,16 @@ class RosBridgeService {
         prev.misses = 0;
         continue;
       }
-      this.perceived[d.id] = { position: d.position, stamp: now, misses: 0 };
+      // A look straight down from close above gives a position and outline good enough to grasp from; a slanted
+      // view of the same object is less accurate, so it only refreshes the sighting unless the object has moved.
+      const overhead =
+        !d.truncated && frame.position[1] > this.robotBasePos.y + 0.3 && Math.hypot(frame.position[0] - d.position.x, frame.position[2] - d.position.z) < 0.1;
+      if (prev?.refined && !overhead && Math.hypot(prev.position.x - d.position.x, prev.position.z - d.position.z) < 0.02) {
+        prev.stamp = now;
+        prev.misses = 0;
+        continue;
+      }
+      this.perceived[d.id] = { position: d.position, stamp: now, misses: 0, top: d.top, height: d.extent.height, refined: overhead };
     }
 
     const M = new THREE.Matrix4().compose(new THREE.Vector3(...frame.position), new THREE.Quaternion(...frame.quaternion), new THREE.Vector3(1, 1, 1));
@@ -3315,6 +3535,8 @@ class RosBridgeService {
   }
 
   private looksLikeSearch(lower: string): boolean {
+    // "find the red cube, pick it up and move it" is a manipulation command that starts with a search
+    if (/\b(pick|grab|move|put|place|bring|give|carry|take|hand|lift|drop)\b/.test(lower)) return false;
     return (
       lower.startsWith('search') ||
       lower.startsWith('find') ||
@@ -3377,15 +3599,17 @@ class RosBridgeService {
         const target = this.groundTarget(text, pred.target_object);
         if (!target) return null;
         const params = { ...meta, ...pred.parameters, target_name: target.name };
+        const sideDest = pred.target_location === 'left' || pred.target_location === 'right' ? pred.target_location : null;
+        if (sideDest) return { ...base, action: 'place', target_object: target.id, target_location: sideDest, parameters: params };
         if (pred.action === 'pick') {
           const handover =
             pred.target_location === 'user' ||
-            /(give|hand|pass|bring|fetch|serve|get me)/.test(lower);
+            /\b(give|hand|pass|bring|fetch|serve|get me)\b/.test(lower);
           return handover
             ? { ...base, action: 'deliver_to_user', target_object: target.id, target_location: 'user', parameters: { ...params, activity_context: text } }
             : { ...base, action: 'pick', target_object: target.id, target_location: 'table', parameters: params };
         }
-        const dest = lower.includes('table') || pred.target_location === 'table' ? 'table' : pred.target_location === 'user' ? 'user' : 'tray';
+        const dest = pred.target_location === 'user' ? 'user' : lower.includes('table') || pred.target_location === 'table' ? 'table' : 'tray';
         return { ...base, action: 'place', target_object: target.id, target_location: dest, parameters: params };
       }
       default:
@@ -4098,10 +4322,18 @@ class RosBridgeService {
         },
         {
           id: id(),
+          skill: 'place',
+          params: { target_location: 'user', target_object: objName },
+          status: 'pending',
+          detail: `Set ${friendlyName} on the handover mat and confirm contact`,
+          targetObject: objName
+        },
+        {
+          id: id(),
           skill: 'open_gripper',
           params: { stroke_mm: 80 },
           status: 'pending',
-          detail: `Release ${friendlyName} into operator hand / drop zone`,
+          detail: `Open fingers after placing ${friendlyName}`,
           targetObject: objName
         },
         {
@@ -4221,6 +4453,14 @@ class RosBridgeService {
             params: { target_object: objName },
             status: 'pending',
             detail: `Grasp ${friendlyName}`,
+            targetObject: objName
+          },
+          {
+            id: id(),
+            skill: 'move_to_pose',
+            params: { pose_name: 'lift', target: objName },
+            status: 'pending',
+            detail: `Lift ${friendlyName} clear of the surface`,
             targetObject: objName
           },
           {
@@ -4364,6 +4604,8 @@ class RosBridgeService {
 
     if (skill === 'move_to_pose') {
       if (poseName === 'pre_grasp') {
+        const g = resolvedObj ? this.planGrasp(resolvedObj.id) : null;
+        if (g) return [...this.graspJoints(g, 0.1), curr[6]];
         const sol = this.solveDynamicIK(objPos.x, objPos.y + 0.12, objPos.z);
         return [...sol, curr[6]];
       } else if (poseName === 'lift') {
@@ -4377,7 +4619,8 @@ class RosBridgeService {
       } else if (poseName === 'handover') {
         // To the handover mat, over a part of it that the camera believes is free
         const spot = this.nextMatSpot();
-        const sol = this.solveDynamicIK(spot.x, this.handoverPos.y, spot.z);
+        const sol = this.solveDynamicIK(spot.x, this.robotBasePos.y + 0.26, spot.z);
+        sol[5] = wristForJawYaw(sol, this.robotBasePos, 0);
         return [...sol, curr[6]];
       } else if (poseName === 'table_spot') {
         // carrying something back to the table: above a free spot, chosen from what the camera believes is there
@@ -4385,6 +4628,13 @@ class RosBridgeService {
         const sol = this.solveDynamicIK(spot.x, this.robotBasePos.y + 0.16, spot.z);
         return [...sol, curr[6]];
       } else if (poseName === 'approach_target') {
+        const destination = step.params?.target ?? intent.target_location;
+        if (destination === 'user' || destination === 'table' || destination === 'left' || destination === 'right') {
+          const spot = destination === 'user' ? this.nextMatSpot() : destination === 'table' ? this.nextTableSpot() : this.nextSideSpot(destination);
+          const sol = this.solveDynamicIK(spot.x, this.robotBasePos.y + 0.26, spot.z);
+          if (destination === 'user') sol[5] = wristForJawYaw(sol, this.robotBasePos, 0);
+          return [...sol, curr[6]];
+        }
         const isTray = step.params?.target === 'tray' || intent.target_location === 'tray';
         if (isTray) {
           const slot = this.nextToteSlot();
@@ -4399,26 +4649,15 @@ class RosBridgeService {
     }
 
     if (skill === 'pick') {
-      // Descend end-effector directly to object center height for a snug grip
+      const g = resolvedObj ? this.planGrasp(resolvedObj.id) : null;
+      if (g) return [...this.graspJoints(g, 0), GRIPPER_MAX_OPEN];
       const sol = this.solveDynamicIK(objPos.x, Math.max(objPos.y, this.robotBasePos.y + GRASP_MIN_TCP_HEIGHT), objPos.z);
       return [...sol, GRIPPER_MAX_OPEN]; // descend with the fingers open; closing is a separate, physical act
     }
 
     if (skill === 'place') {
-      const loc = step.params?.target_location;
-      if (loc === 'table' || loc === 'user') {
-        // lower until the held object is just above the surface under the tool (table or handover mat), still holding
-        const heldEntry = this.gripHolding ? this.known().find((o) => o.id === this.gripHolding?.id) : undefined;
-        const half = heldEntry ? OBJECT_HEIGHT[objectKind(heldEntry)] / 2 : 0.04;
-        const surface = this.robotBasePos.y + (loc === 'user' ? MAT.top : 0);
-        const sol = this.solveDynamicIK(here.x, Math.max(surface + half, this.robotBasePos.y + GRASP_MIN_TCP_HEIGHT) + 0.012, here.z);
-        return [...sol, curr[6]]; // keep holding until the release step
-      } else {
-        const slot = this.nextToteSlot();
-        // release just above whatever is already piled there
-        const sol = this.solveDynamicIK(slot.x, Math.max(this.robotBasePos.y + 0.06, this.toteStackTop(slot) + 0.05), slot.z);
-        return [...sol, curr[6]]; // keep holding until the release step
-      }
+      const p = this.placePoint(step);
+      return [...this.solveDynamicIK(p.x, p.y, p.z), curr[6]]; // keep holding until the release step
     }
 
     if (skill === 'open_gripper') {
@@ -4489,34 +4728,60 @@ class RosBridgeService {
     return top;
   }
 
-  /** Where on the handover mat to put the next thing: the centre, or the free part of it furthest from what is there. */
+  /** Reserve a free footprint, using camera observations and memory of our own completed placements. */
   private nextMatSpot(): { x: number; z: number } {
     if (!this.tableSpot) {
-      const onMat = Object.entries(this.perceived)
-        .filter(([id]) => id !== this.gripHolding?.id)
-        .map(([, b]) => b.position)
-        .filter((p) => dropRegion(p.x, p.z) === 'user');
-      const centre = { x: this.handoverPos.x, z: this.handoverPos.z };
+      const occupied = new Map(this.matPlacements);
+      for (const [id, b] of Object.entries(this.perceived)) {
+        if (dropRegion(b.position.x, b.position.z) !== 'user' || occupied.has(id)) continue;
+        const obj = this.known().find(o => o.id === id);
+        occupied.set(id, { ...b.position, radius: obj ? footprintRadius(objectKind(obj)) : 0.04 });
+      }
+      if (this.gripHolding) occupied.delete(this.gripHolding.id);
+      const onMat = [...occupied.values()];
+      const held = this.known().find(o => o.id === this.gripHolding?.id);
+      const radius = held ? footprintRadius(objectKind(held)) : 0.04;
+      const centre = { x: MAT.x0 + radius + 0.008, z: this.handoverPos.z };
       let best = centre;
       let bestScore = -Infinity;
-      for (let x = MAT.x0 + 0.04; x <= MAT.x1 - 0.04; x += 0.02) {
-        for (let z = MAT.z0 + 0.04; z <= MAT.z1 - 0.04; z += 0.02) {
+      let bestClearance = -Infinity;
+      for (let x = MAT.x0 + radius + 0.002; x <= MAT.x1 - radius - 0.001; x += 0.01) {
+        for (let z = MAT.z0 + radius + 0.002; z <= MAT.z1 - radius - 0.001; z += 0.01) {
           if (!checkReach(x, this.robotBasePos.y + 0.04, z, this.robotBasePos).reachable) continue;
-          const gap = onMat.length ? Math.min(...onMat.map((p) => Math.hypot(p.x - x, p.z - z))) : 1;
-          const score = Math.min(gap, 0.1) * 10 - Math.hypot(x - centre.x, z - centre.z);
+          const gap = onMat.length ? Math.min(...onMat.map((p) => Math.hypot(p.x - x, p.z - z) - p.radius - radius)) : 1;
+          const score = Math.min(gap, 0.15) * 10 - Math.hypot(x - centre.x, z - centre.z);
           if (score > bestScore) {
             bestScore = score;
+            bestClearance = gap;
             best = { x: Number(x.toFixed(3)), z: Number(z.toFixed(3)) };
           }
         }
       }
       this.tableSpot = best;
+      this.matSlotBlocked = bestClearance < 0.002;
       this.emitLog({ level: 20, levelName: 'INFO', nodeName: 'motion_planner', message: `[Planner] Handover spot (${best.x.toFixed(2)}, ${best.z.toFixed(2)}) chosen; ${onMat.length} object(s) believed on the mat.` });
     }
     return this.tableSpot;
   }
 
   /** A free spot on the table for something the robot is putting back, judged from what the camera believes is there. */
+  /**
+   * A free table spot about 15 cm to the operator's left or right (scene -x / +x) of where the held object was
+   * picked up, judged from what the camera believes is on the table.
+   */
+  private nextSideSpot(side: 'left' | 'right'): { x: number; z: number } {
+    if (!this.tableSpot) {
+      const from = this.pickOrigin ?? tcpPosition(this.currentJointPositions.slice(0, 6), this.robotBasePos);
+      const taken = Object.entries(this.perceived)
+        .filter(([id]) => id !== this.gripHolding?.id)
+        .map(([, b]) => b.position);
+      const anchor = { x: from.x + (side === 'right' ? 0.15 : -0.15), z: from.z };
+      this.tableSpot = this.findFreeSpot(anchor, taken, true);
+      this.emitLog({ level: 20, levelName: 'INFO', nodeName: 'motion_planner', message: `[Planner] "${side}": picked up at x ${from.x.toFixed(2)} m; free spot at x ${this.tableSpot.x.toFixed(2)}, z ${this.tableSpot.z.toFixed(2)} m.` });
+    }
+    return this.tableSpot;
+  }
+
   private nextTableSpot(): { x: number; z: number } {
     if (!this.tableSpot) {
       const taken = Object.entries(this.perceived)
@@ -4543,80 +4808,146 @@ class RosBridgeService {
   // outcome through the finger-stroke sensor and its camera.
   // ---------------------------------------------------------------------------------------------
 
-  /** Close the fingers. Returns what the stroke sensor reports (holding + width); width 0 = closed on nothing. */
-  private async closeGripper(): Promise<{ holding: boolean; width: number }> {
-    const tcp = tcpPosition(this.currentJointPositions.slice(0, 6), this.robotBasePos);
-    const opening = this.currentJointPositions[6];
-    // --- the world's response ---
-    const hit = findGraspedObject(
-      { x: tcp.x, y: tcp.y, z: tcp.z },
-      this.tabletopObjects
-        .filter((o) => o.state !== 'held')
-        .map((o) => ({ id: o.id, kind: objectKind(o), x: o.position.x, y: o.position.y, z: o.position.z })),
-      opening
-    );
-    const end = hit ? hit.width : 0;
-    for (let f = 1; f <= 10; f++) {
-      const ease = (1 - Math.cos((f / 10) * Math.PI)) / 2;
-      this.currentJointPositions[6] = opening + (end - opening) * ease;
-      this.publishJointState();
-      await this.motionSleep(35);
-    }
-    if (hit) {
-      const obj = this.tabletopObjects.find((o) => o.id === hit.id);
-      if (obj) {
-        this.objectRestY[obj.id] ??= obj.position.y;
-        obj.state = 'held';
-        this.emitObjectEvent({ name: obj.id, state: 'held' });
-      }
-      this.gripHolding = { id: hit.id, width: hit.width };
-      delete this.perceived[hit.id]; // it is in the hand now, not on the table
-    }
-    return { holding: Boolean(hit), width: end };
+  /**
+   * Close the fingers. They drive toward each other at the gripper's speed and stall on whatever is between them,
+   * squeezing with a bounded force. Returns what the gap sensor reads afterwards: a gap that stays open means
+   * something is being held, and how wide it is.
+   */
+  private async closeGripper(force = GRIPPER_FORCE): Promise<{ holding: boolean; width: number }> {
+    await simWorld.ready;
+    simWorld.commandGripper(0, force);
+    await simWorld.gripperSettled();
+    const gap = simWorld.fingerGap;
+    const holding = gap > 0.004;
+    return { holding, width: holding ? gap : 0 };
   }
 
-  /** Open the fingers. Anything held is released and falls to the surface below the tool. */
+  /**
+   * Open the fingers. If the robot was holding something it opens only far enough to let go (so the fingers do not
+   * sweep into neighbours), waits for it to settle, then backs straight up out of the way.
+   */
   private async openGripper(): Promise<void> {
-    const start = this.currentJointPositions[6];
-    for (let f = 1; f <= 10; f++) {
-      const ease = (1 - Math.cos((f / 10) * Math.PI)) / 2;
-      this.currentJointPositions[6] = start + (GRIPPER_MAX_OPEN - start) * ease;
-      this.publishJointState();
-      await this.motionSleep(30);
-    }
+    await simWorld.ready;
     const held = this.gripHolding;
+    const wasSupported = simWorld.tactile.supported;
+    simWorld.commandGripper(held ? Math.min(GRIPPER_MAX_OPEN, held.width + 0.018) : GRIPPER_MAX_OPEN);
+    await simWorld.gripperSettled();
     this.gripHolding = null;
     this.toteSlot = null;
     this.tableSpot = null;
     if (!held) return;
-    // --- the world's response: gravity ---
-    const obj = this.tabletopObjects.find((o) => o.id === held.id);
-    if (!obj) return;
+    await simWorld.sleep(0.35);
     const tcp = tcpPosition(this.currentJointPositions.slice(0, 6), this.robotBasePos);
     const region = dropRegion(tcp.x, tcp.z);
-    // gravity: it falls until it meets the surface, or whatever is already lying there
-    const ownRestY = this.objectRestY[obj.id] ?? obj.position.y;
-    const ownHalf = ownRestY - this.robotBasePos.y;
-    const below = this.tabletopObjects
-      .filter((o) => o.id !== obj.id && o.state !== 'held')
-      .map((o) => ({ x: o.position.x, z: o.position.z, y: o.position.y, height: OBJECT_HEIGHT[objectKind(o)] }));
-    const dropX = Number(tcp.x.toFixed(3));
-    const dropZ = Number(tcp.z.toFixed(3));
-    const pos = { x: dropX, y: settleHeight(this.robotBasePos.y + restLift(region), ownHalf, dropX, dropZ, below), z: dropZ };
-    obj.state = region;
-    obj.position = pos;
-    this.objectPositions[obj.id] = pos;
-    // The robot knows where it just put something (it did the action); the camera will confirm or correct this.
-    this.perceived[obj.id] = { position: { ...pos }, stamp: Date.now(), misses: 0 };
-    this.emitObjectEvent({ name: obj.id, state: region, position: pos });
-    this.emitObjectsChange();
-    this.positionListeners.forEach((cb) => cb({ ...this.objectPositions }));
+    const entry = this.known().find((o) => o.id === held.id);
+    const h = entry ? OBJECT_HEIGHT[objectKind(entry)] : 0.06;
+    if (region === 'user' && wasSupported) this.matPlacements.set(held.id, { x: tcp.x, z: tcp.z, radius: entry ? footprintRadius(objectKind(entry)) : 0.04 });
+    else this.matPlacements.delete(held.id);
+    // The robot assumes the object now lies under where it let go. The camera will confirm or correct this.
+    this.perceived[held.id] = { position: { x: tcp.x, y: this.robotBasePos.y + restLift(region) + h / 2, z: tcp.z }, stamp: Date.now(), misses: 0 };
     this.emitLog({
       level: 20,
       levelName: 'INFO',
       nodeName: 'nora_gripper',
-      message: `[Gripper] Released ${obj.name}: it dropped onto the ${region === 'tray' ? 'storage tray' : region === 'user' ? 'handover mat' : 'table'}.`
+      message: `[Gripper] ${wasSupported ? 'Set down' : 'Released'} ${entry?.name ?? held.id} ${wasSupported ? 'on' : 'over'} the ${region === 'tray' ? 'storage tote' : region === 'user' ? 'handover mat' : 'table'} (finger gap now ${(simWorld.fingerGap * 1000).toFixed(0)} mm).`
     });
+    // back straight up before moving off, so the open fingers do not drag it along
+    await this.moveLinear({ x: tcp.x, y: Math.max(tcp.y + 0.09, this.robotBasePos.y + 0.16), z: tcp.z }, null, { abortable: false, label: 'retreat', speed: 0.5, allow: held.id });
+  }
+
+  /**
+   * Plan a top-down pinch grasp from what the camera measured: tool point over the object's centre, jaw across the
+   * narrow side of its outline, as low as the fingers reach without the palm touching the object's top.
+   */
+  private planGrasp(id: string): { x: number; z: number; tcpY: number; yaw: number | null; minor: number; major: number; height: number; surface: number } | null {
+    const b = this.perceived[id];
+    if (!b) return null;
+    const tableY = this.robotBasePos.y;
+    const entry = this.known().find((o) => o.id === id);
+    const surface = tableY + restLift(dropRegion(b.position.x, b.position.z));
+    const modelHeight = surface - tableY + (entry ? OBJECT_HEIGHT[objectKind(entry)] : 0.06);
+    // A thin rim (an upright glass) can fall between depth pixels and read low, so for an object that looks the
+    // way it stands (outline about as wide as it is long, for round things) the palm is kept clear of whichever
+    // is taller: what the camera measured or this kind's standing height. Something lying on its side has an
+    // elongated outline and a solid top; then the camera's measurement is used as it is.
+    const elongated = b.top ? b.top.major > 1.3 * b.top.minor : false;
+    const lying = elongated && entry !== undefined && ['glass', 'can', 'mug'].includes(objectKind(entry));
+    const height = lying ? b.height ?? modelHeight : Math.max(b.height ?? 0, b.height !== undefined && b.height < modelHeight * 0.6 ? 0 : modelHeight);
+    const top = tableY + height;
+    // the pads reach 19 mm below the tool point and the palm sits 33 mm above it
+    const tcpY = Math.max((surface + top) / 2, top - 0.026, surface + GRASP_MIN_TCP_HEIGHT);
+    const yaw = b.top ? b.top.yaw + Math.PI / 2 : null;
+    const minor = b.top?.minor ?? (entry ? GRASP_WIDTH[objectKind(entry)] : 0.05);
+    // the centre of the measured outline is steadier than a centroid for hollow or thin-rimmed things (a glass rim)
+    return { x: b.top?.x ?? b.position.x, z: b.top?.z ?? b.position.z, tcpY, yaw, minor, major: b.top?.major ?? minor, height, surface };
+  }
+
+  /** Tool-down joint angles for a grasp plan, `above` metres over the grasp point, wrist turned to the planned jaw direction. */
+  private graspJoints(g: { x: number; z: number; tcpY: number; yaw: number | null }, above: number): number[] {
+    const q = this.solveDynamicIK(g.x, g.tcpY + above, g.z);
+    if (g.yaw !== null) q[5] = wristForJawYaw(q, this.robotBasePos, g.yaw);
+    return q;
+  }
+
+  /** Approach from above, then probe down slowly until the held object touches a supporting surface. */
+  private async placeHeldObject(step: PlanStep, execId: number): Promise<boolean> {
+    const held = this.gripHolding;
+    if (!held) return false;
+    const aborted = () => this.isEStopped || this.isCancelled || execId !== this.currentExecutionId;
+    const target = this.placePoint(step);
+    if (step.params?.target_location === 'user' && this.matSlotBlocked) return false;
+    const surface = this.robotBasePos.y + restLift(dropRegion(target.x, target.z));
+    // Keep the fingertips above the fixture even if the camera's height estimate is wrong.
+    const minimumY = Math.max(surface + FINGER_TIP_Z - TCP_OFFSET_Z + 0.001, target.y - 0.03);
+    const name = this.known().find((o) => o.id === held.id)?.name ?? held.id;
+    this.emitArmSpeech({ message: `Setting down ${name}.`, subtext: 'Lowering slowly; waiting for surface contact', type: 'info' });
+    if (!await this.moveLinear({ ...target, y: target.y + 0.008 }, null, { execId, abortable: true, label: 'place approach', speed: 0.25, allow: held.id })) return false;
+    for (let y = target.y + 0.008; y >= minimumY - 1e-6; y = Math.max(minimumY, y - 0.0005)) {
+      if (aborted() || this.gripLost()) return false;
+      if (simWorld.tactile.supported) {
+        await simWorld.sleep(0.2);
+        if (aborted()) return false;
+        if (simWorld.tactile.supported && simWorld.tactile.pinched && simWorld.tactile.slipSpeed < 0.005) {
+          this.emitLog({ level: 20, levelName: 'INFO', nodeName: 'nora_gripper', message: `[Placement] ${name}: supporting surface contact confirmed before opening the fingers.` });
+          await this.openGripper();
+          if (aborted()) return false;
+          this.emitArmSpeech({ message: `Placed ${name}.`, subtext: 'Surface contact confirmed; fingers opened and arm withdrawn', type: 'info' });
+          return true;
+        }
+        // Contact without a stable hold is not permission to open or push farther into the surface.
+        if (simWorld.tactile.supported) return false;
+      }
+      if (y <= minimumY) break;
+      const nextY = Math.max(minimumY, y - 0.0005);
+      if (!await this.moveLinear({ ...target, y: nextY }, null, { execId, abortable: true, label: 'contact descent', speed: 0.1, allow: held.id })) return false;
+    }
+    return false;
+  }
+
+  /** Estimated set-down height; contact sensing makes the final decision to release. */
+  private placePoint(step: PlanStep): { x: number; y: number; z: number } {
+    const tableY = this.robotBasePos.y;
+    const here = tcpPosition(this.currentJointPositions.slice(0, 6), this.robotBasePos);
+    const drop = this.gripHolding?.drop ?? 0.04; // how far the object's underside hangs below the tool point
+    const loc = step.params?.target_location;
+    if (loc === 'table' || loc === 'user' || loc === 'left' || loc === 'right') {
+      // lower until its underside is just above the surface (table or handover mat)
+      const surface = tableY + (loc === 'user' ? MAT.top : 0);
+      return { x: here.x, y: surface + Math.max(drop, GRASP_MIN_TCP_HEIGHT) + 0.004, z: here.z };
+    }
+    const slot = this.nextToteSlot();
+    const stackTop = this.toteStackTop(slot);
+    const floorY = tableY + TOTE.floor;
+    // A corner slot with nothing in it has room for the fingers between the wall and the neighbours, provided
+    // the object itself is not longer than the slot: go down inside the tote and set it on the floor.
+    const cornerSlot = Math.abs(slot.x - TOTE_GEOM.cx) > 0.01;
+    const fits = (this.gripHolding?.major ?? 0.2) / 2 < 0.058;
+    if (cornerSlot && fits && stackTop - floorY < 0.004) {
+      return { x: slot.x, y: floorY + Math.max(drop, GRASP_MIN_TCP_HEIGHT) + 0.004, z: slot.z };
+    }
+    // Approach an occupied slot above the pile and rim; the contact descent will refuse an unsupported release.
+    const rimClear = tableY + TOTE_GEOM.wallH + (FINGER_TIP_Z - TCP_OFFSET_Z) + 0.006;
+    return { x: slot.x, y: Math.max(stackTop + drop + 0.008, rimClear), z: slot.z };
   }
 
   /** Look at where an object is believed to be (from above) and refresh the belief. True if the camera sees it. */
@@ -4637,86 +4968,199 @@ class RosBridgeService {
     return seen.ids.has(id);
   }
 
-  /** Grasp with feedback: descend, close, read the finger stroke; if it closed on nothing or the wrong thing, look again and retry. */
+  /**
+   * Grasp with feedback: look straight down at the object, plan the pinch from what the camera measured, descend,
+   * close, then read the finger gap. If the fingers closed on nothing or on something of the wrong width, look
+   * again and retry. Whether the object actually ends up in the hand is decided by the physics, not here.
+   */
   private async executePick(step: PlanStep, intent: Intent, execId?: number): Promise<boolean> {
     const tid = this.normalizeObjectName(step.targetObject || intent.target_object);
     const entry = tid ? this.known().find((o) => o.id === tid) : undefined; // database entry (what it is), not where it is
     const name = entry?.name ?? (tid ?? 'object');
-    const expectedWidth = entry ? GRASP_WIDTH[objectKind(entry)] : null;
+    const kind = entry ? objectKind(entry) : null;
+    const expectedWidth = kind ? GRASP_WIDTH[kind] : null;
+    const widthTolerance = kind === 'scissors' ? 0.045 : 0.015;
     const aborted = () => this.isEStopped || this.isCancelled || Boolean(execId && execId !== this.currentExecutionId);
+    this.lastGraspFailure = 'the gripper closed on nothing or the wrong object';
+    if (!tid) return false;
     for (let attempt = 1; attempt <= 3; attempt++) {
       if (aborted()) return false;
       if (attempt > 1) {
         this.emitLog({ level: 30, levelName: 'WARN', nodeName: 'nora_gripper', message: `[Gripper] Grasp attempt ${attempt - 1} failed. Looking at ${name} again before retrying.` });
-        if (!(await this.acquireTarget(tid, execId, true))) return false;
-        const b = this.beliefPosition(tid);
-        if (!b) return false;
-        const pre = [...this.solveDynamicIK(b.x, Math.max(b.y, this.robotBasePos.y + GRASP_MIN_TCP_HEIGHT) + 0.12, b.z), GRIPPER_MAX_OPEN];
-        await this.moveAlongPlan(pre, this.buildCollisionWorld(tid), { execId, frameMs: 35, abortable: true, label: 'regrasp_approach' });
+      }
+      // Hand-eye refinement: a grasp is only planned from a look straight down at the object.
+      if (attempt > 1 || !this.perceived[tid]?.refined) {
+        if (!(await this.acquireTarget(tid, execId, true))) {
+          this.lastGraspFailure = 'the camera lost sight of it';
+          return false;
+        }
         if (aborted()) return false;
       }
-      const target = this.getTargetPositionsForSkill('pick', step, intent);
-      await this.moveAlongPlan(target, this.buildCollisionWorld(tid), { execId, frameMs: 45, abortable: true, label: attempt > 1 ? 'pick_retry' : 'pick' });
+      const g = this.planGrasp(tid);
+      if (!g) return false;
+      if (g.minor > GRIPPER_MAX_OPEN - 0.004) {
+        this.lastGraspFailure = `it is ${(g.minor * 1000).toFixed(0)} mm across its narrow side, wider than the ${(GRIPPER_MAX_OPEN * 1000).toFixed(0)} mm jaw`;
+        this.emitLog({ level: 40, levelName: 'ERROR', nodeName: 'nora_gripper', message: `[Grasp] ${name} cannot be grasped from above: ${this.lastGraspFailure}.` });
+        return false;
+      }
+      this.emitLog({
+        level: 20,
+        levelName: 'INFO',
+        nodeName: 'nora_gripper',
+        message: `[Grasp] ${name}: camera measures an outline of ${(g.major * 1000).toFixed(0)} x ${(g.minor * 1000).toFixed(0)} mm, top ${(g.height * 1000).toFixed(0)} mm above the table. Jaw across the narrow side, tool point ${((g.tcpY - g.surface) * 1000).toFixed(0)} mm above the surface.`
+      });
+      simWorld.commandGripper(GRIPPER_MAX_OPEN);
+      await this.moveAlongPlan([...this.graspJoints(g, 0.1), GRIPPER_MAX_OPEN], this.buildCollisionWorld(tid), { execId, abortable: true, label: attempt > 1 ? 'regrasp_approach' : 'pre_grasp' });
+      if (aborted()) return false;
+      await simWorld.gripperSettled();
+      await this.moveLinear({ x: g.x, y: g.tcpY, z: g.z }, g.yaw, { execId, abortable: true, label: attempt > 1 ? 'pick_retry' : 'pick', speed: 0.3, allow: tid });
       if (aborted()) return false;
       const res = await this.closeGripper();
+      if (aborted()) return false;
+      const backOff = async () => {
+        simWorld.commandGripper(GRIPPER_MAX_OPEN);
+        await simWorld.gripperSettled();
+        await this.moveLinear({ x: g.x, y: g.tcpY + 0.1, z: g.z }, g.yaw, { execId, abortable: true, label: 'back_off', allow: tid });
+      };
       if (!res.holding) {
-        this.emitLog({ level: 30, levelName: 'WARN', nodeName: 'nora_gripper', message: '[Gripper] Fingers closed on nothing (stroke 0 mm): the object was not where the camera placed it.' });
-        await this.openGripper();
+        this.emitLog({ level: 30, levelName: 'WARN', nodeName: 'nora_gripper', message: '[Gripper] Fingers closed all the way (gap 0 mm): nothing was between them. The object was not where the camera placed it, or it was knocked away.' });
+        await backOff();
         continue;
       }
-      if (expectedWidth !== null && Math.abs(res.width - expectedWidth) > 0.015) {
+      if (expectedWidth !== null && Math.abs(res.width - expectedWidth) > widthTolerance) {
         this.emitLog({
           level: 30,
           levelName: 'WARN',
           nodeName: 'nora_gripper',
-          message: `[Gripper] Closed on something ${(res.width * 1000).toFixed(0)} mm wide but ${name} should be about ${(expectedWidth * 1000).toFixed(0)} mm: wrong object. Putting it back.`
+          message: `[Gripper] Closed on something ${(res.width * 1000).toFixed(0)} mm wide but ${name} should be about ${(expectedWidth * 1000).toFixed(0)} mm: wrong object or a bad hold. Letting go.`
         });
-        await this.openGripper();
+        await backOff();
         continue;
       }
-      this.emitLog({ level: 20, levelName: 'INFO', nodeName: 'nora_gripper', message: `Grasp confirmed: [${tid}] held, finger stroke ${(res.width * 1000).toFixed(0)} mm.` });
+      this.gripHolding = { id: tid, width: res.width, drop: g.tcpY - g.surface, major: g.major };
+      this.pickOrigin = { x: g.x, z: g.z };
+      this.matPlacements.delete(tid);
+      delete this.perceived[tid]; // it is in the hand now, not on the table
+      this.emitLog({
+        level: 20,
+        levelName: 'INFO',
+        nodeName: 'nora_gripper',
+        message: `Grasp confirmed: [${tid}] held. Fingers stalled at a ${(res.width * 1000).toFixed(1)} mm gap, drive effort ${simWorld.gripEffort.toFixed(0)} N per finger.`
+      });
       return true;
     }
     return false;
   }
 
+  /**
+   * Read the fingertip force sensors once the object hangs from the pads alone, and tell the operator how hard it
+   * is to hold: the squeeze being applied, the load the pads carry by friction, and the smallest squeeze that
+   * would still hold it with these pads.
+   */
+  /**
+   * After a lift, check with the sensors that the object really came up with the gripper, then report the grip.
+   * Returns why the lift failed, or null. Failures are read from the sensors, not decided in advance:
+   *   joint torque at its limit during the lift   -> too heavy for the arm;
+   *   no pad contact any more                     -> it fell out of the fingers;
+   *   pads in contact but the object still rests on something / is not carried by the pads -> the pads slid along it.
+   */
+  private async checkLift(): Promise<string | null> {
+    const held = this.gripHolding;
+    if (!held || !simWorld.isReady) return null;
+    const saturation = this.lastSaturation;
+    await simWorld.sleep(0.35); // let the readings settle after the lift
+    const t = simWorld.tactile;
+    const name = this.known().find((o) => o.id === held.id)?.name ?? held.id;
+    const squeeze = (t.squeezeLeft + t.squeezeRight) / 2;
+    if (saturation && saturation.label === 'lift') {
+      return `too heavy for the arm: joint${saturation.joints.length > 1 ? 's' : ''} ${saturation.joints.map((j) => j + 1).join(' and ')} reached ${(saturation.peakRatio * 100).toFixed(0)}% of rated torque while lifting ${name}`;
+    }
+    if (!t.pinched) return `${name} slipped out of the fingers during the lift (no pad contact)`;
+    if (!t.lifted) {
+      return `${name} did not come up: the pads slid along it (${squeeze.toFixed(0)} N squeeze per finger, slip ${(t.slipSpeed * 1000).toFixed(0)} mm/s). It is too heavy or too slippery for this grip`;
+    }
+    await this.reportGrip(held, name, t, squeeze);
+    return null;
+  }
+
+  private async reportGrip(held: { id: string; width: number }, name: string, t: typeof simWorld.tactile, squeeze: number): Promise<void> {
+    const PAD_FRICTION = 1.6;    const needed = t.carried / (2 * Math.min(PAD_FRICTION, simWorld.padFriction));
+    const margin = squeeze / Math.max(needed, 1e-3);
+    const grade = margin > 12 ? 'easy to hold' : margin > 4 ? 'moderate to hold' : 'hard to hold: close to slipping';
+    const reading = `squeeze ${squeeze.toFixed(1)} N per finger, carrying ${t.carried.toFixed(2)} N (about ${Math.round((t.carried / 9.81) * 1000)} g) by friction`;
+    this.gripReading = { id: held.id, squeeze_n: squeeze, carried_n: t.carried, min_squeeze_n: needed, margin };
+    this.emitLog({
+      level: 20,
+      levelName: 'INFO',
+      nodeName: 'nora_gripper',
+      message: `[Grip sensor] ${name}: ${reading}. Minimum squeeze to hold it: ${needed.toFixed(1)} N per finger, so the grip has ${margin.toFixed(0)}x margin (${grade}). Width ${(held.width * 1000).toFixed(0)} mm.`
+    });
+    this.emitArmSpeech({
+      message: `Holding ${name}: ${grade}.`,
+      subtext: `Grip: ${squeeze.toFixed(1)} N per finger · load ${t.carried.toFixed(1)} N · estimated minimum ${needed.toFixed(1)} N per finger · slip ${(t.slipSpeed * 1000).toFixed(1)} mm/s`,
+      type: 'info'
+    });
+  }
+
+  /** Has the thing the robot believes it is holding slipped out? (The finger gap collapses when it does.) */
+  private gripLost(): boolean {
+    return Boolean(this.gripHolding) && simWorld.isReady && simWorld.fingerGap < Math.max(0.002, (this.gripHolding as { width: number }).width - 0.008);
+  }
+
   private publishJointState(): void {
     const names = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper_joint'];
-    this.jointListeners.forEach((cb) =>
-      cb({ names, positions: [...this.currentJointPositions], timestamp: Date.now() })
-    );
+    const sim = simWorld.isReady && !this.connected;
+    const velocities = sim ? [...simWorld.jointVelocities(), simWorld.fingerGapRate] : undefined;
+    const efforts = sim ? [...simWorld.jointEfforts, simWorld.gripEffort] : undefined;
+    this.jointListeners.forEach((cb) => cb({ names, positions: [...this.currentJointPositions], velocities, efforts, timestamp: Date.now() }));
+  }
+
+  /** MoveIt-style: expose a path on a topic and as a TCP polyline for the 3D view. */
+  private publishPath(
+    label: string,
+    path: number[][],
+    info: { planner: string; ok: boolean; iterations: number; ms: number; clearance: number | null; nearest: string; reason?: string | null }
+  ): void {
+    const tcpPath: [number, number, number][] = [];
+    for (let k = 0; k <= 24; k++) {
+      const p = tcpPosition(samplePath(path, k / 24), this.robotBasePos);
+      tcpPath.push([p.x, p.y, p.z]);
+    }
+    topicBus.publish('/move_group/display_planned_path', 'moveit_msgs/msg/DisplayTrajectory', {
+      label,
+      planner: info.planner,
+      success: info.ok,
+      waypoints: path.length,
+      iterations: info.iterations,
+      planning_time_ms: Number(info.ms.toFixed(2)),
+      min_clearance_m: info.clearance === null ? null : Number(info.clearance.toFixed(4)),
+      nearest_obstacle: info.nearest,
+      reason: info.reason ?? null,
+      tcp_path: tcpPath
+    });
   }
 
   /**
-   * Plan a collision-free joint path to `target` and play it back. Falls back to a direct (unplanned)
-   * move, clearly logged, if no path exists.
+   * Plan a collision-free joint path to `target` and execute it on the joint controllers. Falls back to a direct
+   * (unplanned) move, clearly logged, if no path exists.
    */
   private async moveAlongPlan(
     target: number[],
     world: CollisionWorld,
-    opts: { execId?: number; frameMs: number; abortable: boolean; label: string }
+    opts: { execId?: number; frameMs?: number; abortable: boolean; label: string; speed?: number }
   ): Promise<PlanResult> {
+    await simWorld.ready;
     const start = [...this.currentJointPositions];
     const plan = planJointPath(start.slice(0, 6), target.slice(0, 6), this.robotBasePos, world);
-
-    // MoveIt-style: expose the plan on a topic and as a TCP polyline for the 3D view.
-    const tcpPath: [number, number, number][] = [];
-    const pathForViz = plan.ok ? plan.path : [start.slice(0, 6), target.slice(0, 6)];
-    for (let k = 0; k <= 24; k++) {
-      const p = tcpPosition(samplePath(pathForViz, k / 24), this.robotBasePos);
-      tcpPath.push([p.x, p.y, p.z]);
-    }
-    topicBus.publish('/move_group/display_planned_path', 'moveit_msgs/msg/DisplayTrajectory', {
-      label: opts.label,
+    const path = plan.ok ? plan.path : [start.slice(0, 6), target.slice(0, 6)];
+    this.publishPath(opts.label, path, {
       planner: 'RRTConnect (sim/planner.ts)',
-      success: plan.ok,
-      waypoints: plan.path.length,
+      ok: plan.ok,
       iterations: plan.iterations,
-      planning_time_ms: Number(plan.planningMs.toFixed(2)),
-      min_clearance_m: plan.ok ? Number(plan.minClearance.toFixed(4)) : null,
-      nearest_obstacle: plan.nearest,
-      reason: plan.reason ?? null,
-      tcp_path: tcpPath
+      ms: plan.planningMs,
+      clearance: plan.ok ? plan.minClearance : null,
+      nearest: plan.nearest,
+      reason: plan.reason
     });
 
     if (plan.ok) {
@@ -4735,31 +5179,75 @@ class RosBridgeService {
       });
     }
 
-    const path = plan.ok ? plan.path : [start.slice(0, 6), target.slice(0, 6)];
-    const frames = Math.max(24, Math.min(80, Math.round(pathLength(path) / 0.03)));
-    const gripStart = start[6];
-    const gripEnd = target[6] ?? start[6];
-    const aborted = () =>
-      this.isEStopped || (opts.abortable && (this.isCancelled || (opts.execId && opts.execId !== this.currentExecutionId)));
-
-    for (let f = 1; f <= frames; f++) {
-      if (aborted()) return plan;
-      const ease = (1 - Math.cos((f / frames) * Math.PI)) / 2; // smooth accel / decel
-      this.currentJointPositions = [...samplePath(path, ease), gripStart + (gripEnd - gripStart) * ease];
-      this.publishJointState();
-      await (opts.abortable ? this.delay(opts.frameMs) : this.motionSleep(opts.frameMs));
-      if (aborted()) return plan;
-    }
+    // Fingers: only when this move asks for a different opening, and never while holding something.
+    if (!this.gripHolding && typeof target[6] === 'number' && Math.abs(target[6] - start[6]) > 0.002) simWorld.commandGripper(target[6]);
+    await this.executePath(path, opts);
     return plan;
+  }
+
+  /** Hand a joint path to the trajectory controller and wait until the arm has settled on its end (or was stopped). */
+  private async executePath(path: number[][], opts: { execId?: number; abortable: boolean; label: string; speed?: number }): Promise<boolean> {
+    const aborted = () =>
+      this.isEStopped || (opts.abortable && (this.isCancelled || Boolean(opts.execId && opts.execId !== this.currentExecutionId)));
+    if (aborted()) return false;
+    const res = await simWorld.followPath(path, { speed: opts.speed ?? (this.gripHolding ? 0.45 : 0.6), shouldAbort: aborted });
+    topicBus.publish('/nora/controller/state', 'control_msgs/msg/JointTrajectoryControllerState', {
+      label: opts.label,
+      completed: res.completed,
+      planned_duration_s: Number(res.planned.toFixed(3)),
+      actual_duration_s: Number(res.elapsed.toFixed(3)),
+      peak_tracking_error_rad: Number(res.peakError.toFixed(5)),
+      peak_torque_ratio: Number(res.peakTorqueRatio.toFixed(3)),
+      saturated_joints: res.saturated.map((j) => `joint${j + 1}`)
+    });
+    this.lastSaturation = res.saturated.length ? { label: opts.label, joints: res.saturated, peakRatio: res.peakTorqueRatio } : null;
+    if (res.saturated.length) {
+      const e = simWorld.jointEfforts;
+      this.emitLog({
+        level: 40,
+        levelName: 'ERROR',
+        nodeName: 'joint_controller',
+        message: `[Controller] ${opts.label}: ${res.saturated.map((j) => `joint ${j + 1} at its torque limit (${Math.abs(e[j]).toFixed(0)} of ${JOINT_MAX_TORQUE[j]} N m)`).join(', ')}. Tracking error ${(res.peakError * 1000).toFixed(0)} mrad.`
+      });
+    }
+    return res.completed;
+  }
+
+  /**
+   * Move the tool point in a straight line to `to` with the tool pointing down (approach, lift, set-down, retreat).
+   * `yaw` fixes the jaw direction; null keeps the wrist where it is.
+   */
+  private async moveLinear(
+    to: { x: number; y: number; z: number },
+    yaw: number | null,
+    opts: { execId?: number; abortable: boolean; label: string; speed?: number; allow?: string | null }
+  ): Promise<boolean> {
+    await simWorld.ready;
+    const q0 = this.currentJointPositions.slice(0, 6);
+    const here = tcpPosition(q0, this.robotBasePos);
+    const path = linePath({ x: here.x, y: here.y, z: here.z }, to, this.robotBasePos, yaw, q0[5]);
+    path[0] = q0;
+    const c = pathClearance(path, this.robotBasePos, this.buildCollisionWorld(opts.allow ?? null));
+    this.publishPath(opts.label, path, { planner: 'Cartesian line (IK every 10 mm)', ok: true, iterations: 0, ms: 0, clearance: c.clearance, nearest: c.nearest });
+    // Fingers skimming the table or closing around the target are expected on these moves; anything else is worth a warning.
+    if (c.clearance < 0 && !c.nearest.startsWith('finger') && c.nearest !== 'none') {
+      this.emitLog({ level: 30, levelName: 'WARN', nodeName: 'motion_planner', message: `[Planner] ${opts.label}: the straight-line move brings ${c.nearest.replace('~', ' into contact with ')}.` });
+    }
+    return this.executePath(path, opts);
   }
 
   // Plan a collision-free path for a skill step and execute it, with E-Stop / cancel safety checks.
   private async simulateJointMotion(step: PlanStep, intent: Intent, execId?: number): Promise<void> {
+    const here = tcpPosition(this.currentJointPositions.slice(0, 6), this.robotBasePos);
+    if (step.skill === 'move_to_pose' && step.params?.pose_name === 'lift' && this.gripHolding) {
+      // carrying something: lift straight up from where the tool is
+      await this.moveLinear({ x: here.x, y: Math.max(here.y + 0.1, this.robotBasePos.y + 0.2), z: here.z }, null, { execId, abortable: true, label: 'lift', speed: 0.4 });
+      return;
+    }
     const targetPositions = this.getTargetPositionsForSkill(step.skill, step, intent);
     const world = this.buildCollisionWorld(step.targetObject || intent.target_object);
     await this.moveAlongPlan(targetPositions, world, {
       execId,
-      frameMs: 45,
       abortable: true,
       label: step.skill
     });
@@ -4767,6 +5255,7 @@ class RosBridgeService {
 
   public emergencyStop(): void {
     this.isEStopped = true;
+    simWorld.halt(); // the joints brake to rest; the gripper keeps its grip
 
     // Instantly break any active sleep/delay
     if (this.activeDelayResolver) {
@@ -4920,32 +5409,18 @@ class RosBridgeService {
 
   public async shakeHeadNo(): Promise<void> {
     if (this.isEStopped || this.isCancelled) return;
-    const jointNames = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper_joint'];
     const basePose = [...this.currentJointPositions];
     const j5 = basePose[4] ?? -Math.PI / 2;
 
     // Head-shake refusal: wiggle wrist 2 so the tool sweeps side to side
+    await simWorld.ready;
     const offsets = [0.22, -0.22, 0.16, -0.16, 0.0];
     for (const offset of offsets) {
       if (this.isEStopped || this.isCancelled) return;
-      this.currentJointPositions[4] = j5 + offset;
-      this.jointListeners.forEach((cb) =>
-        cb({
-          names: jointNames,
-          positions: [...this.currentJointPositions],
-          timestamp: Date.now()
-        })
-      );
-      await this.delay(120);
+      const from = this.currentJointPositions.slice(0, 6);
+      const to = [...basePose.slice(0, 4), j5 + offset, basePose[5]];
+      await simWorld.followPath([from, to], { speed: 0.9, shouldAbort: () => this.isEStopped || this.isCancelled });
     }
-    this.currentJointPositions[4] = j5;
-    this.jointListeners.forEach((cb) =>
-      cb({
-        names: jointNames,
-        positions: [...this.currentJointPositions],
-        timestamp: Date.now()
-      })
-    );
   }
 
   private notifyConnection(connected: boolean): void {
@@ -4957,7 +5432,7 @@ class RosBridgeService {
     topicBus.retain('/joint_states', 1800); // ~40 s of motion for the Plots panel
     let lastTf = 0;
     this.jointListeners.add((js) => {
-      topicBus.publish('/joint_states', 'sensor_msgs/msg/JointState', { name: js.names, position: js.positions });
+      topicBus.publish('/joint_states', 'sensor_msgs/msg/JointState', { name: js.names, position: js.positions, velocity: js.velocities ?? [], effort: js.efforts ?? [] });
       const now = performance.now();
       if (now - lastTf < 100) return; // /tf at 10 Hz, derived from forward kinematics
       lastTf = now;
@@ -5010,15 +5485,7 @@ class RosBridgeService {
     // 5. If something is in the gripper, release it: it falls to whatever is below
     if (this.gripHolding) await this.openGripper();
 
-    // Open gripper
-    this.currentJointPositions[6] = 0.03;
-    this.jointListeners.forEach((cb) =>
-      cb({
-        names: ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper_joint'],
-        positions: [...this.currentJointPositions],
-        timestamp: Date.now()
-      })
-    );
+    simWorld.halt();
 
     this.emitLog({
       level: 30,
@@ -5064,24 +5531,22 @@ class RosBridgeService {
       abortable: false,
       label: 'return_home'
     });
-    if (this.isEStopped) return;
-    this.currentJointPositions = [...DESK_LAMP_HOME_JOINTS];
-    this.publishJointState();
   }
 
+  /** Wait for a span of SIMULATED time (the world's clock, which is what motion and settling run on). */
   public motionSleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return simWorld.sleep(ms / 1000);
   }
 
   private delay(ms: number): Promise<void> {
     if (this.isEStopped || this.isCancelled) return Promise.resolve();
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
+      const cancel = simWorld.after(ms / 1000, () => {
         this.activeDelayResolver = null;
         resolve();
-      }, ms);
+      });
       this.activeDelayResolver = () => {
-        clearTimeout(timer);
+        cancel();
         resolve();
       };
     });

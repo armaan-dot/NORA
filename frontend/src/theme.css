@@ -353,7 +353,7 @@ body {
 .fx-legend-val { color: var(--text-main); }
 
 /* ---------- Add object modal ---------- */
-.ao-card { width: min(940px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; background: var(--bg-dark); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 24px 64px rgb(0 0 0 / 0.5); overflow: hidden; }
+.ao-card { width: min(820px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; background: var(--bg-dark); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 16px 48px rgb(0 0 0 / 0.3); overflow: hidden; }
 .ao-header { display: flex; justify-content: space-between; gap: 16px; padding: 20px 24px 16px; border-bottom: 1px solid var(--border-color); }
 .ao-header h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .ao-header p { margin-top: 4px; font-size: 13px; color: var(--text-muted); max-width: 560px; }
@@ -373,8 +373,9 @@ body {
 .ao-segment button:hover { color: var(--text-main); }
 .ao-segment button.on { background: var(--bg-card-hover); color: var(--text-main); box-shadow: 0 0 0 1px var(--border-strong); }
 
-.ao-list { list-style: none; overflow-y: auto; padding: 0 12px 12px 20px; margin-right: 8px; scrollbar-width: thin; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; align-content: start; }
-.ao-item { width: 100%; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius); color: var(--text-main); text-align: left; transition: border-color .12s ease, background .12s ease; }
+.ao-list { list-style: none; overflow-y: auto; max-height: 420px; padding: 0 12px 12px; margin: 0; scrollbar-width: thin; display: grid; grid-template-columns: 1fr; gap: 0; align-content: start; }
+.ao-item { width: 100%; display: flex; align-items: center; gap: 10px; min-height: 37px; padding: 0 10px; background: transparent; border: 0; border-bottom: 1px solid var(--border-color); border-radius: 0; color: var(--text-main); text-align: left; }
+.ao-item.selected { background: var(--bg-card-hover); box-shadow: inset 2px 0 var(--text-main); }
 .ao-item:hover { background: var(--bg-card-hover); border-color: var(--border-strong); }
 .ao-item-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ao-item-meta { font-size: 11px; color: var(--text-dim); }
@@ -394,6 +395,15 @@ body {
 .ao-field > span { font-size: 12px; font-weight: 500; color: var(--text-muted); }
 .ao-field input:not([type="color"]):not([type="checkbox"]) { height: 36px; padding: 0 12px; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: var(--radius); color: var(--text-main); font-size: 13px; outline: 0; }
 .ao-field input:focus { border-color: rgb(var(--accent-rgb) / 0.7); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14); }
+.ao-field select { width: 100%; min-width: 0; height: 36px; padding: 0 10px; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-strong); border-radius: var(--radius); font: inherit; font-size: 13px; }
+.ao-field input[type="color"] { width: 100%; height: 36px; padding: 4px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg-card); cursor: pointer; }
+.ao-form-row { display: grid; grid-template-columns: 1fr 70px; gap: 12px; }
+.ao-properties { display: grid; gap: 7px; margin: 0; padding-top: 14px; border-top: 1px solid var(--border-color); font-size: 12px; }
+.ao-properties > div { display: flex; justify-content: space-between; gap: 12px; }
+.ao-properties dt, .ao-note { color: var(--text-muted); }
+.ao-properties dd { margin: 0; font-family: var(--font-mono); }
+.ao-note { font-size: 11px; line-height: 1.5; margin: -6px 0 0; }
+.ao-card button:focus-visible, .ao-card select:focus-visible { outline: 2px solid var(--text-main); outline-offset: 2px; }
 .ao-shapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .ao-shapes button { height: 34px; display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius); color: var(--text-muted); font-size: 12px; }
 .ao-shapes button:hover { border-color: var(--border-strong); color: var(--text-main); }
@@ -421,14 +431,54 @@ body {
 .ao-footer-actions button:hover:not(:disabled) { background: var(--bg-card-hover); color: var(--text-main); }
 .ao-footer-actions .danger:hover:not(:disabled) { color: var(--red); border-color: rgb(var(--red-rgb) / 0.5); background: rgb(var(--red-rgb) / 0.08); }
 .ao-chips { list-style: none; display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
-.ao-obj { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; height: 28px; padding: 0 4px 0 10px; background: var(--bg-raised); border: 1px solid var(--border-color); border-radius: 999px; font-size: 12px; color: var(--text-main); }
+.ao-obj { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; height: 28px; padding: 0 4px 0 10px; background: transparent; border: 1px solid var(--border-color); border-radius: 3px; font-size: 12px; color: var(--text-main); }
 .ao-obj button { width: 20px; height: 20px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--text-dim); }
 .ao-obj button:hover { background: rgb(var(--red-rgb) / 0.15); color: var(--red); }
 .ao-chips .ao-empty { padding: 4px 0; }
 
 @media (max-width: 760px) {
-  .ao-body { grid-template-columns: 1fr; overflow-y: auto; }
+  .ao-body { display: block; overflow-y: auto; }
+  .ao-header, .ao-footer { flex-shrink: 0; }
+  .ao-side { overflow: visible; }
   .ao-library { border-right: 0; border-bottom: 1px solid var(--border-color); }
   .ao-list { max-height: 280px; }
   .ao-header p { display: none; }
+}
+
+/* Status box: sits under the camera strip instead of covering it; the tag is only red for a refusal. */
+.viewport-speech-bubble { top: 116px; left: 12px; right: auto; max-width: min(560px, calc(100% - 24px)); }
+.viewport-speech-bubble.info .speech-tag { background: transparent; color: var(--text-dim); border-color: var(--border-strong); }
+.speech-grip-reading { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color); color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+.ao-mass { width: 72px; height: 24px; padding: 0 6px; text-align: right; font: inherit; background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-strong); border-radius: var(--radius); }
+.fx-warn { color: var(--amber, #e0a33a); }
+
+/* Command list (catalogue): same frame as the objects dialog, one row per command. */
+.cc-backdrop { display: flex; align-items: center; justify-content: center; }
+.cc-card { width: min(720px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; background: var(--bg-dark); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 16px 48px rgb(0 0 0 / 0.3); overflow: hidden; }
+.cc-header { display: flex; justify-content: space-between; gap: 16px; padding: 20px 24px 14px; border-bottom: 1px solid var(--border-color); }
+.cc-header h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.cc-header p { margin-top: 4px; font-size: 13px; color: var(--text-muted); }
+.cc-close { width: 32px; height: 32px; display: grid; place-items: center; flex-shrink: 0; border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--text-muted); }
+.cc-close:hover { background: var(--bg-card-hover); color: var(--text-main); }
+.cc-controls { display: flex; flex-direction: column; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--border-color); }
+.cc-search { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: var(--radius); color: var(--text-dim); }
+.cc-search:focus-within { border-color: rgb(var(--accent-rgb) / 0.7); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14); }
+.cc-search input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--text-main); font-size: 13px; }
+.cc-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.cc-filters button { height: 28px; padding: 0 10px; border: 1px solid var(--border-color); border-radius: var(--radius); background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 500; }
+.cc-filters button:hover { color: var(--text-main); }
+.cc-filters button.on { background: var(--bg-card-hover); color: var(--text-main); border-color: var(--border-strong); }
+.cc-list { list-style: none; margin: 0; padding: 4px 24px 16px; overflow-y: auto; min-height: 0; flex: 1; }
+.cc-row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border-color); }
+.cc-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cc-command { font-size: 13.5px; font-weight: 500; color: var(--text-main); overflow-wrap: anywhere; }
+.cc-does { font-size: 12.5px; line-height: 1.45; color: var(--text-muted); }
+.cc-run { flex-shrink: 0; height: 30px; padding: 0 14px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: transparent; color: var(--text-main); font-size: 12.5px; font-weight: 500; }
+.cc-run:hover { background: var(--bg-card-hover); }
+.cc-empty { padding: 24px 0; color: var(--text-dim); font-size: 13px; }
+.cc-card button:focus-visible { outline: 2px solid var(--text-main); outline-offset: 2px; }
+@media (max-width: 520px) {
+  .cc-header, .cc-controls { padding-left: 16px; padding-right: 16px; }
+  .cc-list { padding: 4px 16px 12px; }
+  .cc-row { gap: 10px; }
 }

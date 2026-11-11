@@ -308,7 +308,7 @@
   </joint>
 
   <!-- ================= Parallel-jaw gripper (gripper_link) ========= -->
-  <!-- TCP (between finger pads) is at z = 0.11 in this frame -->
+  <!-- TCP (between finger pads) is at z = 0.115 in this frame. gripper_joint = distance between the pad faces. -->
   <link name="gripper_link">
     <!-- coupling -->
     <visual>
@@ -347,7 +347,7 @@
   <joint name="left_finger_joint" type="prismatic">
     <parent link="gripper_link"/>
     <child link="left_finger_link"/>
-    <origin xyz="-0.012 0 0.082" rpy="0 0 0"/>
+    <origin xyz="-0.0055 0 0.082" rpy="0 0 0"/>
     <axis xyz="1 0 0"/>
     <limit lower="-0.05" upper="0.0" effort="50.0" velocity="0.15"/>
     <mimic joint="gripper_joint" multiplier="-0.5" offset="0"/>
@@ -361,7 +361,7 @@
     </visual>
     <visual>
       <origin xyz="0.0035 0 0.034" rpy="0 0 0"/>
-      <geometry><box size="0.004 0.026 0.032"/></geometry>
+      <geometry><box size="0.004 0.026 0.036"/></geometry>
       <material name="gripper_pad"/>
     </visual>
     <collision>
@@ -373,7 +373,7 @@
   <joint name="right_finger_joint" type="prismatic">
     <parent link="gripper_link"/>
     <child link="right_finger_link"/>
-    <origin xyz="0.012 0 0.082" rpy="0 0 0"/>
+    <origin xyz="0.0055 0 0.082" rpy="0 0 0"/>
     <axis xyz="1 0 0"/>
     <limit lower="0.0" upper="0.05" effort="50.0" velocity="0.15"/>
     <mimic joint="gripper_joint" multiplier="0.5" offset="0"/>
@@ -387,7 +387,7 @@
     </visual>
     <visual>
       <origin xyz="-0.0035 0 0.034" rpy="0 0 0"/>
-      <geometry><box size="0.004 0.026 0.032"/></geometry>
+      <geometry><box size="0.004 0.026 0.036"/></geometry>
       <material name="gripper_pad"/>
     </visual>
     <collision>

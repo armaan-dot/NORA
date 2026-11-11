@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { ARM_CAPSULES, FRAME_COUNT, forwardKinematics, type BasePose } from './kinematics';
+import { TABLE, toteBoxes } from './physics';
 
 export interface WorldSphere {
   id: string;
@@ -50,14 +51,8 @@ export function buildWorld(objects: WorldObject[], opts: WorldOptions): Collisio
     spheres,
     floorY: 0,
     boxes: [
-      // tabletop slab (1.3 x 0.03 x 0.9)
-      { id: 'table', min: new THREE.Vector3(-0.65, top - 0.03, -0.45), max: new THREE.Vector3(0.65, top, 0.45) },
-      // storage tote: 5 mm floor and four 5 mm walls, 0.035 high, centred at (-0.05, -0.24)
-      { id: 'tote_floor', min: new THREE.Vector3(-0.14, top, -0.33), max: new THREE.Vector3(0.04, top + 0.005, -0.15) },
-      { id: 'tote_wall', min: new THREE.Vector3(-0.14, top, -0.33), max: new THREE.Vector3(0.04, top + 0.035, -0.325) },
-      { id: 'tote_wall', min: new THREE.Vector3(-0.14, top, -0.155), max: new THREE.Vector3(0.04, top + 0.035, -0.15) },
-      { id: 'tote_wall', min: new THREE.Vector3(-0.14, top, -0.33), max: new THREE.Vector3(-0.135, top + 0.035, -0.15) },
-      { id: 'tote_wall', min: new THREE.Vector3(0.035, top, -0.33), max: new THREE.Vector3(0.04, top + 0.035, -0.15) }
+      { id: 'table', min: new THREE.Vector3(-TABLE.halfX, top - TABLE.thickness, -TABLE.halfZ), max: new THREE.Vector3(TABLE.halfX, top, TABLE.halfZ) },
+      ...toteBoxes().map(({ name, box }) => ({ id: name, min: new THREE.Vector3(box[0], top + box[2], box[4]), max: new THREE.Vector3(box[1], top + box[3], box[5]) }))
     ]
   };
 }

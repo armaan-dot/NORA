@@ -1,95 +1,75 @@
 /**
- * The simulated world's physical rules. These belong to the WORLD, not to the robot: the robot's control
- * code never calls them to decide anything. It acts (close the gripper, open the gripper) and the world
- * answers with what physically happened, which the robot can only observe through its sensors
- * (finger stroke) and its camera.
+ * Workspace layout and object-database facts shared by the world and the robot.
+ *
+ * Nothing in here decides what physically happens: that is the rigid-body simulation in world.ts. These are the
+ * fixture dimensions the workcell was built to (used to build the colliders, the meshes, the planner's obstacle
+ * boxes and the camera's fixture mask), plus what the robot has been told about each kind of object.
  */
 import type { ObjectKind } from './objectMeshes';
+import { BOOK } from './objectPhysics';
 
-/** Width of each object between the finger pads when grasped from above (m). */
+/** Expected width between the finger pads when each kind is grasped across its narrow side (m). */
 export const GRASP_WIDTH: Record<ObjectKind, number> = {
   cube: 0.06,
-  book: 0.022,
-  ruler: 0.011,
-  eraser: 0.02,
+  book: BOOK.D,
+  ruler: 0.026,
+  eraser: 0.022,
   can: 0.07,
   sphere: 0.07,
   orange: 0.072,
-  apple: 0.072,
+  apple: 0.074,
   tennis_ball: 0.067,
-  mug: 0.076,
-  glass: 0.065,
+  mug: 0.075,
+  glass: 0.067,
   pen: 0.0095,
-  scissors: 0.012,
+  scissors: 0.02,
   stapler: 0.03
 };
 
 /** Overall height of each object lying/standing in its normal pose (m). */
 export const OBJECT_HEIGHT: Record<ObjectKind, number> = {
-  cube: 0.06, book: 0.022, ruler: 0.011, eraser: 0.02, can: 0.09, sphere: 0.07, orange: 0.072, apple: 0.072,
-  tennis_ball: 0.067, mug: 0.085, glass: 0.11, pen: 0.011, scissors: 0.012, stapler: 0.03
+  cube: 0.06, book: BOOK.H, ruler: 0.011, eraser: 0.021, can: 0.09, sphere: 0.07, orange: 0.072, apple: 0.066,
+  tennis_ball: 0.067, mug: 0.085, glass: 0.11, pen: 0.011, scissors: 0.012, stapler: 0.027
 };
 
-export const GRIPPER_MAX_OPEN = 0.085; // total finger stroke (m)
+/** Parallel-jaw gripper: distance between the pads when fully open (m), and its drive limits. */
+export const GRIPPER_MAX_OPEN = 0.085;
+export const GRIPPER_SPEED = 0.11; // m/s, gap closing rate
+export const GRIPPER_FORCE = 25; // N per finger
 
-/**
- * Where a dropped object comes to rest vertically: on its surface, or on top of whatever is already there.
- * `below` are the other objects lying in the same area; `ownHalf` is half its own height above the surface.
- */
-export function settleHeight(
-  surfaceY: number,
-  ownHalf: number,
-  x: number,
-  z: number,
-  below: { x: number; z: number; y: number; height: number }[]
-): number {
-  let top = surfaceY;
-  for (const b of below) {
-    if (Math.hypot(b.x - x, b.z - z) < 0.045) top = Math.max(top, b.y + b.height / 2);
-  }
-  return top + ownHalf;
-}
+/** Finger geometry in the gripper frame (m): pads run from PAD_TOP_Z to the fingertip. */
+export const FINGER_TIP_Z = 0.134;
+export const FINGER_ROOT_Z = 0.082;
 
-export interface WorldObjectState {
-  id: string;
-  kind: ObjectKind;
-  x: number;
-  y: number;
-  z: number;
-}
+// ---- fixtures ----
 
-/** How far off-centre the tool point may be and still close on the object (m). */
-export function graspTolerance(width: number, opening: number): number {
-  const slack = Math.max(0, (opening - width) / 2);
-  return Math.min(0.035, Math.max(0.012, slack + 0.01));
-}
+/** Storage tote: open plastic bin, outer `size` square, `wall` thick, `wallH` tall, centred at (cx, cz). */
+export const TOTE_GEOM = { cx: -0.03, cz: -0.28, size: 0.27, wall: 0.005, wallH: 0.04 };
 
-/**
- * What does the gripper close on? The nearest object whose centre is inside the grasp envelope around the
- * tool point and which fits between the open fingers. Returns null if the fingers close on air.
- */
-export function findGraspedObject(
-  tcp: { x: number; y: number; z: number },
-  objects: WorldObjectState[],
-  opening: number
-): { id: string; width: number; offset: number } | null {
-  let best: { id: string; width: number; offset: number } | null = null;
-  for (const o of objects) {
-    const width = GRASP_WIDTH[o.kind];
-    if (width > opening + 0.003) continue; // does not fit between the open fingers
-    const horizontal = Math.hypot(o.x - tcp.x, o.z - tcp.z);
-    const vertical = Math.abs(o.y - tcp.y);
-    if (horizontal > graspTolerance(width, opening) || vertical > 0.035) continue;
-    if (!best || horizontal < best.offset) best = { id: o.id, width, offset: horizontal };
-  }
-  return best;
-}
-
-// ---- where things come to rest ----
-
-/** Storage tote interior (scene metres) and handover mat; both are fixtures of the workspace. */
-export const TOTE = { x0: -0.135, x1: 0.035, z0: -0.325, z1: -0.155, floor: 0.005 };
+const half = TOTE_GEOM.size / 2;
+/** Tote interior (scene metres) and the handover mat. */
+export const TOTE = {
+  x0: TOTE_GEOM.cx - half + TOTE_GEOM.wall,
+  x1: TOTE_GEOM.cx + half - TOTE_GEOM.wall,
+  z0: TOTE_GEOM.cz - half + TOTE_GEOM.wall,
+  z1: TOTE_GEOM.cz + half - TOTE_GEOM.wall,
+  floor: TOTE_GEOM.wall
+};
 export const MAT = { x0: -0.03, x1: 0.19, z0: 0.2, z1: 0.36, top: 0.004 };
+export const TABLE = { halfX: 0.65, halfZ: 0.45, thickness: 0.03 };
+
+/** The tote's floor and four walls as boxes [x0, x1, y0, y1, z0, z1], heights relative to the table top. */
+export function toteBoxes(): { name: string; box: [number, number, number, number, number, number] }[] {
+  const { cx, cz, wall, wallH } = TOTE_GEOM;
+  const x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
+  return [
+    { name: 'tote_floor', box: [x0, x1, 0, wall, z0, z1] },
+    { name: 'tote_wall', box: [x0, x1, 0, wallH, z0, z0 + wall] },
+    { name: 'tote_wall', box: [x0, x1, 0, wallH, z1 - wall, z1] },
+    { name: 'tote_wall', box: [x0, x0 + wall, 0, wallH, z0, z1] },
+    { name: 'tote_wall', box: [x1 - wall, x1, 0, wallH, z0, z1] }
+  ];
+}
 
 export type RestRegion = 'tray' | 'user' | 'table';
 
@@ -99,19 +79,20 @@ export function dropRegion(x: number, z: number): RestRegion {
   return 'table';
 }
 
-/** Height added to an object's table-resting height by the surface it lands on. */
+/** Height of each region's surface above the table top. */
 export const restLift = (region: RestRegion): number => (region === 'tray' ? TOTE.floor : region === 'user' ? MAT.top : 0);
 
 /**
- * Candidate drop spots inside the tote: a 2x2 grid spaced for 7 cm objects (a tennis ball or a mug fits each
- * quarter without touching its neighbours or the walls), then the middle, where later objects start to pile up.
+ * Candidate drop spots inside the tote: a 2x2 grid, spaced so the open gripper fits between neighbours and the
+ * walls, then the middle, where later objects start to pile up.
  */
+const S = 0.065;
 const TOTE_SLOTS = [
-  { x: -0.092, z: -0.198 },
-  { x: -0.008, z: -0.282 },
-  { x: -0.008, z: -0.198 },
-  { x: -0.092, z: -0.282 },
-  { x: -0.05, z: -0.24 }
+  { x: TOTE_GEOM.cx - S, z: TOTE_GEOM.cz + S },
+  { x: TOTE_GEOM.cx + S, z: TOTE_GEOM.cz - S },
+  { x: TOTE_GEOM.cx + S, z: TOTE_GEOM.cz + S },
+  { x: TOTE_GEOM.cx - S, z: TOTE_GEOM.cz - S },
+  { x: TOTE_GEOM.cx, z: TOTE_GEOM.cz }
 ];
 
 /** The free spot furthest from what is already in the tote (as the robot believes it). */

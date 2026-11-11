@@ -56,6 +56,9 @@ const JOINT_DEFS = [
 ];
 const GRIPPER_MOUNT = makeOrigin([0, 0, GRIPPER_MOUNT_Z]);
 
+/** Rotation axis of joint i, in the frame of link i+1 (the frame forwardKinematics returns at index i+1). */
+export const JOINT_AXES: THREE.Vector3[] = JOINT_DEFS.map((d) => d.axis.clone());
+
 /** Frames: 0 base_link, 1..6 link1..link6, 7 gripper_link (scene coordinates). */
 export const FRAME_COUNT = 8;
 const SHARED_FRAMES: THREE.Matrix4[] = Array.from({ length: FRAME_COUNT }, () => new THREE.Matrix4());
@@ -137,8 +140,72 @@ export function computeMaxTableReach(): number {
 
 export const MAX_TABLE_REACH = computeMaxTableReach();
 
-/** Lowest TCP height above the table for a grasp: keeps the fingertips just clear of the surface (m). */
-export const GRASP_MIN_TCP_HEIGHT = 0.027;
+/** Lowest TCP height above a surface for a grasp: the fingertips (19 mm below the TCP) stay 2 mm clear of it (m). */
+export const GRASP_MIN_TCP_HEIGHT = 0.021;
+
+/** UR5e joint speed limits (rad/s) and the acceleration limits the controller plans within (rad/s^2). */
+export const JOINT_MAX_VELOCITY = [3.14, 3.14, 3.14, 3.14, 3.14, 3.14];
+export const JOINT_MAX_ACCELERATION = [8, 8, 10, 16, 16, 16];
+
+/** UR5e rated joint torques (N m): size-3 drives on the base, shoulder and elbow, size-1 on the wrists. */
+export const JOINT_MAX_TORQUE = [150, 150, 150, 28, 28, 28];
+
+/** UR5e link masses (kg) for links 1..6 (published dynamics parameters), and the gripper (frame 7, a 2F-85 class gripper). */
+export const LINK_MASSES = [3.761, 8.058, 2.846, 1.37, 1.3, 0.365, 0.925];
+
+/**
+ * Inertia the motor sees through its gearbox even with no load (kg m^2): rotor inertia times the gear ratio squared.
+ * Not published by UR; these are typical for 100:1 harmonic drives of these sizes. Documented approximation.
+ */
+export const JOINT_REFLECTED_INERTIA = [1.5, 1.5, 1.0, 0.25, 0.25, 0.25];
+
+const _jaw = new THREE.Vector3();
+
+/** World direction of the gripper's jaw axis (the line the fingers move along), as an angle atan2(z, x). */
+export function jawYaw(q: number[], base: BasePose): number {
+  const frames = forwardKinematics(q, base);
+  _jaw.set(1, 0, 0).transformDirection(frames[7]);
+  return Math.atan2(_jaw.z, _jaw.x);
+}
+
+/**
+ * Wrist-3 angle that lines the jaw axis up with `yaw` (atan2(z, x) in the scene) for a tool-down pose `q`.
+ * The jaw is symmetric, so the smaller of the two equivalent rotations is returned.
+ */
+export function wristForJawYaw(q: number[], base: BasePose, yaw: number, near = 0): number {
+  const q0 = [q[0], q[1], q[2], q[3], q[4], 0];
+  const a0 = jawYaw(q0, base);
+  q0[5] = 0.1;
+  const sign = Math.sin(jawYaw(q0, base) - a0) >= 0 ? 1 : -1; // which way wrist 3 turns the jaw
+  const d = sign * (yaw - a0) - near;
+  return near + ((((d + Math.PI / 2) % Math.PI) + Math.PI) % Math.PI) - Math.PI / 2;
+}
+
+/**
+ * Joint waypoints that carry the TCP along a straight line in space with the tool pointing down (a joint-space
+ * interpolation between the two end poses would bow sideways by centimetres). `yaw` fixes the jaw direction in
+ * the scene; null keeps wrist 3 at `wrist`.
+ */
+export function linePath(
+  from: { x: number; y: number; z: number },
+  to: { x: number; y: number; z: number },
+  base: BasePose,
+  yaw: number | null,
+  wrist = 0,
+  spacing = 0.01
+): number[][] {
+  const n = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) / spacing));
+  const out: number[][] = [];
+  let prev = wrist;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const q = solveIK(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t, from.z + (to.z - from.z) * t, base);
+    q[5] = yaw === null ? wrist : wristForJawYaw(q, base, yaw, prev);
+    prev = q[5];
+    out.push(q);
+  }
+  return out;
+}
 
 /** Collision capsules in link-local coordinates (metres). `rBox` is the (smaller) radius used against the table, tote and floor. */
 export interface LocalCapsule {

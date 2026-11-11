@@ -8,9 +8,14 @@
     "build": "node scripts/build-nlu-model.mjs && tsc -b && vite build",
     "preview": "vite preview",
     "build:nlu": "node scripts/build-nlu-model.mjs",
-    "train:vision": "node scripts/train-vision.mjs"
+    "train:vision": "node scripts/train-vision.mjs",
+    "test:physics": "esbuild scripts/physics-test.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/physics-test.mjs --log-level=warning && node node_modules/.cache/physics-test.mjs",
+    "test:placement": "esbuild scripts/placement-check.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/placement-check.mjs --log-level=warning && node node_modules/.cache/placement-check.mjs",
+    "test:scenarios": "esbuild scripts/scenario-check.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/scenario-check.mjs --log-level=warning && node node_modules/.cache/scenario-check.mjs",
+    "test:sensors": "esbuild scripts/tactile-check.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/tactile-check.mjs --log-level=warning && node node_modules/.cache/tactile-check.mjs"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
     "@techstark/opencv-js": "^4.12.0-release.1",
     "lucide-react": "^0.469.0",
     "react": "^18.3.1",

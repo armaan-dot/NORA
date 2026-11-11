@@ -15,6 +15,7 @@
 import * as THREE from 'three';
 import { ALL_KINDS, KIND_GROUP, objectKind, type ObjectKind } from './objectMeshes';
 import type { CameraFrame } from './wristCamera';
+import { TOTE_GEOM, toteBoxes } from './physics';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type CV = any;
@@ -39,6 +40,11 @@ export interface Recognition {
   extent: { major: number; minor: number; height: number };
   /** True if the region touches the image border, so its shape is incomplete. */
   truncated: boolean;
+  /**
+   * Smallest rectangle (on the table plane) around the object's top surface: its long-axis direction as an angle
+   * atan2(z, x) in the scene, and its side lengths (m). This is what a grasp is planned from.
+   */
+  top: { yaw: number; major: number; minor: number; x: number; z: number };
 }
 
 /** A recognition matched to a named object in the object database. */
@@ -262,17 +268,14 @@ const BASE_KEEP_OUT = 0.14; // robot base footprint radius
 const MIN_AREA_PX = 14;
 
 /**
- * Known workspace fixtures (calibration data, like the robot base): the storage tote's 5 mm walls, 3.5 cm tall.
+ * Known workspace fixtures (calibration data, like the robot base): the storage tote's 5 mm walls.
  * Pixels on top of a wall are ignored so an object resting against one is not merged with it.
  * Rectangles are [x0, x1, z0, z1] in scene metres, already grown by 4 mm.
  */
-const FIXTURE_WALLS: [number, number, number, number][] = [
-  [-0.144, 0.044, -0.334, -0.321], // far wall
-  [-0.144, 0.044, -0.159, -0.146], // near wall
-  [-0.144, -0.131, -0.334, -0.146], // left wall
-  [0.031, 0.044, -0.334, -0.146] // right wall
-];
-const FIXTURE_TOP = 0.04; // wall height + margin (m above the table)
+const FIXTURE_WALLS: [number, number, number, number][] = toteBoxes()
+  .filter((b) => b.name === 'tote_wall')
+  .map(({ box }) => [box[0] - 0.004, box[1] + 0.004, box[4] - 0.004, box[5] + 0.004]);
+const FIXTURE_TOP = TOTE_GEOM.wallH + 0.005; // wall height + margin (m above the table)
 const onFixture = (x: number, z: number, h: number) =>
   h <= FIXTURE_TOP && FIXTURE_WALLS.some(([x0, x1, z0, z1]) => x >= x0 && x <= x1 && z >= z0 && z <= z1);
 
@@ -556,6 +559,51 @@ export async function describeRegions(frame: CameraFrame, cfg: VisionConfig): Pr
       }
       const flatTop = tn / n;
 
+      // smallest enclosing rectangle of the top surface (what the fingers have to fit around)
+      const topPts: number[] = [];
+      const stride = Math.max(1, Math.floor(tn / 300));
+      let seenTop = 0;
+      for (const i of px) {
+        if (hgt[i] < hmax - 0.012) continue;
+        if (seenTop++ % stride === 0) topPts.push(wx[i], wz[i]);
+      }
+      const rectAt = (ang: number) => {
+        const c = Math.cos(ang);
+        const sn = Math.sin(ang);
+        let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+        for (let k = 0; k < topPts.length; k += 2) {
+          const a = topPts[k] * c + topPts[k + 1] * sn;
+          const b = -topPts[k] * sn + topPts[k + 1] * c;
+          if (a < a0) a0 = a;
+          if (a > a1) a1 = a;
+          if (b < b0) b0 = b;
+          if (b > b1) b1 = b;
+        }
+        return { along: a1 - a0, across: b1 - b0, ca: (a0 + a1) / 2, cb: (b0 + b1) / 2 };
+      };
+      let bestAng = 0;
+      let bestRect = topPts.length >= 6 ? rectAt(0) : { along: major, across: minor, ca: mx, cb: mz };
+      if (topPts.length >= 6) {
+        const search = (from: number, to: number, step: number) => {
+          for (let ang = from; ang < to; ang += step) {
+            const r = rectAt(ang);
+            if (r.along * r.across < bestRect.along * bestRect.across) {
+              bestRect = r;
+              bestAng = ang;
+            }
+          }
+        };
+        search(0, Math.PI / 2, Math.PI / 60);
+        search(bestAng - Math.PI / 60, bestAng + Math.PI / 60, Math.PI / 360);
+      }
+      // rectangle centre back in scene coordinates
+      const rcx = bestRect.ca * Math.cos(bestAng) - bestRect.cb * Math.sin(bestAng);
+      const rcz = bestRect.ca * Math.sin(bestAng) + bestRect.cb * Math.cos(bestAng);
+      const topRect =
+        bestRect.along >= bestRect.across
+          ? { yaw: bestAng, major: bestRect.along, minor: bestRect.across, x: rcx, z: rcz }
+          : { yaw: bestAng + Math.PI / 2, major: bestRect.across, minor: bestRect.along, x: rcx, z: rcz };
+
       // colour + texture from interior pixels only (edges blend with the table)
       const inner: number[] = [];
       for (const i of px) {
@@ -609,7 +657,8 @@ export async function describeRegions(frame: CameraFrame, cfg: VisionConfig): Pr
         bbox: [left, top, left + bw - 1, top + bh - 1],
         depthM: dsum / n,
         extent: { major, minor, height: hmax },
-        truncated
+        truncated,
+        top: topRect
       };
       regions.push({ features, pixels: Int32Array.from(px), rec });
     }
