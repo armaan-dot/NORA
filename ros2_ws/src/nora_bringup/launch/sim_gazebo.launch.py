@@ -6,12 +6,13 @@ Starts:
   2. ros2_control inside Gazebo: joint_state_broadcaster, arm_controller (FollowJointTrajectory),
      gripper_controller (GripperCommand).
   3. MoveIt move_group (OMPL + Cartesian paths), which sends trajectories to arm_controller.
-  4. arm_commander: takes /nora/command, spawns the scene objects, publishes markers for Foxglove.
-  5. NLU node (English -> intent) and foxglove_bridge (port 8765).
+  4. camera_perception: finds the objects on the table from the wrist RGB-D camera.
+  5. arm_commander: takes /nora/command (English), spawns the scene objects, publishes markers for Foxglove.
+  6. NLU node (English -> intent) and foxglove_bridge (port 8765).
 
   ros2 launch nora_bringup sim_gazebo.launch.py
   ros2 launch nora_bringup sim_gazebo.launch.py gui:=true          # also open the Gazebo window
-  ros2 launch nora_bringup sim_gazebo.launch.py camera:=true       # also render the wrist camera image
+  ros2 launch nora_bringup sim_gazebo.launch.py camera:=false perception:=ground_truth   # no rendering (test only)
   ros2 launch nora_bringup sim_gazebo.launch.py scene:=/path/to/scene.json
 
 For a real arm: replace the hardware plugin in nora_description/urdf/ros2_control.xacro with the arm's
@@ -42,7 +43,7 @@ def generate_launch_description() -> LaunchDescription:
     moveit_pkg = get_package_share_directory("nora_moveit_config")
 
     urdf = xacro.process_file(
-        os.path.join(description_pkg, "urdf", "nora_arm.urdf.xacro"), mappings={"sim_gazebo": "true", "sim_camera": "true" if "camera:=true" in sys.argv else "false"}
+        os.path.join(description_pkg, "urdf", "nora_arm.urdf.xacro"), mappings={"sim_gazebo": "true", "sim_camera": "false" if "camera:=false" in sys.argv else "true"}
     ).toxml()
     # gazebo_ros2_control on Humble passes the URDF as a command-line parameter; XML comments can break that.
     urdf = re.sub(r"<!--.*?-->", "", urdf, flags=re.DOTALL)
@@ -141,7 +142,12 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             DeclareLaunchArgument("gui", default_value="false", description="Open the Gazebo window"),
-            DeclareLaunchArgument("camera", default_value="false", description="Render the wrist camera (needs OpenGL)"),
+            DeclareLaunchArgument("camera", default_value="true", description="Render the wrist RGB-D camera (needs OpenGL)"),
+            DeclareLaunchArgument(
+                "perception",
+                default_value="camera",
+                description="camera, or ground_truth (test only: object poses from Gazebo, for machines that cannot render)",
+            ),
             DeclareLaunchArgument("nlu", default_value="true", description="Start the NLU node for English commands"),
             DeclareLaunchArgument(
                 "nlu_model",
@@ -175,6 +181,12 @@ def generate_launch_description() -> LaunchDescription:
                 executable="arm_commander.py",
                 output="screen",
                 parameters=[{"scene_file": LaunchConfiguration("scene")}, sim_time],
+            ),
+            Node(
+                package="nora_bringup",
+                executable="camera_perception.py",
+                output="screen",
+                parameters=[{"scene_file": LaunchConfiguration("scene"), "source": LaunchConfiguration("perception")}, sim_time],
             ),
             Node(
                 package="nora_nlu_node",

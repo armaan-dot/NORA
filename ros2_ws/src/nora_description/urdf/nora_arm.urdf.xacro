@@ -25,8 +25,8 @@
   ==================================================================== -->
   <!-- true: joints are driven by Gazebo (gazebo_ros2_control). false: ros2_control mock hardware. -->
   <xacro:arg name="sim_gazebo" default="false"/>
-  <!-- true: Gazebo also renders the wrist camera. Needs working OpenGL; leave off on weak machines. -->
-  <xacro:arg name="sim_camera" default="false"/>
+  <!-- true: Gazebo renders the wrist RGB-D camera (needs working OpenGL). Perception depends on it. -->
+  <xacro:arg name="sim_camera" default="true"/>
 
   <xacro:include filename="$(find nora_description)/urdf/materials.xacro"/>
   <xacro:include filename="$(find nora_description)/urdf/ros2_control.xacro"/>
@@ -465,8 +465,8 @@
 
     <xacro:if value="$(arg sim_camera)">
     <gazebo reference="camera_sim_frame">
-      <sensor type="camera" name="wrist_camera">
-        <update_rate>15</update_rate>
+      <sensor type="depth" name="wrist_camera">
+        <update_rate>5</update_rate>
         <camera>
           <horizontal_fov>1.2</horizontal_fov>
           <image><width>640</width><height>480</height><format>R8G8B8</format></image>
@@ -476,6 +476,8 @@
           <ros><namespace>/camera</namespace></ros>
           <camera_name>color</camera_name>
           <frame_name>camera_sim_optical_frame</frame_name>
+          <min_depth>0.02</min_depth>
+          <max_depth>3.0</max_depth>
         </plugin>
       </sensor>
     </gazebo>

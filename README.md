@@ -318,9 +318,11 @@ Objects added this way are replaced the next time the scene file is saved.
 This is the path to a physical arm. There is no web simulator in the loop: Gazebo simulates the arm and the objects, and everything that moves the arm is a standard ROS 2 interface.
 
 ```
-/nora/command (String)
-  -> arm_commander            nora_bringup/scripts/arm_commander.py
-       -> MoveIt move_group   plans (OMPL, Cartesian paths)
+/nora/command (String, English)
+  -> arm_commander              nora_bringup/scripts/arm_commander.py
+       -> NLU node              /nora/parse_command: what is being asked ("I am thirsty" -> bring water)
+       <- camera_perception     /nora/perception/detections: where the objects are, from the wrist RGB-D camera
+       -> MoveIt move_group     plans (Cartesian paths, OMPL)
             -> /arm_controller/follow_joint_trajectory      ros2_control JointTrajectoryController
        -> /gripper_controller/gripper_cmd                   ros2_control GripperActionController
                  -> gazebo_ros2_control (Gazebo physics)    swap for a real arm's driver here
@@ -338,17 +340,29 @@ cd ros2_ws && colcon build --symlink-install && source install/setup.bash
 ros2 launch nora_bringup sim_gazebo.launch.py
 ```
 
-By default no Gazebo window opens and nothing is rendered: only the physics server runs, which is much lighter than the Gazebo GUI. Add `gui:=true` for the Gazebo window or `camera:=true` for the wrist camera image; both need working 3D graphics.
+No Gazebo window opens (add `gui:=true` for it).
 
-In Foxglove, connect to `ws://localhost:8765`, add a 3D panel (show `/robot_description` and `/nora/scene_markers`, display frame `world`), an Image panel on `/camera/color/image_raw` (only with `camera:=true`), and a Raw Messages panel on `/nora/status`. Send commands from a Publish panel, or from a terminal:
+> **About the camera.** Object finding depends on the wrist RGB-D camera, and Gazebo renders that camera even with no window open. This needs working 3D graphics (OpenGL), and on a laptop with weak or no GPU rendering the camera topics stay silent. `camera_perception` then logs "No depth images yet", and every command that looks at the table fails with "No camera detections arrived".
+>
+> Two ways to proceed:
+> - **Fix rendering** (preferred, real perception): check `glxinfo | grep "OpenGL renderer"` and make sure it is not `llvmpipe`, or install the GPU driver. Then confirm `ros2 topic hz /camera/color/image_raw` shows frames.
+> - **Test without the camera** (not real perception): `ros2 launch nora_bringup sim_gazebo.launch.py camera:=false perception:=ground_truth`. Object positions are then read from Gazebo, so the commander is not using vision at all. Use this only to check arm motion and commands.
+
+In Foxglove, connect to `ws://localhost:8765`, add a 3D panel (show `/robot_description` and `/nora/scene_markers`, display frame `world`), an Image panel on `/camera/color/image_raw`, and a Raw Messages panel on `/nora/status`. Send commands from a Publish panel, or from a terminal:
 
 ```bash
-ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'pick red_cube'}"
-ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'place tray'}"
-ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'home'}"
+ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'I am thirsty'}"
+ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'clean the table'}"
+ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'bring me the apple'}"
 ```
 
-Commands: `home`, `open`, `close`, `pick <object>`, `place <location>`, `place <x> <y>`. Any other text goes to the NLU node (`/nora/parse_command`). Objects and named locations are in `ros2_ws/src/nora_bringup/config/gazebo_scene.json`. Object positions come from Gazebo's ground truth, not from the camera.
+How a command runs:
+
+- **Language.** The text goes to the NLU node (same trained model as the web app). "I am thirsty" becomes *pick water, deliver to user*; "clean the table" becomes *move everything on the table to the tray*; "rerack the table" moves the tray's contents back.
+- **Perception.** The robot does not know where anything is. It moves the wrist camera over four scan positions, and `camera_perception.py` finds objects from the depth image (anything standing above the table), names each by its colour, and reports its position. Before grasping it looks again from directly above. After lifting it looks at the table once more: if the object is still there, it reports `Grasp failed`.
+- **Limits.** Objects are recognised by colour, so each class in the scene must have its own colour, and two objects touching each other are seen as one. Sizes (how wide to close the gripper) come from the catalogue entry of the recognised class.
+
+Objects, their aliases ("water" means the water glass) and the tray and user zones are in `ros2_ws/src/nora_bringup/config/gazebo_scene.json`. Direct commands that skip the NLU node: `home`, `open`, `close`, `scan`, `pick <class>`, `place <tray|user|table>`.
 
 To use a real arm, replace the hardware plugin in `nora_description/urdf/ros2_control.xacro` with the arm's ros2_control driver and start `ros2_control_node` instead of Gazebo. The controllers, MoveIt and the commander stay the same; the URDF must be replaced with the real arm's.
 

@@ -1,13 +1,28 @@
 {
+  "catalogue": {
+    "water_glass": { "shape": "cylinder", "radius": 0.03, "height": 0.09, "mass": 0.15, "color": [0.2, 0.8, 0.9],
+                     "aliases": ["water", "glass", "drink", "water_bottle", "cup", "mug", "beverage"] },
+    "apple":       { "shape": "sphere", "radius": 0.035, "mass": 0.12, "color": [0.85, 0.08, 0.08],
+                     "aliases": ["snack", "food", "fruit"] },
+    "tennis_ball": { "shape": "sphere", "radius": 0.033, "mass": 0.06, "color": [0.7, 0.9, 0.1],
+                     "aliases": ["ball", "stress_ball"] },
+    "soda_can":    { "shape": "cylinder", "radius": 0.03, "height": 0.08, "mass": 0.10, "color": [0.55, 0.1, 0.8],
+                     "aliases": ["soda", "can", "coke", "energy_drink", "empty_can", "trash", "garbage"] },
+    "sponge":      { "shape": "box", "size": [0.07, 0.05, 0.03], "mass": 0.03, "color": [1.0, 0.6, 0.0],
+                     "aliases": ["wipe", "wet_wipes"] },
+    "blue_block":  { "shape": "box", "size": [0.05, 0.05, 0.05], "mass": 0.10, "color": [0.1, 0.2, 0.9],
+                     "aliases": ["block", "cube", "box", "blue_cube"] }
+  },
   "objects": [
-    { "name": "red_cube", "shape": "box", "size": [0.05, 0.05, 0.05], "mass": 0.10, "color": [0.8, 0.1, 0.1], "xy": [0.55, -0.15] },
-    { "name": "blue_cylinder", "shape": "cylinder", "radius": 0.03, "height": 0.07, "mass": 0.12, "color": [0.1, 0.2, 0.9], "xy": [0.60, 0.10] },
-    { "name": "green_ball", "shape": "sphere", "radius": 0.03, "mass": 0.06, "color": [0.1, 0.8, 0.1], "xy": [0.70, -0.05] }
+    { "class": "water_glass", "xy": [0.55, -0.05] },
+    { "class": "apple",       "xy": [0.45, 0.08] },
+    { "class": "tennis_ball", "xy": [0.65, 0.10] },
+    { "class": "soda_can",    "xy": [0.62, -0.20] },
+    { "class": "sponge",      "xy": [0.38, -0.08] },
+    { "class": "blue_block",  "xy": [0.50, -0.16] }
   ],
-  "locations": {
-    "left": [0.50, 0.30],
-    "right": [0.50, -0.30],
-    "center": [0.60, 0.00],
-    "tray": [0.65, 0.32]
+  "zones": {
+    "tray": { "center": [0.56, 0.34], "size": [0.20, 0.30], "color": [0.25, 0.3, 0.4] },
+    "user": { "center": [0.40, -0.36], "size": [0.20, 0.30], "color": [0.2, 0.5, 0.3] }
   }
 }
