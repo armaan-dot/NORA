@@ -16,6 +16,92 @@ const paint = (canvas: HTMLCanvasElement | null, data: Uint8ClampedArray, w: num
   ctx.putImageData(new ImageData(new Uint8ClampedArray(data), w, h), 0, 0);
 };
 
+/** Gripper, joint-effort and failure readouts, all from published sensor topics. */
+const JOINT_LIMITS_NM = [150, 150, 150, 28, 28, 28];
+type GripMsg = {
+  gap_m: number; commanded_gap_m: number; effort_n: number; holding: string | null;
+  pad_squeeze_left_n: number; pad_squeeze_right_n: number; pad_carried_n: number | null;
+  contact_confirmed: boolean; surface_contact: boolean; slip_speed_m_s: number;
+  pad_contact_left?: boolean; pad_contact_right?: boolean;
+};
+const GripperJointsBlock: React.FC = () => {
+  const [grip, setGrip] = useState<GripMsg | null>(null);
+  const [efforts, setEfforts] = useState<number[]>([]);
+  const [failures, setFailures] = useState<{ t: string; node: string; msg: string }[]>([]);
+  useEffect(() => {
+    const offs = [
+      topicBus.subscribe('/nora/gripper/state', (m: unknown) => setGrip(m as GripMsg)),
+      topicBus.subscribe('/joint_states', (m: unknown) => {
+        const e = (m as { effort?: number[] }).effort;
+        if (e && e.length) setEfforts(e.slice(0, 6));
+      }),
+      rosService.onLog((l) => {
+        if (l.level < 30) return;
+        setFailures((f) => [{ t: l.timestamp, node: l.nodeName, msg: l.message }, ...f].slice(0, 6));
+      })
+    ];
+    return () => offs.forEach((off) => off());
+  }, []);
+  const yes = (v?: boolean) => (v ? 'yes' : 'no');
+  return (
+    <>
+      <h4 className="fx-h">
+        Gripper <span className="fx-dim">pad contacts and forces from the physics contacts · /nora/gripper/state</span>
+      </h4>
+      {!grip ? (
+        <p className="fx-empty">Waiting for the gripper state…</p>
+      ) : (
+        <table className="fx-table">
+          <tbody>
+            <tr><td>Opening</td><td>{(grip.gap_m * 1000).toFixed(1)} mm (commanded {(grip.commanded_gap_m * 1000).toFixed(0)} mm)</td></tr>
+            <tr><td>Pad contact</td><td>left {yes(grip.pad_contact_left)} · right {yes(grip.pad_contact_right)} · both {yes(grip.contact_confirmed)}</td></tr>
+            <tr><td>Squeeze</td><td>left {grip.pad_squeeze_left_n.toFixed(1)} N · right {grip.pad_squeeze_right_n.toFixed(1)} N · drive {grip.effort_n.toFixed(1)} N</td></tr>
+            <tr><td>Carried load</td><td>{grip.pad_carried_n === null ? <span className="fx-dim">not lifted</span> : `${grip.pad_carried_n.toFixed(2)} N (~${Math.round((grip.pad_carried_n / 9.81) * 1000)} g)`}</td></tr>
+            <tr><td>Slip</td><td className={grip.slip_speed_m_s > 0.005 ? 'fx-warn' : ''}>{(grip.slip_speed_m_s * 1000).toFixed(1)} mm/s{grip.surface_contact ? ' · object touching a surface' : ''}</td></tr>
+          </tbody>
+        </table>
+      )}
+      <h4 className="fx-h">
+        Joint torque <span className="fx-dim">drive effort vs. rated torque · /joint_states effort</span>
+      </h4>
+      {efforts.length === 0 ? (
+        <p className="fx-empty">No joint efforts yet.</p>
+      ) : (
+        <table className="fx-table">
+          <tbody>
+            {efforts.map((e, i) => {
+              const r = Math.abs(e) / JOINT_LIMITS_NM[i];
+              return (
+                <tr key={i}>
+                  <td>joint {i + 1}</td>
+                  <td className={r >= 0.999 ? 'fx-warn' : ''}>
+                    {e.toFixed(1)} N m <span className="fx-dim">/ {JOINT_LIMITS_NM[i]} ({Math.round(r * 100)}%{r >= 0.999 ? ', at limit' : ''})</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      <h4 className="fx-h">Recent failures and warnings</h4>
+      {failures.length === 0 ? (
+        <p className="fx-empty">None since this panel opened.</p>
+      ) : (
+        <table className="fx-table">
+          <tbody>
+            {failures.map((f, i) => (
+              <tr key={i}>
+                <td className="fx-dim">{f.t}</td>
+                <td>{f.msg}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+};
+
 export const SensorsPanel: React.FC = () => {
   const rgbRef = useRef<HTMLCanvasElement>(null);
   const depthRef = useRef<HTMLCanvasElement>(null);
@@ -114,6 +200,8 @@ export const SensorsPanel: React.FC = () => {
           </tbody>
         </table>
       )}
+
+      <GripperJointsBlock />
 
       {!frame && <p className="fx-empty">Waiting for the first frame…</p>}
 

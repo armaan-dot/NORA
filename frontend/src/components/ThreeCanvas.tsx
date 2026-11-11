@@ -8,6 +8,8 @@ import { WristCamera, cameraFeed } from '../sim/wristCamera';
 import { annotate } from '../sim/vision';
 import { createObjectMesh, createContactShadow, footprintRadius, objectKind } from '../sim/objectMeshes';
 import { topicBus } from '../sim/topicBus';
+import { simWorld } from '../sim/world';
+import { TOTE_GEOM } from '../sim/physics';
 import { checkReach, MAX_TABLE_REACH, GRASP_MIN_TCP_HEIGHT } from '../sim/kinematics';
 import type { ArmSpeechEvent, GuardrailEvent, JointState, ObjectPosition, PerceptionScanEvent, TabletopObject } from '../types';
 import { AddObjectModal } from './AddObjectModal';
@@ -17,7 +19,7 @@ import {
   RefreshCw,
   Shuffle,
   Move,
-  Scan,
+
   Plus,
   Trash2,
   AlertOctagon,
@@ -28,8 +30,11 @@ import {
   Play,
   XCircle,
   ShieldAlert,
-  Camera
+  Camera,
+  Boxes
 } from 'lucide-react';
+
+const readGripSensor = () => simWorld.tactile;
 
 export const ThreeCanvas: React.FC = () => {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -45,7 +50,6 @@ export const ThreeCanvas: React.FC = () => {
 
   // Dynamic mesh references
   const objectMeshesRef = useRef<Record<string, THREE.Object3D>>({});
-  const objectStatesRef = useRef<Record<string, 'table' | 'held' | 'tray' | 'user'>>({});
   const objectPositionsRef = useRef<Record<string, ObjectPosition>>(
     rosService.getAllObjectPositions()
   );
@@ -64,6 +68,10 @@ export const ThreeCanvas: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showGrid, setShowGrid] = useState(true);
+  const [showColliders, setShowColliders] = useState(false);
+  const showCollidersRef = useRef(false);
+  const [physStats, setPhysStats] = useState<{ rtf: number; stepMs: number; bodies: number } | null>(null);
+  const [gripSensor, setGripSensor] = useState<ReturnType<typeof readGripSensor> | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEStopped, setIsEStopped] = useState(rosService.getIsEStopped());
   const [showObjectsPopover, setShowObjectsPopover] = useState(false);
@@ -345,10 +353,10 @@ export const ThreeCanvas: React.FC = () => {
     // 10. Storage tote (injection-moulded plastic bin)
     const toteMat = new THREE.MeshStandardMaterial({ color: 0x3f5f80, roughness: 0.55, metalness: 0.0 });
     const toteGroup = new THREE.Group();
-    toteGroup.position.set(-0.05, surfaceY, -0.24);
-    const toteSize = 0.18;
-    const wallT = 0.005;
-    const wallH = 0.035;
+    toteGroup.position.set(TOTE_GEOM.cx, surfaceY, TOTE_GEOM.cz);
+    const toteSize = TOTE_GEOM.size;
+    const wallT = TOTE_GEOM.wall;
+    const wallH = TOTE_GEOM.wallH;
     const toteFloor = new THREE.Mesh(new THREE.BoxGeometry(toteSize, wallT, toteSize), toteMat);
     toteFloor.position.y = wallT / 2;
     toteFloor.receiveShadow = true;
@@ -418,7 +426,7 @@ export const ThreeCanvas: React.FC = () => {
           if (existing) {
             objectGroupRef.current?.remove(existing);
           }
-          const newMesh = createObjectMesh(obj, surfaceY);
+          const newMesh = createObjectMesh(obj);
           objectGroupRef.current?.add(newMesh);
           objectMeshesRef.current[obj.id] = newMesh;
           if (!shadows[obj.id]) {
@@ -426,9 +434,6 @@ export const ThreeCanvas: React.FC = () => {
             shadowGroup.add(sh);
             shadows[obj.id] = sh;
           }
-        }
-        if (obj.state) {
-          objectStatesRef.current[obj.id] = obj.state;
         }
         if (obj.position) {
           objectPositionsRef.current[obj.id] = { ...obj.position };
@@ -691,6 +696,7 @@ export const ThreeCanvas: React.FC = () => {
         const val = js.positions[idx];
         if (typeof val === 'number') {
           try {
+            if (name === 'gripper_joint' && simWorld.isReady) return; // fingers are posed from their rigid bodies below
             if (robot.joints && robot.joints[name]) {
               robot.joints[name].setJointValue(val);
             } else {
@@ -701,6 +707,11 @@ export const ThreeCanvas: React.FC = () => {
           }
         }
       });
+      if (simWorld.isReady) {
+        const [xl, xr] = simWorld.fingerOffsets();
+        robot.joints?.left_finger_joint?.setJointValue(xl + 0.0055);
+        robot.joints?.right_finger_joint?.setJointValue(xr - 0.0055);
+      }
     });
 
     const unsubscribeObjectsChange = rosService.onObjectsChange((objects) => {
@@ -709,7 +720,6 @@ export const ThreeCanvas: React.FC = () => {
     });
 
     const unsubscribeObjectEvent = rosService.onObjectEvent((event) => {
-      objectStatesRef.current[event.name] = event.state;
       setTableObjects([...rosService.getObjects()]);
       if (event.position) {
         objectPositionsRef.current[event.name] = event.position;
@@ -812,6 +822,7 @@ export const ThreeCanvas: React.FC = () => {
         if (hitObj) {
           isDraggingRef.current = true;
           activeDragObjectRef.current = hitObj;
+          simWorld.grab(hitObj);
           controls.enabled = false;
           setDraggingItem(hitObj);
           renderer.domElement.style.cursor = 'grabbing';
@@ -841,13 +852,8 @@ export const ThreeCanvas: React.FC = () => {
             z = bz + Math.sin(angle) * 0.16;
           }
 
-          const objName = activeDragObjectRef.current;
-          const oldY = objectPositionsRef.current[objName]?.y || surfaceY + 0.03;
-          const newPos = { x: Number(x.toFixed(3)), y: oldY, z: Number(z.toFixed(3)) };
-
-          objectPositionsRef.current[objName] = newPos;
-          setDragCoords({ x: newPos.x, z: newPos.z });
-          rosService.setObjectPosition(objName, newPos);
+          simWorld.dragTo(activeDragObjectRef.current, x, z);
+          setDragCoords({ x: Number(x.toFixed(3)), z: Number(z.toFixed(3)) });
         }
       } else {
         raycaster.setFromCamera(mouse, camera);
@@ -863,6 +869,7 @@ export const ThreeCanvas: React.FC = () => {
     const handlePointerUp = () => {
       if (isDraggingRef.current) {
         isDraggingRef.current = false;
+        if (activeDragObjectRef.current) simWorld.release(activeDragObjectRef.current); // let go: it drops and settles
         activeDragObjectRef.current = null;
         controls.enabled = true;
         setDraggingItem(null);
@@ -891,6 +898,13 @@ export const ThreeCanvas: React.FC = () => {
       pathLine.visible = true;
       pathShownAt = performance.now();
     });
+
+    const colliderLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthTest: false }));
+    colliderLines.layers.set(1); // viewport only: the wrist camera never sees it
+    colliderLines.frustumCulled = false;
+    colliderLines.visible = false;
+    scene.add(colliderLines);
+    let lastStats = 0;
 
     // 14. Animation Loop
     let lastCamPreview = 0;
@@ -945,34 +959,42 @@ export const ThreeCanvas: React.FC = () => {
         targetReticleRef.current.rotation.y += 0.03;
       }
 
+      // Every object mesh is drawn exactly where its rigid body is.
       const meshes = objectMeshesRef.current;
-      const states = objectStatesRef.current;
-      const positions = objectPositionsRef.current;
-      const keys = Object.keys(meshes);
-
-      keys.forEach((k) => {
+      for (const k of Object.keys(meshes)) {
         const mesh = meshes[k];
-        if (!mesh) return;
-        const st = states[k] || 'table';
+        if (!mesh) continue;
+        const p = simWorld.pose(k);
+        if (p) {
+          mesh.position.set(p.x, p.y, p.z);
+          mesh.quaternion.set(p.qx, p.qy, p.qz, p.qw);
+        }
         const sh = shadows[k];
         if (sh) {
-          const rest = positions[k]?.y ?? mesh.position.y;
-          const lift = Math.max(0, mesh.position.y - rest);
-          sh.position.set(mesh.position.x, surfaceY + 0.0008, mesh.position.z);
+          const ground = simWorld.surfaceAt(mesh.position.x, mesh.position.z);
+          const lift = Math.max(0, mesh.position.y - ground - 0.06);
+          sh.position.set(mesh.position.x, ground + 0.0008, mesh.position.z);
           (sh.material as THREE.MeshBasicMaterial).opacity = Math.max(0.1, 1 - lift * 5);
           sh.scale.setScalar(1 + lift * 2);
         }
+      }
 
-        if (st === 'held' && gripPos) {
-          mesh.position.copy(gripPos);
-        } else {
-          const p = positions[k];
-          if (p) {
-            const targetVec = new THREE.Vector3(p.x, p.y, p.z);
-            mesh.position.lerp(targetVec, 0.35);
-          }
+      // Collision-shape overlay straight from the physics engine
+      colliderLines.visible = showCollidersRef.current;
+      if (showCollidersRef.current) {
+        const dbg = simWorld.debugRender();
+        if (dbg) {
+          colliderLines.geometry.setAttribute('position', new THREE.BufferAttribute(dbg.vertices, 3));
+          colliderLines.geometry.setAttribute('color', new THREE.BufferAttribute(dbg.colors, 4));
         }
-      });
+      }
+      if (performance.now() - lastStats > 500) {
+        lastStats = performance.now();
+        if (simWorld.isReady) {
+          setPhysStats({ rtf: simWorld.realTimeFactor, stepMs: simWorld.stepMs, bodies: simWorld.bodyCount });
+          setGripSensor(readGripSensor());
+        }
+      }
 
       renderer.render(scene, camera);
     };
@@ -1009,6 +1031,8 @@ export const ThreeCanvas: React.FC = () => {
       wristCamRef.current = null;
       pathLine.geometry.dispose();
       pathMat.dispose();
+      colliderLines.geometry.dispose();
+      (colliderLines.material as THREE.Material).dispose();
       if (renderer.domElement.parentNode) {
         renderer.domElement.parentNode.removeChild(renderer.domElement);
       }
@@ -1094,6 +1118,18 @@ export const ThreeCanvas: React.FC = () => {
         </button>
 
         <button
+          onClick={() => {
+            showCollidersRef.current = !showCollidersRef.current;
+            setShowColliders(showCollidersRef.current);
+          }}
+          title="Show the collision shapes the physics engine is simulating"
+          className={`viewport-btn ${showColliders ? 'active' : ''}`}
+        >
+          <Boxes size={14} />
+          <span>Colliders</span>
+        </button>
+
+        <button
           onClick={resetCamera}
           title="Reset Camera View (Zoomed Out)"
           className="viewport-btn"
@@ -1128,6 +1164,15 @@ export const ThreeCanvas: React.FC = () => {
         </button>
       </div>
 
+      {physStats && (
+        <div
+          title="Rigid-body physics: fixed 240 Hz step. A real-time factor below 1.00 means this device cannot keep up, so the simulation runs slow rather than skipping steps."
+          style={{ position: 'absolute', right: 12, bottom: 12, font: '11px ui-monospace, monospace', color: '#9aa3ad', background: 'rgba(20,22,25,0.72)', padding: '4px 8px', borderRadius: 6 }}
+        >
+          physics 240 Hz · {physStats.stepMs.toFixed(2)} ms/step · {physStats.rtf.toFixed(2)}x real time · {physStats.bodies} bodies
+        </div>
+      )}
+
       {/* On-Arm Eye-in-Hand Camera HUD */}
       <div className={`on-arm-camera-hud ${scanEvent?.active ? 'scanning' : 'standby'}`}>
         <div className="camera-lens-indicator">
@@ -1136,59 +1181,35 @@ export const ThreeCanvas: React.FC = () => {
         </div>
         <div className="camera-hud-info">
           <div className="camera-hud-title">
-            <span className="camera-brand">ON-ARM RGB-D CAMERA</span>
+            <span className="camera-brand">WRIST CAMERA</span>
             <span className={`camera-status-tag ${scanEvent?.active ? 'active' : 'standby'}`}>
               {scanEvent?.active
                 ? scanEvent.scanMode === 'verification_survey'
-                  ? 'VERIFYING FRAME'
-                  : 'SCANNING FRAME'
-                : 'STANDBY'}
+                  ? 'RE-CHECK'
+                  : 'LOOKING'
+                : 'IDLE'}
             </span>
           </div>
           <div className="camera-hud-meta">
-            <span className="camera-spec">Intel RealSense D435 • Eye-in-Hand</span>
+            <span className="camera-spec">Simulated RGB-D · 256×144 · 69°×42°</span>
             <span className="camera-obj-count">
               {scanEvent?.active ? (
                 <span style={{ color: 'var(--cyan)' }}>
                   {scanEvent.scanMode === 'verification_survey'
-                    ? 'Re-scanning frame to verify cleanup...'
-                    : 'Scanning tabletop frame...'}
+                    ? 'Checking the table again'
+                    : 'Moving between viewpoints'}
                 </span>
               ) : cameraPerceivedCount !== null ? (
                 <span>
-                  Perceived: <strong>{cameraPerceivedCount}</strong> object{cameraPerceivedCount !== 1 ? 's' : ''} detected
+                  Last survey: <strong>{cameraPerceivedCount}</strong> object{cameraPerceivedCount !== 1 ? 's' : ''} seen
                 </span>
               ) : (
-                <span style={{ opacity: 0.75 }}>Camera Standby • Awaiting visual sweep</span>
+                <span style={{ opacity: 0.75 }}>No survey yet</span>
               )}
             </span>
           </div>
         </div>
       </div>
-
-      {/* Floating Perception Active Banner */}
-      {scanEvent?.active && (
-        <div className="viewport-perception-banner">
-          <Scan size={16} className="spin-icon" />
-          <span>
-            {scanEvent.targetObject === 'tabletop_workspace' ? (
-              scanEvent.scanMode === 'verification_survey' ? (
-                <>
-                  [Perception Verification] Re-scanning tabletop workspace with On-Arm Camera to confirm 0 objects remain...
-                </>
-              ) : (
-                <>
-                  [On-Arm Camera Perception] Surveying tabletop workspace & detecting all objects on frame...
-                </>
-              )
-            ) : (
-              <>
-                [On-Arm RGB-D Vision Scan] Searching for <strong>{friendlyName(scanEvent.targetObject)}</strong> across tabletop...
-              </>
-            )}
-          </span>
-        </div>
-      )}
 
       {/* Emergency Stop Active Banner */}
       {isEStopped && (
@@ -1207,24 +1228,20 @@ export const ThreeCanvas: React.FC = () => {
         </div>
       )}
 
-      {/* Robot Holographic Speech Refusal Bubble */}
+      {/* Task status and live simulated fingertip readings. */}
       {armSpeech && (
         <div className={`viewport-speech-bubble ${armSpeech.type}`}>
-          <div className="speech-avatar-badge">
-            <span className="speech-emoji">🤖</span>
-            <div className="speech-soundwave">
-              <span className="soundwave-bar bar-1" />
-              <span className="soundwave-bar bar-2" />
-              <span className="soundwave-bar bar-3" />
-            </div>
-          </div>
           <div className="speech-body">
             <div className="speech-tag-row">
-              <span className="speech-tag">{armSpeech.type === 'info' ? 'NORA' : 'NORA INTERLOCK'}</span>
-              <span className="speech-tag-detail">{armSpeech.type === 'info' ? 'Status' : 'Manipulation Only'}</span>
+              <span className="speech-tag">{armSpeech.type === 'info' ? 'Status' : 'Refused'}</span>
             </div>
             <div className="speech-message">{armSpeech.message}</div>
             {armSpeech.subtext && <div className="speech-subtext">{armSpeech.subtext}</div>}
+            {gripSensor?.pinched && <div className="speech-grip-reading">
+              <span>{gripSensor.supported ? 'Surface contact' : gripSensor.slipSpeed > 0.005 ? 'Slipping' : 'Holding'}</span>
+              <span>L {gripSensor.squeezeLeft.toFixed(1)} N / R {gripSensor.squeezeRight.toFixed(1)} N</span>
+              <span>Slip {(gripSensor.slipSpeed * 1000).toFixed(1)} mm/s</span>
+            </div>}
           </div>
           <button
             className="speech-dismiss-btn"
