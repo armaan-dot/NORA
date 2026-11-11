@@ -4,6 +4,8 @@ import { CommandInput } from './components/CommandInput';
 import { ProcessTab } from './components/ProcessTab';
 import { LogTerminal } from './components/LogTerminal';
 import { ArmStatus } from './components/ArmStatus';
+import { SensorsPanel, TopicsPanel, PlotPanel } from './components/SimPanels';
+import { useDialog } from './components/useDialog';
 import {
   rosService,
   getEntityMetadata,
@@ -24,10 +26,10 @@ import {
   Cpu,
   Terminal,
   Activity,
-  Bot,
   Wifi,
   WifiOff,
-  Settings,
+  Volume2,
+  VolumeX,
   Scale,
   ShieldAlert,
   Info,
@@ -38,7 +40,8 @@ import {
 
 export const App: React.FC = () => {
   // Navigation active tab
-  const [activeTab, setActiveTab] = useState<'process' | 'logs' | 'status'>('process');
+  const [activeTab, setActiveTab] = useState<'process' | 'logs' | 'status' | 'sensors' | 'topics' | 'plots'>('process');
+  const [isAudioMuted, setIsAudioMuted] = useState(() => rosService.isAudioMuted());
 
   // ROS Bridge states
   const [isConnected, setIsConnected] = useState(false);
@@ -75,6 +78,8 @@ export const App: React.FC = () => {
   } | null>(null);
 
   const topAffordance = affordances.length > 0 ? affordances[0] : null;
+  const settingsDialog = useDialog(showSettings, () => setShowSettings(false));
+  const failureDialog = useDialog(Boolean(failedTaskPopup), () => setFailedTaskPopup(null));
 
   const isBusy =
     fsmState === 'PARSING' ||
@@ -271,25 +276,24 @@ export const App: React.FC = () => {
 
   return (
     <div className="nora-app-layout">
+      <a className="skip-link" href="#workspace">Skip to workspace</a>
       {/* Top Header Bar */}
       {/* Top Header Bar with Live Task Affordance Score Telemetry */}
       <header className="nora-header">
         <div className="header-brand">
-          <div className="brand-logo-wrap">
-            <Bot size={22} className="brand-icon" />
-          </div>
           <div>
             <div className="brand-name-row">
               <span className="brand-title">NORA</span>
-              <span className="brand-tag">WEB CONSOLE</span>
-              <span className="brand-tag">ROBOTICS OS</span>
+              <span className="brand-context">Robotics workspace</span>
             </div>
-            <span className="brand-subtitle">Natural Language Orchestrated Robotics Agent</span>
           </div>
         </div>
 
         {/* Center: Live Task Affordance Score Telemetry Widget (One sentence, slightly bold) */}
-        <div
+        <button
+          type="button"
+          aria-expanded={showAffordanceInfo}
+          aria-controls="affordance-details"
           className={`top-affordance-pill ${
             topAffordance
               ? topAffordance.combined_score >= 0.70
@@ -332,12 +336,13 @@ export const App: React.FC = () => {
           </span>
 
           <Info size={12} className="affordance-info-hint" />
-        </div>
+        </button>
 
         {/* Affordance Formulation Popover */}
         {showAffordanceInfo && (
           <div
             className="affordance-info-popover"
+            id="affordance-details"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="popover-header">
@@ -347,6 +352,7 @@ export const App: React.FC = () => {
               </div>
               <button
                 className="btn-popover-close"
+                aria-label="Close affordance details"
                 onClick={() => setShowAffordanceInfo(false)}
               >
                 ×
@@ -403,22 +409,30 @@ export const App: React.FC = () => {
 
         {/* Header Right Status & Config */}
         <div className="header-actions">
+          <button
+            type="button"
+            className="audio-toggle"
+            aria-label="Mute audio"
+            aria-pressed={isAudioMuted}
+            title={isAudioMuted ? 'Unmute robot audio' : 'Mute robot audio'}
+            onClick={() => {
+              const muted = !isAudioMuted;
+              rosService.setAudioMuted(muted);
+              setIsAudioMuted(muted);
+            }}
+          >
+            {isAudioMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            <span>{isAudioMuted ? 'Muted' : 'Audio on'}</span>
+          </button>
           {/* Connection Status Badge */}
-          <div
+          <button
+            type="button"
             className={`connection-badge ${isConnected ? 'connected' : 'standalone'}`}
             onClick={() => setShowSettings(true)}
             title="Click to edit bridge connection URL"
           >
             {isConnected ? <Wifi size={14} /> : <WifiOff size={14} />}
-            <span>{isConnected ? 'rosbridge: 9090' : 'Offline / Standalone'}</span>
-          </div>
-
-          <button
-            className="btn-settings-icon"
-            onClick={() => setShowSettings(!showSettings)}
-            title="Connection Settings"
-          >
-            <Settings size={17} />
+            <span>{isConnected ? 'ROS bridge connected' : 'Simulation mode'}</span>
           </button>
         </div>
       </header>
@@ -426,7 +440,7 @@ export const App: React.FC = () => {
       {/* Settings Modal Drawer */}
       {showSettings && (
         <div className="settings-modal-backdrop" onClick={() => setShowSettings(false)}>
-          <div className="settings-modal-card" onClick={(e) => e.stopPropagation()}>
+          <div ref={settingsDialog} role="dialog" aria-modal="true" aria-label="Connection settings" tabIndex={-1} className="settings-modal-card" onClick={(e) => e.stopPropagation()}>
             <h3>ROS 2 Bridge & Simulation Mode</h3>
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 13 }}>
@@ -454,8 +468,9 @@ export const App: React.FC = () => {
             </div>
 
             <form onSubmit={handleConnectSettings}>
-              <label>WebSocket Server URL:</label>
+              <label htmlFor="bridge-url">WebSocket server URL</label>
               <input
+                id="bridge-url"
                 type="text"
                 value={customUrl}
                 onChange={(e) => setCustomUrl(e.target.value)}
@@ -483,7 +498,7 @@ export const App: React.FC = () => {
       {/* Red Failed Task Affordance Score Pop-up Modal */}
       {failedTaskPopup && (
         <div className="failed-task-modal-backdrop" onClick={() => setFailedTaskPopup(null)}>
-          <div className="failed-task-modal-card" onClick={(e) => e.stopPropagation()}>
+          <div ref={failureDialog} role="dialog" aria-modal="true" aria-label="Task rejected" tabIndex={-1} className="failed-task-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="failed-modal-header">
               <div className="failed-header-left">
                 <div className="failed-icon-box">
@@ -678,7 +693,18 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Split Body */}
-      <main className="nora-main-content">
+      <div className="workspace-intro">
+        <div>
+          <p className="eyebrow">Natural Language Orchestrated Robotics Agent</p>
+          <h1>From instruction to action.</h1>
+          <p>Give the arm a task. Inspect the intent, evaluate its feasibility, and follow execution in the 3D workspace.</p>
+        </div>
+        <div className="workspace-mode">
+          <span className="pulse-dot" />
+          {isConnected ? 'Live ROS 2 connection' : 'Interactive simulation'}
+        </div>
+      </div>
+      <main className="nora-main-content" id="workspace" tabIndex={-1}>
         {/* Left Side: 3D Arm Digital Twin */}
         <section className="viewport-section">
           {/* Top Command Search Bar: Positioned above 3D Arm Viewer */}
@@ -689,11 +715,10 @@ export const App: React.FC = () => {
           <div className="section-header-compact">
             <div className="section-title">
               <Cpu size={16} className="icon-cyan" />
-              <span>Tabletop 3D Twin (nora_arm.urdf)</span>
+              <span>3D workspace</span>
             </div>
             <div className="arm-quick-status">
-              <span className="pulse-dot" />
-              <span>Kinematics Synced</span>
+              <span>6-DOF arm · Drag objects to reposition</span>
             </div>
           </div>
 
@@ -705,36 +730,72 @@ export const App: React.FC = () => {
         {/* Right Side: Tabbed Inspection Workspace */}
         <section className="inspector-section">
           {/* Tabs Navigation Header */}
-          <div className="inspector-tabs-nav">
+          <nav className="inspector-tabs-nav" aria-label="Workspace inspector">
             <button
               className={`tab-btn ${activeTab === 'process' ? 'active' : ''}`}
               onClick={() => setActiveTab('process')}
+              aria-pressed={activeTab === 'process'}
+              aria-controls="inspector-content"
             >
               <Activity size={16} />
-              <span>Process Tab</span>
+              <span>Pipeline</span>
               {isBusy && <span className="tab-busy-dot" />}
             </button>
 
             <button
               className={`tab-btn ${activeTab === 'logs' ? 'active' : ''}`}
               onClick={() => setActiveTab('logs')}
+              aria-pressed={activeTab === 'logs'}
+              aria-controls="inspector-content"
             >
               <Terminal size={16} />
-              <span>ROS Logs</span>
+              <span>Logs</span>
               <span className="tab-counter">{logs.length}</span>
             </button>
 
             <button
               className={`tab-btn ${activeTab === 'status' ? 'active' : ''}`}
               onClick={() => setActiveTab('status')}
+              aria-pressed={activeTab === 'status'}
+              aria-controls="inspector-content"
             >
               <Cpu size={16} />
-              <span>Arm Status</span>
+              <span>Arm status</span>
             </button>
-          </div>
+
+            <button
+              className={`tab-btn ${activeTab === 'sensors' ? 'active' : ''}`}
+              onClick={() => setActiveTab('sensors')}
+              aria-pressed={activeTab === 'sensors'}
+              aria-controls="inspector-content"
+            >
+              <Activity size={16} />
+              <span>Sensors</span>
+            </button>
+
+            <button
+              className={`tab-btn ${activeTab === 'topics' ? 'active' : ''}`}
+              onClick={() => setActiveTab('topics')}
+              aria-pressed={activeTab === 'topics'}
+              aria-controls="inspector-content"
+            >
+              <Activity size={16} />
+              <span>Topics</span>
+            </button>
+
+            <button
+              className={`tab-btn ${activeTab === 'plots' ? 'active' : ''}`}
+              onClick={() => setActiveTab('plots')}
+              aria-pressed={activeTab === 'plots'}
+              aria-controls="inspector-content"
+            >
+              <Activity size={16} />
+              <span>Plots</span>
+            </button>
+          </nav>
 
           {/* Active Tab Viewport */}
-          <div className="inspector-tab-content">
+          <div className="inspector-tab-content" id="inspector-content" role="region" aria-label={`${activeTab} inspector`}>
             {activeTab === 'process' && (
               <ProcessTab
                 fsmState={fsmState}
@@ -750,6 +811,10 @@ export const App: React.FC = () => {
             {activeTab === 'logs' && (
               <LogTerminal logs={logs} onClearLogs={handleClearLogs} />
             )}
+
+            {activeTab === 'sensors' && <SensorsPanel />}
+            {activeTab === 'topics' && <TopicsPanel />}
+            {activeTab === 'plots' && <PlotPanel />}
 
             {activeTab === 'status' && (
               <ArmStatus
@@ -768,10 +833,10 @@ export const App: React.FC = () => {
       {/* Bottom Status Footer */}
       <footer className="nora-footer-status-bar">
         <div className="footer-status-inner">
-          <span className="footer-label">NORA Orchestrator:</span>
+          <span className="footer-label">Orchestrator</span>
           <span className={`footer-fsm-pill pill-${fsmState.toLowerCase()}`}>{fsmState}</span>
           <span className="footer-divider">•</span>
-          <span className="footer-hint">Closed-form 6-DOF IK & SayCan Task Grounding Active</span>
+          <span className="footer-hint">6-DOF inverse kinematics · SayCan task grounding</span>
         </div>
       </footer>
     </div>

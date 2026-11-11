@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Sparkles, X, Loader2, BookOpen, Square, Play, XCircle } from 'lucide-react';
+import { Send, X, Loader2, BookOpen, Square, Play, XCircle } from 'lucide-react';
 import { rosService } from '../services/rosService';
 import type { TabletopObject } from '../types';
 import { CommandCatalogueModal } from './CommandCatalogueModal';
@@ -57,6 +57,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
 
   return (
     <div className="command-input-container">
+      <label className="command-label" htmlFor="robot-command">Task instruction</label>
       {/* Main Input Form with Catalogue Button */}
       <form onSubmit={handleSubmit} className="input-form">
         <div className="input-wrapper">
@@ -71,14 +72,15 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
           </button>
 
           <input
+            id="robot-command"
             type="text"
             className="command-text-field"
             placeholder={
               isStopped
-                ? 'Emergency Stop engaged — click Resume or Cancel to reset...'
+                ? 'Arm stopped. Resume or cancel to reset.'
                 : isBusy
-                ? 'NORA is executing — enter a new command or click Cancel to interrupt...'
-                : 'Type a command for NORA (e.g., "I want my coffee", "clean up the table", "pick up the red cube")...'
+                ? 'Enter a new task to interrupt execution…'
+                : 'e.g. Pick up the red cube'
             }
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
@@ -158,7 +160,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
       {/* Quick Suggestion Chips Bar */}
       <div className="suggestion-chips-bar">
         <span className="chips-label">
-          <Sparkles size={12} className="icon-cyan" /> Suggestions:
+          Try a task:
         </span>
         <div className="chips-scroll">
           {/* Custom added object quick actions */}
@@ -179,7 +181,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
             onClick={() => handleChipClick('I want an apple')}
             title="Requests an apple -> evaluates SayCan affordance -> picks & delivers apple (or safety interlocks if missing)"
           >
-            🍎 I want an apple
+            I want an apple
           </button>
 
           <button
@@ -187,7 +189,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
             onClick={() => handleChipClick('I want to play tennis')}
             title="Infers tennis ball equipment need -> active vision search -> handover"
           >
-            🎾 Play tennis
+            Play tennis
           </button>
 
           <button
@@ -195,7 +197,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
             onClick={() => handleChipClick('I want my coffee')}
             title="Infers coffee mug -> visual search -> grasp -> handover"
           >
-            ☕ Want coffee
+            Bring coffee
           </button>
 
           <button
@@ -203,7 +205,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
             onClick={() => handleChipClick('clean up the table')}
             title="Sequentially pick and place all objects into storage tray"
           >
-            🧹 Clean table
+            Clean table
           </button>
 
           <button
@@ -211,7 +213,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
             onClick={() => handleChipClick('re rack the table')}
             title="Return objects from tray back onto tabletop"
           >
-            🔄 Re-rack
+            Re-rack
           </button>
 
           <button
@@ -219,7 +221,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
             onClick={() => handleChipClick('I am thirsty')}
             title="Infers water glass -> visual search -> handover"
           >
-            🥤 Thirsty
+            I am thirsty
           </button>
 
           <button
@@ -227,7 +229,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
             onClick={() => handleChipClick('use the guardrail block')}
             title="Demonstrate SayCan affordance guardrail block (affordance < 0.30, zero arm motion)"
           >
-            🛡️ Guardrail Block
+            Test guardrail
           </button>
 
           <button
@@ -235,7 +237,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ isBusy, onCommandSub
             onClick={() => handleChipClick('dance for me')}
             title="Tests robot refusal and speech bubble for non-manipulation command"
           >
-            🤖 Dance for me (Refusal)
+            Test refusal
           </button>
         </div>
       </div>
