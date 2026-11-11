@@ -1,6 +1,8 @@
 /**
  * Tabletop object models. Each kind is modelled at real-world size (metres) with procedural
  * textures (grain, skin, felt, printed labels) so it reads as a physical thing under the scene lighting.
+ * Every mesh is modelled around the body origin used by its collision shapes (objectPhysics.ts): the renderer
+ * only ever copies the rigid body's pose onto it.
  * `objectKind` is also what the vision stack learns to recognise.
  */
 import * as THREE from 'three';
@@ -21,6 +23,9 @@ export type ObjectKind =
   | 'pen'
   | 'scissors'
   | 'stapler';
+
+/** Notebook cover size (m): a pocket notebook, narrow enough to fit across the 85 mm jaw. */
+export const BOOK = { W: 0.12, D: 0.07, H: 0.018 };
 
 export const ALL_KINDS: ObjectKind[] = [
   'cube', 'book', 'ruler', 'eraser', 'can', 'sphere', 'orange', 'apple', 'tennis_ball', 'mug', 'glass', 'pen', 'scissors', 'stapler'
@@ -214,12 +219,10 @@ const parseColor = (hex: string) => {
 const lathe = (pts: [number, number][], segments = 64) =>
   new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), segments);
 
-export function createObjectMesh(obj: ObjectSpec, surfaceY: number): THREE.Object3D {
+export function createObjectMesh(obj: ObjectSpec): THREE.Object3D {
   const kind = objectKind(obj);
   const color = parseColor(obj.color);
   const group = new THREE.Group();
-  // Flat items are snapped to rest on the table whatever centre height was stored.
-  let restHalfHeight: number | null = null;
 
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, parent: THREE.Object3D = group) => {
     const m = new THREE.Mesh(geo, mat);
@@ -241,7 +244,7 @@ export function createObjectMesh(obj: ObjectSpec, surfaceY: number): THREE.Objec
     }
     case 'book': {
       // Hardcover notebook: cover boards, page block, spine, elastic band
-      const W = 0.15, D = 0.105, H = 0.022;
+      const { W, D, H } = BOOK;
       const cover = new THREE.MeshStandardMaterial({ color, roughness: 0.62, bumpMap: noiseBump('cloth', 128, 60), bumpScale: 0.4 });
       add(new RoundedBoxGeometry(W, 0.004, D, 2, 0.0015), cover).position.y = -H / 2 + 0.002;
       add(new RoundedBoxGeometry(W, 0.004, D, 2, 0.0015), cover).position.y = H / 2 - 0.002;
@@ -249,15 +252,13 @@ export function createObjectMesh(obj: ObjectSpec, surfaceY: number): THREE.Objec
       spine.position.x = -W / 2 + 0.003;
       const pages = add(new THREE.BoxGeometry(W - 0.012, H - 0.008, D - 0.006), new THREE.MeshStandardMaterial({ color: 0xf3ecda, map: pageEdges(), roughness: 0.9 }));
       pages.position.x = 0.004;
-      add(new THREE.BoxGeometry(0.008, H + 0.002, D + 0.001), new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.7 })).position.x = W / 2 - 0.03;
-      restHalfHeight = H / 2;
+      add(new THREE.BoxGeometry(0.008, H + 0.002, D + 0.001), new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.7 })).position.x = W / 2 - 0.024;
       break;
     }
     case 'ruler': {
       const L = 0.16, Wd = 0.026, Th = 0.011;
       const body = new THREE.MeshPhysicalMaterial({ color, map: rulerTicks(), roughness: 0.25, clearcoat: 0.6 });
       add(new RoundedBoxGeometry(L, Th, Wd, 2, 0.002), body);
-      restHalfHeight = Th / 2;
       break;
     }
     case 'eraser': {
@@ -265,7 +266,6 @@ export function createObjectMesh(obj: ObjectSpec, surfaceY: number): THREE.Objec
       add(new RoundedBoxGeometry(0.052, 0.02, 0.022, 3, 0.004), body);
       const sleeve = add(new RoundedBoxGeometry(0.03, 0.0215, 0.0235, 3, 0.004), new THREE.MeshStandardMaterial({ color, roughness: 0.55 }));
       sleeve.position.x = 0.004;
-      restHalfHeight = 0.0105;
       break;
     }
     case 'can': {
@@ -377,10 +377,8 @@ export function createObjectMesh(obj: ObjectSpec, surfaceY: number): THREE.Objec
         tip.position.y = -0.0605;
         tip.rotation.x = Math.PI;
       }
-      pen.rotation.z = Math.PI / 2;
-      pen.rotation.y = 0.4;
+      pen.rotation.z = Math.PI / 2; // lying along the body X axis
       group.add(pen);
-      restHalfHeight = 0.0055;
       break;
     }
     case 'scissors': {
@@ -403,7 +401,6 @@ export function createObjectMesh(obj: ObjectSpec, surfaceY: number): THREE.Objec
         loop.position.set(-0.014, -0.002, ang > 0 ? 0.013 : -0.013);
       });
       add(new THREE.CylinderGeometry(0.0032, 0.0032, 0.007, 16), steel).position.y = -0.001;
-      restHalfHeight = 0.006;
       break;
     }
     case 'stapler': {
@@ -414,7 +411,6 @@ export function createObjectMesh(obj: ObjectSpec, surfaceY: number): THREE.Objec
       top.position.set(0, 0.006, -0.004);
       top.rotation.x = 0.05;
       add(new THREE.CylinderGeometry(0.004, 0.004, 0.03, 12), metal(0xb8bbc0)).rotation.z = Math.PI / 2;
-      restHalfHeight = 0.012;
       break;
     }
     case 'glass':
@@ -446,12 +442,7 @@ export function createObjectMesh(obj: ObjectSpec, surfaceY: number): THREE.Objec
   }
 
   group.name = obj.id;
-  const posY = obj.position?.y ?? surfaceY + 0.03;
-  if (restHalfHeight !== null) {
-    const dy = surfaceY + restHalfHeight - posY;
-    group.children.forEach((c) => (c.position.y += dy));
-  }
-  group.position.set(obj.position.x, posY, obj.position.z);
+  group.position.set(obj.position.x, obj.position.y, obj.position.z);
   return group;
 }
 
@@ -480,7 +471,7 @@ export function createContactShadow(radius: number): THREE.Mesh {
 /** Rough footprint radius used to size the contact shadow. */
 export function footprintRadius(kind: ObjectKind): number {
   switch (kind) {
-    case 'book': return 0.075;
+    case 'book': return 0.062;
     case 'ruler': return 0.08;
     case 'scissors': case 'stapler': return 0.055;
     case 'pen': return 0.055;

@@ -83,6 +83,8 @@ export interface TabletopObject {
   position: ObjectPosition;
   state: 'table' | 'held' | 'tray' | 'user';
   isCustom?: boolean;
+  /** Mass override (kg) set by the user; absent = the real mass of this kind of object. */
+  mass?: number;
 }
 
 export interface ObjectStateEvent {
