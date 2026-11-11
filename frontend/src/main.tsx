@@ -9,10 +9,11 @@ import { topicBus } from './sim/topicBus';
 import { cameraFeed } from './sim/wristCamera';
 import * as vision from './sim/vision';
 import * as visionTrain from './sim/visionTrain';
+import { simWorld } from './sim/world';
 
 // Inspection hook for debugging and automated tests: open the app with ?debug
 if (new URLSearchParams(location.search).has('debug')) {
-  (window as unknown as Record<string, unknown>).__nora = { rosService, topicBus, cameraFeed, vision, visionTrain };
+  (window as unknown as Record<string, unknown>).__nora = { rosService, topicBus, cameraFeed, vision, visionTrain, simWorld };
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

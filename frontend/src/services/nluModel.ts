@@ -172,7 +172,14 @@ export class NluModel {
 
     // 5. Slots
     let target_object = explicitObj?.name ?? null;
-    let target_location = this.locations.find((l) => l.re.test(lower))?.name ?? null;
+    // The handover tray/mat is the user station, distinct from the storage tray. "To the right / left (side)"
+    // is a direction on the table, not a fixture.
+    const side = /\b(?:to|on|onto|toward|towards|over to)\s+the\s+(right|left)\b|\b(right|left)[\s-]hand side\b|\b(right|left)\s+side\b/.exec(lower);
+    let target_location = /\b(?:hand[\s-]?over|handing)(?:\s+(?:mat|tray|zone))?\b/.test(lower)
+      ? 'user'
+      : side
+        ? side[1] ?? side[2] ?? side[3]
+        : this.locations.find((l) => l.re.test(lower))?.name ?? null;
 
     if (target_object === null && (best === 'pick' || best === 'place')) {
       const m = lower.match(
