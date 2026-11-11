@@ -23,6 +23,11 @@
   <!-- ===================================================================
        Includes
   ==================================================================== -->
+  <!-- true: joints are driven by Gazebo (gazebo_ros2_control). false: ros2_control mock hardware. -->
+  <xacro:arg name="sim_gazebo" default="false"/>
+  <!-- true: Gazebo also renders the wrist camera. Needs working OpenGL; leave off on weak machines. -->
+  <xacro:arg name="sim_camera" default="false"/>
+
   <xacro:include filename="$(find nora_description)/urdf/materials.xacro"/>
   <xacro:include filename="$(find nora_description)/urdf/ros2_control.xacro"/>
 
@@ -291,39 +296,78 @@
   <!-- ===================================================================
        End-Effector / Parallel Gripper
   ==================================================================== -->
-  <joint name="gripper_joint" type="prismatic">
+  <!-- Palm, fixed to the flange. gripper_link keeps its old frame. -->
+  <joint name="tool0_to_gripper" type="fixed">
     <parent link="tool0"/>
     <child  link="gripper_link"/>
     <origin xyz="0 0 0.05" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <limit lower="0.0" upper="0.08" effort="50.0" velocity="0.5"/>
-    <dynamics damping="0.1" friction="0.02"/>
   </joint>
 
   <link name="gripper_link">
-    <xacro:box_inertia m="0.3" x="0.06" y="0.10" z="0.08"/>
-    <!-- Gripper Palm -->
+    <xacro:box_inertia m="0.3" x="0.05" y="0.13" z="0.04"/>
     <visual>
       <origin xyz="0 0 0.02" rpy="0 0 0"/>
-      <geometry><box size="0.05 0.08 0.04"/></geometry>
+      <geometry><box size="0.05 0.13 0.04"/></geometry>
       <material name="ur_dark"/>
     </visual>
-    <!-- Gripper Fingers -->
-    <visual>
-      <origin xyz="0 0.035 0.055" rpy="0 0 0"/>
-      <geometry><box size="0.025 0.015 0.05"/></geometry>
-      <material name="orange"/>
-    </visual>
-    <visual>
-      <origin xyz="0 -0.035 0.055" rpy="0 0 0"/>
-      <geometry><box size="0.025 0.015 0.05"/></geometry>
-      <material name="orange"/>
-    </visual>
     <collision>
-      <origin xyz="0 0 0.035" rpy="0 0 0"/>
-      <geometry><box size="0.05 0.09 0.07"/></geometry>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry><box size="0.05 0.13 0.04"/></geometry>
     </collision>
   </link>
+
+  <!-- Two fingers. gripper_joint is the travel of ONE finger from the centre line:
+       0 = closed (pads touching), 0.05 = open (0.10 m between the pads). The other finger mirrors it. -->
+  <xacro:macro name="finger" params="name joint side *extra">
+    <joint name="${joint}" type="prismatic">
+      <parent link="gripper_link"/>
+      <child  link="${name}"/>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+      <axis xyz="0 ${side} 0"/>
+      <limit lower="0.0" upper="0.05" effort="50.0" velocity="0.2"/>
+      <xacro:insert_block name="extra"/>
+    </joint>
+    <link name="${name}">
+      <inertial>
+        <origin xyz="0 ${side*0.006} 0.03" rpy="0 0 0"/>
+        <mass value="0.05"/>
+        <inertia ixx="2e-5" ixy="0" ixz="0" iyy="2e-5" iyz="0" izz="5e-6"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 ${side*0.006} 0.03" rpy="0 0 0"/>
+        <geometry><box size="0.025 0.012 0.06"/></geometry>
+        <material name="orange"/>
+      </visual>
+      <collision>
+        <origin xyz="0 ${side*0.006} 0.03" rpy="0 0 0"/>
+        <geometry><box size="0.025 0.012 0.06"/></geometry>
+      </collision>
+    </link>
+    <gazebo reference="${name}">
+      <mu1>1.5</mu1>
+      <mu2>1.5</mu2>
+      <kp>100000.0</kp>
+      <kd>100.0</kd>
+      <minDepth>0.001</minDepth>
+      <maxVel>0.1</maxVel>
+      <material>Gazebo/Orange</material>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:finger name="left_finger_link" joint="gripper_joint" side="1">
+    <dynamics damping="1.0" friction="0.0"/>
+  </xacro:finger>
+  <xacro:finger name="right_finger_link" joint="gripper_mimic_joint" side="-1">
+    <mimic joint="gripper_joint" multiplier="1" offset="0"/>
+  </xacro:finger>
+
+  <!-- Grasp point: on the centre line, 15 mm above the fingertips. MoveIt plans for this frame. -->
+  <joint name="gripper_to_grasp" type="fixed">
+    <parent link="gripper_link"/>
+    <child  link="grasp_link"/>
+    <origin xyz="0 0 0.085" rpy="0 0 0"/>
+  </joint>
+  <link name="grasp_link"/>
 
   <!-- ===================================================================
        Eye-in-Hand RGB-D Camera (Intel RealSense D435) for Foxglove & ROS 2
@@ -331,7 +375,7 @@
   <joint name="camera_mount_joint" type="fixed">
     <parent link="gripper_link"/>
     <child  link="camera_link"/>
-    <origin xyz="0 0.038 0.02" rpy="0 0 0"/>
+    <origin xyz="0.0375 0 0.02" rpy="0 0 ${pi/2}"/>
   </joint>
 
   <link name="camera_link">
@@ -341,10 +385,6 @@
       <geometry><box size="0.09 0.025 0.025"/></geometry>
       <material name="ur_dark"/>
     </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry><box size="0.09 0.025 0.025"/></geometry>
-    </collision>
   </link>
 
   <joint name="camera_color_joint" type="fixed">
@@ -395,7 +435,52 @@
   <!-- ===================================================================
        ros2_control hardware interface
   ==================================================================== -->
-  <xacro:nora_ros2_control name="UR5eSystem"/>
+  <xacro:nora_ros2_control name="UR5eSystem" sim_gazebo="$(arg sim_gazebo)"/>
+
+  <!-- ===================================================================
+       Wrist camera frame that looks along the fingers (Gazebo cameras look along +X)
+  ==================================================================== -->
+  <joint name="camera_sim_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child  link="camera_sim_frame"/>
+    <origin xyz="0 0 0" rpy="0 ${-pi/2} 0"/>
+  </joint>
+  <link name="camera_sim_frame"/>
+  <joint name="camera_sim_optical_joint" type="fixed">
+    <parent link="camera_sim_frame"/>
+    <child  link="camera_sim_optical_frame"/>
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+  <link name="camera_sim_optical_frame"/>
+
+  <!-- ===================================================================
+       Gazebo Classic: ros2_control plugin and the wrist camera sensor (sim_gazebo:=true only)
+  ==================================================================== -->
+  <xacro:if value="$(arg sim_gazebo)">
+    <gazebo>
+      <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+        <parameters>$(find nora_control)/config/ros2_controllers.yaml</parameters>
+      </plugin>
+    </gazebo>
+
+    <xacro:if value="$(arg sim_camera)">
+    <gazebo reference="camera_sim_frame">
+      <sensor type="camera" name="wrist_camera">
+        <update_rate>15</update_rate>
+        <camera>
+          <horizontal_fov>1.2</horizontal_fov>
+          <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+          <clip><near>0.02</near><far>5.0</far></clip>
+        </camera>
+        <plugin name="wrist_camera_controller" filename="libgazebo_ros_camera.so">
+          <ros><namespace>/camera</namespace></ros>
+          <camera_name>color</camera_name>
+          <frame_name>camera_sim_optical_frame</frame_name>
+        </plugin>
+      </sensor>
+    </gazebo>
+    </xacro:if>
+  </xacro:if>
 
 </robot>
 

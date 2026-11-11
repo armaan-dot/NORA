@@ -29,6 +29,7 @@ install(FILES
 
 install(PROGRAMS
   scripts/scene_loader.py
+  scripts/arm_commander.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

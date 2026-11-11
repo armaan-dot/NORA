@@ -69,7 +69,7 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     xacro_file = os.path.join(pkg_desc, "urdf", "nora_arm.urdf.xacro")
     robot_description = {
-        "robot_description": Command(["xacro ", xacro_file])
+        "robot_description": Command(["xacro ", xacro_file, " sim_gazebo:=true"])
     }
 
     # ------------------------------------------------------------------

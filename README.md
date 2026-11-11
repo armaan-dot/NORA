@@ -313,6 +313,47 @@ Objects added this way are replaced the next time the scene file is saved.
 
 ---
 
+## Run the arm in Gazebo with real ROS 2 commands (viewed in Foxglove)
+
+This is the path to a physical arm. There is no web simulator in the loop: Gazebo simulates the arm and the objects, and everything that moves the arm is a standard ROS 2 interface.
+
+```
+/nora/command (String)
+  -> arm_commander            nora_bringup/scripts/arm_commander.py
+       -> MoveIt move_group   plans (OMPL, Cartesian paths)
+            -> /arm_controller/follow_joint_trajectory      ros2_control JointTrajectoryController
+       -> /gripper_controller/gripper_cmd                   ros2_control GripperActionController
+                 -> gazebo_ros2_control (Gazebo physics)    swap for a real arm's driver here
+  <- /joint_states, /tf, /camera/color/image_raw, /nora/scene_markers, /nora/status   -> Foxglove
+```
+
+**Status: not run yet.** It was written on a Windows machine with no ROS 2, so nothing here has been launched. Expect to fix things on first launch. The part most likely to need tuning is holding an object: the joints are position-controlled in Gazebo, and Gazebo Classic is known to let objects slip out of position-controlled fingers. The commander checks whether the object really left the table and reports `Grasp failed` if it did not.
+
+Install (Ubuntu 22.04, ROS 2 Humble), then build:
+
+```bash
+sudo apt install -y ros-humble-gazebo-ros-pkgs ros-humble-gazebo-ros2-control ros-humble-ros2-control \
+  ros-humble-ros2-controllers ros-humble-moveit ros-humble-xacro ros-humble-foxglove-bridge
+cd ros2_ws && colcon build --symlink-install && source install/setup.bash
+ros2 launch nora_bringup sim_gazebo.launch.py
+```
+
+By default no Gazebo window opens and nothing is rendered: only the physics server runs, which is much lighter than the Gazebo GUI. Add `gui:=true` for the Gazebo window or `camera:=true` for the wrist camera image; both need working 3D graphics.
+
+In Foxglove, connect to `ws://localhost:8765`, add a 3D panel (show `/robot_description` and `/nora/scene_markers`, display frame `world`), an Image panel on `/camera/color/image_raw` (only with `camera:=true`), and a Raw Messages panel on `/nora/status`. Send commands from a Publish panel, or from a terminal:
+
+```bash
+ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'pick red_cube'}"
+ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'place tray'}"
+ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'home'}"
+```
+
+Commands: `home`, `open`, `close`, `pick <object>`, `place <location>`, `place <x> <y>`. Any other text goes to the NLU node (`/nora/parse_command`). Objects and named locations are in `ros2_ws/src/nora_bringup/config/gazebo_scene.json`. Object positions come from Gazebo's ground truth, not from the camera.
+
+To use a real arm, replace the hardware plugin in `nora_description/urdf/ros2_control.xacro` with the arm's ros2_control driver and start `ros2_control_node` instead of Gazebo. The controllers, MoveIt and the commander stay the same; the URDF must be replaced with the real arm's.
+
+---
+
 ## ROS 2 stack (work in progress)
 
 ROS 2 Humble packages exist for NLU, orchestration, skills, MoveIt 2 config, ros2_control and Gazebo, plus an Isaac Sim stub. Treat them as scaffolding:

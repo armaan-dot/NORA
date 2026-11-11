@@ -45,4 +45,3 @@ gripper_controller:
     allow_stalling: false
     stall_velocity_threshold: 0.001
     stall_timeout: 1.0
-    max_velocity: 0.5           # rad/s — tune to hardware
