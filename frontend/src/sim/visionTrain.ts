@@ -8,6 +8,7 @@
 import { ALL_KINDS, KIND_GROUP, objectKind, type ObjectKind } from './objectMeshes';
 import { associate, describeRegions, VisionClassifier, type Kind, type VisionConfig } from './vision';
 import type { WristCamera } from './wristCamera';
+import { simWorld } from './world';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -75,7 +76,7 @@ interface Placed {
   kind: ObjectKind;
 }
 
-/** Fill the table with a random arrangement. Objects keep the stored height the app gives them. */
+/** Fill the table with a random arrangement: each object is set down at a random spot and turn, then left to settle. */
 async function randomScene(c: Ctx, rand: () => number, kinds: ObjectKind[], crowd: number): Promise<Placed[]> {
   c.ros.clearAllObjects();
   await nextFrame();
@@ -96,14 +97,12 @@ async function randomScene(c: Ctx, rand: () => number, kinds: ObjectKind[], crow
       if (placed.every((p) => Math.hypot(p.x - x, p.z - z) > crowd)) break;
     }
     placed.push({ x, z });
-    c.ros.setObjectPosition(obj.id, { x, y: obj.position.y, z });
-    const mesh = c.meshes()[obj.id];
-    if (mesh) {
-      mesh.position.set(x, obj.position.y, z);
-      mesh.rotation.y = rand() * Math.PI * 2;
-    }
+    // some of the things that can be knocked over are lying on their side
+    const tipped = (kind === 'can' || kind === 'glass' || kind === 'mug') && rand() < 0.22;
+    c.ros.setObjectPosition(obj.id, { x, y: obj.position.y, z }, rand() * Math.PI * 2, tipped);
     out.push({ id: obj.id, kind: objectKind(obj) });
   }
+  await simWorld.until(() => simWorld.allAtRest(), 1.2);
   await nextFrame();
   return out;
 }
@@ -122,8 +121,7 @@ async function randomPose(c: Ctx, rand: () => number) {
     const h = [-0.37, -0.35, 1.9, 0.02, -Math.PI / 2, 0];
     q = h.map((v, i) => v + (i < 4 ? (rand() - 0.5) * 0.25 : 0));
   }
-  c.ros.currentJointPositions = [...q, 0.03];
-  c.ros.publishJointState();
+  simWorld.teleportArm(q, 0.03); // dataset poses only: the robot itself never teleports
   await nextFrame();
 }
 
@@ -271,7 +269,8 @@ export async function evaluateRuntime(opts: { scenes: number; seed: number; view
         pk.n++;
         if (kOk) pk.kindOk++;
         if (iOk) pk.idOk++;
-        errs.push(Math.hypot(m.rec.position.x - truthObj.position.x, m.rec.position.z - truthObj.position.z) * 1000);
+        const truthPose = simWorld.pose(truthObj.id) ?? truthObj.position;
+        errs.push(Math.hypot(m.rec.position.x - truthPose.x, m.rec.position.z - truthPose.z) * 1000);
       }
       ids.forEach((id, idx) => {
         if (visPx[idx + 1] >= 60) {

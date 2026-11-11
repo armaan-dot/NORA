@@ -105,5 +105,5 @@ try {
   console.log(`Wrote ${OUT} (${(model.length / 1024).toFixed(0)} KB)`);
 } finally {
   ws.close();
-  browser.kill();
+  if (process.platform === 'win32') spawn('taskkill', ['/pid', String(browser.pid), '/T', '/F'], { stdio: 'ignore' }); else browser.kill(); // Chromium's child processes outlive a plain kill on Windows
 }
