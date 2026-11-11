@@ -31,7 +31,7 @@ NORA (Natural language Operation and Robotic Arm) is a modular, language-driven 
 
 The design is deliberately layered so that any component can be swapped independently:
 
-- The NLU backend can switch from a rule-based mock to a full LLM (GPT-4o, Gemma-3, Mistral) without touching the orchestrator.
+- The NLU backend can switch from the local trained model to a full LLM (GPT-4o, Gemma-3, Mistral) without touching the orchestrator.
 - The affordance scorer can be replaced with a learned model while retaining the same interface contract.
 - The arm backend can target Gazebo simulation, Isaac Sim, or a physical manipulator (UR5e, xArm7, Kinova) by changing only the ROS 2 skill drivers.
 
@@ -143,7 +143,7 @@ The design is deliberately layered so that any component can be swapped independ
 
 | Backend | Module | Use Case |
 |---|---|---|
-| Mock rule-based | `mock_parser.MockRuleBasedParser` | Unit testing, CI, offline demo |
+| Local trained model | `local_parser.LocalMLParser` | Default, offline |
 | OpenAI GPT-4o | `llm_parser.OpenAIParser` | Production (cloud) |
 | Local LLM (vLLM) | `llm_parser.LocalLLMParser` | Production (on-premise) |
 
@@ -240,7 +240,6 @@ If a skill fails during execution, the Orchestrator re-queries the Affordance Sc
 ### 5. Skill Library
 
 **Packages:**
-- `ros2_ws/src/nora_skills` (Python implementation for rapid prototyping and mock testing)
 - `ros2_ws/src/nora_skills_cpp` (High-performance C++ implementation with native MoveIt 2 `MoveGroupInterface` integration)
 **Key Classes:** `BaseSkill`, concrete skill implementations (`MoveToPoseSkill`, `PickSkill`, `PlaceSkill`, `GoHomeSkill`, `GripperSkill`)
 
@@ -375,7 +374,7 @@ All tunable parameters live in `config/nora_config.yaml`:
 
 ```yaml
 nlu:
-  backend: mock          # mock | openai | local_llm
+  backend: ml            # ml | openai | local_llm
   confidence_threshold: 0.7
 
 affordance:
@@ -389,6 +388,6 @@ planner:
   max_replan_attempts: 3
 
 robot:
-  description: ur5e      # ur5e | xarm7 | mock
+  description: ur5e      # ur5e | xarm7
   home_joint_positions: [0.0, -1.57, 0.0, -1.57, 0.0, 0.0]
 ```

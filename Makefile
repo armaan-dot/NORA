@@ -3,7 +3,7 @@
 # Usage: make <target>
 # =============================================================================
 
-.PHONY: help lint format test-core test-ml test build-ros test-ros check demo-mock clean
+.PHONY: help lint format test-core test-ml test build-ros test-ros check clean
 
 # Source directories checked by static analysis tools
 SRC_DIRS := core/ ml/
@@ -30,7 +30,6 @@ help:
 	@echo "  build-ros   colcon build inside $(ROS_WS)/"
 	@echo "  test-ros    colcon test inside $(ROS_WS)/"
 	@echo "  check       lint + test + build-ros + test-ros"
-	@echo "  demo-mock   Run mock demo via scripts/run_demo.sh"
 	@echo "  clean       Remove build artefacts and caches"
 	@echo "────────────────────────────────────────────────"
 	@echo ""
@@ -85,12 +84,6 @@ test-ros:
 # check – full CI gate (lint → test → build-ros → test-ros)
 # ---------------------------------------------------------------------------
 check: lint test build-ros test-ros
-
-# ---------------------------------------------------------------------------
-# demo-mock – run the mock demonstration script
-# ---------------------------------------------------------------------------
-demo-mock:
-	bash scripts/run_demo.sh --mock
 
 # ---------------------------------------------------------------------------
 # clean – remove all generated build artefacts and caches

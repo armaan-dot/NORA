@@ -80,9 +80,9 @@ U(skill | intent) ∈ [0, 1]
 
 The usefulness score answers: *"If the operator issued this intent, how useful would executing this skill be towards satisfying it?"*
 
-### Phase 1: Rule-Based (Mock)
+### Phase 1: Rule-Based
 
-In Phase 1, the `MockUsefulnessModel` assigns scores by keyword matching between the intent `action` and the skill name:
+In Phase 1, the usefulness model assigns scores by keyword matching between the intent `action` and the skill name:
 
 ```python
 def score(self, skill_name: str, intent: dict) -> float:
@@ -207,7 +207,7 @@ As the system matures:
 
 | Phase | Recommended `w_u` | Recommended `w_f` | Rationale |
 |---|---|---|---|
-| 1 (mock) | 0.6 | 0.4 | Rule-based feasibility is coarse |
+| 1 (rule-based) | 0.6 | 0.4 | Rule-based feasibility is coarse |
 | 2 (classifier) | 0.55 | 0.45 | Classifier still uncertain |
 | 3 (LLM + value fn) | 0.5 | 0.5 | Both models mature |
 | 4 (production) | 0.45 | 0.55 | Physics feasibility is high confidence |
@@ -228,7 +228,7 @@ Weights are tuned via offline evaluation on the benchmark task suite (`sim/bench
 }
 ```
 
-**World State (mock):**
+**World State:**
 - `red_cube` detected at pose `(0.35, 0.0, 0.12)` in world frame.
 - Gripper is open.
 - IK solution exists for approach pose.
@@ -296,8 +296,8 @@ The Planner requests the top-K skills (default `K=3`) from the scorer, then deci
 | Class | File | Description |
 |---|---|---|
 | `AffordanceScore` | `core/nora_core/affordance/scoring.py` | Dataclass holding all score components |
-| `UsefulnessModel` | `core/nora_core/affordance/usefulness.py` | Abstract base + mock implementation |
-| `FeasibilityModel` | `core/nora_core/affordance/feasibility.py` | Abstract base + mock implementation |
+| `UsefulnessModel` | `core/nora_core/affordance/usefulness.py` | Abstract base + rule-based implementation |
+| `FeasibilityModel` | `core/nora_core/affordance/feasibility.py` | Abstract base + rule-based implementation |
 | `WeightedProductFusion` | `core/nora_core/affordance/fusion.py` | Fusion operator |
 | `AffordanceScorer` | `core/nora_core/affordance/scorer.py` | Orchestrates models + fusion |
 
