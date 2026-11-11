@@ -3,194 +3,163 @@
     "3D!nora_arm_view": {
       "cameraState": {
         "perspective": true,
-        "distance": 2.1,
-        "phi": 52,
-        "thetaOffset": 38,
-        "targetOffset": [0, 0, 0.35],
+        "distance": 2.2,
+        "phi": 55,
+        "thetaOffset": 120,
+        "targetOffset": [0.35, 0, 0.15],
         "target": [0, 0, 0],
         "fovy": 45,
         "near": 0.01,
         "far": 5000
       },
       "followMode": "follow-pose",
-      "scene": {
-        "enableStats": false,
-        "transforms": {
-          "showLabel": true,
-          "axisScale": 0.15
-        }
-      },
-      "transforms": {
-        "frame:world": { "visible": true },
-        "frame:tabletop": { "visible": true },
-        "frame:base_link": { "visible": true },
-        "frame:tool0": { "visible": true },
-        "frame:gripper_link": { "visible": true },
-        "frame:camera_link": { "visible": true },
-        "frame:camera_color_optical_frame": { "visible": true },
-        "frame:pen_frame": { "visible": true },
-        "frame:scissors_frame": { "visible": true },
-        "frame:apple_frame": { "visible": true },
-        "frame:water_frame": { "visible": true },
-        "frame:tennis_ball_frame": { "visible": true }
-      },
+      "followTf": "base_link",
+      "scene": { "enableStats": false, "transforms": { "showLabel": false, "axisScale": 0.08 } },
       "topics": {
-        "/robot_description": {
-          "visible": true
-        },
-        "/tf": {
-          "visible": true
-        },
-        "/tf_static": {
-          "visible": true
-        },
-        "/visualization_marker_array": {
-          "visible": true
-        },
-        "/camera/color/camera_info": {
-          "visible": true
-        },
-        "/slam/trajectory": {
-          "visible": true,
-          "color": "#00f0ff",
-          "lineWidth": 0.015
-        },
-        "/robot_pose": {
-          "visible": true
-        }
+        "/robot_description": { "visible": true },
+        "/visualization_marker_array": { "visible": true }
       },
       "layers": {
         "grid": {
           "layerId": "foxglove.Grid",
-          "size": 10,
-          "divisions": 10,
+          "size": 4,
+          "divisions": 16,
           "lineWidth": 1,
           "color": "#334155",
-          "position": [0, 0, 0],
+          "position": [0, 0, -0.45],
           "rotation": [0, 0, 0],
-          "frameId": "world"
+          "frameId": "base_link"
         }
-      },
-      "publish": {
-        "type": "point",
-        "poseTopic": "/goal_pose",
-        "pointTopic": "/clicked_point",
-        "poseEstimateTopic": "/initialpose"
-      },
-      "imageMode": {}
+      }
     },
-    "Image!on_arm_camera": {
-      "cameraTopic": "/camera/color/image_raw",
-      "enabledMarkerTopics": [],
-      "transformMarkers": true,
-      "synchronize": false,
-      "mode": "fit",
-      "zoomPercentage": 100,
-      "flipHorizontal": false,
-      "flipVertical": false
+    "Image!camera_color": {
+      "cameraTopic": "/camera/color/image_raw/compressed",
+      "imageMode": { "imageTopic": "/camera/color/image_raw/compressed" }
     },
-    "Plot!slam_motion_telemetry": {
-      "title": "UR5e Kinematic & SLAM Trajectory Telemetry",
+    "Image!camera_depth": {
+      "cameraTopic": "/camera/depth/image_colorized/compressed",
+      "imageMode": { "imageTopic": "/camera/depth/image_colorized/compressed" }
+    },
+    "Image!camera_vision": {
+      "cameraTopic": "/camera/segmentation/compressed",
+      "imageMode": { "imageTopic": "/camera/segmentation/compressed" }
+    },
+    "Tab!camera": {
+      "activeTabIdx": 0,
+      "tabs": [
+        { "title": "Camera", "layout": "Image!camera_color" },
+        { "title": "Depth", "layout": "Image!camera_depth" },
+        { "title": "Vision", "layout": "Image!camera_vision" }
+      ]
+    },
+    "Plot!joints": {
+      "title": "Arm joints (rad)",
       "paths": [
-        {
-          "value": "/joint_states.position[0]",
-          "enabled": true,
-          "label": "Joint 1: Shoulder Pan (rad)",
-          "color": "#38bdf8"
-        },
-        {
-          "value": "/joint_states.position[1]",
-          "enabled": true,
-          "label": "Joint 2: Shoulder Lift (rad)",
-          "color": "#4ade80"
-        },
-        {
-          "value": "/joint_states.position[2]",
-          "enabled": true,
-          "label": "Joint 3: Elbow (rad)",
-          "color": "#facc15"
-        },
-        {
-          "value": "/joint_states.position[4]",
-          "enabled": true,
-          "label": "Joint 5: Wrist 2 (rad)",
-          "color": "#f43f5e"
-        },
-        {
-          "value": "/robot_pose.pose.position.y",
-          "enabled": true,
-          "label": "Camera Height Y (m)",
-          "color": "#c084fc"
-        }
+        { "value": "/joint_states.position[0]", "enabled": true, "label": "joint1", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.position[1]", "enabled": true, "label": "joint2", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.position[2]", "enabled": true, "label": "joint3", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.position[3]", "enabled": true, "label": "joint4", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.position[4]", "enabled": true, "label": "joint5", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.position[5]", "enabled": true, "label": "joint6", "timestampMethod": "receiveTime" }
       ],
       "showLegend": true,
       "xAxisVal": "timestamp"
     },
-    "Publish!add_object_publisher": {
-      "topic": "/nora/tabletop_objects/add",
-      "datatype": "std_msgs/msg/String",
-      "buttonText": "Add Object to Tabletop",
-      "buttonTooltip": "Dynamically spawn a physical object onto the live tabletop workspace",
-      "buttonColor": "#10b981",
-      "advancedView": true,
-      "value": "{\n  \"data\": \"{\\\"id\\\": \\\"scissors\\\", \\\"name\\\": \\\"Scissors\\\", \\\"shape\\\": \\\"scissors\\\", \\\"color\\\": \\\"#e11d48\\\", \\\"x\\\": 0.08, \\\"y\\\": 0.465, \\\"z\\\": 0.15}\"\n}"
+    "Plot!torques": {
+      "title": "Joint torques (N m)",
+      "paths": [
+        { "value": "/joint_states.effort[0]", "enabled": true, "label": "joint1", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[1]", "enabled": true, "label": "joint2", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[2]", "enabled": true, "label": "joint3", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[3]", "enabled": true, "label": "joint4", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[4]", "enabled": true, "label": "joint5", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[5]", "enabled": true, "label": "joint6", "timestampMethod": "receiveTime" }
+      ],
+      "showLegend": true,
+      "xAxisVal": "timestamp"
     },
-    "Publish!intent_publisher": {
-      "topic": "/nora/intent",
+    "Plot!gripper": {
+      "title": "Gripper: finger gap (m) and force (N)",
+      "paths": [
+        { "value": "/joint_states.position[6]", "enabled": true, "label": "gap (m)", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[6]", "enabled": true, "label": "force (N)", "timestampMethod": "receiveTime" }
+      ],
+      "showLegend": true,
+      "xAxisVal": "timestamp"
+    },
+    "Tab!plots": {
+      "activeTabIdx": 0,
+      "tabs": [
+        { "title": "Joints", "layout": "Plot!joints" },
+        { "title": "Torques", "layout": "Plot!torques" },
+        { "title": "Gripper", "layout": "Plot!gripper" }
+      ]
+    },
+    "Publish!command": {
+      "topic": "/nora/command",
       "datatype": "std_msgs/msg/String",
-      "buttonText": "Dispatch Task to NORA",
-      "buttonTooltip": "Publishes natural language robotic intent to /nora/intent",
+      "buttonText": "Send command",
+      "buttonTooltip": "Plain-English command, parsed by the NLU model",
       "buttonColor": "#0284c7",
       "advancedView": true,
-      "value": "{\n  \"data\": \"{\\\"action\\\": \\\"pick\\\", \\\"target_object\\\": \\\"scissors\\\", \\\"target_location\\\": \\\"user\\\"}\"\n}"
+      "value": "{\n  \"data\": \"pick up the tennis ball and put it in the tote\"\n}"
     },
-    "RawMessages!tabletop_objects": {
-      "topicPath": "/nora/tabletop_objects",
-      "diffTopicPath": "",
-      "diffMethod": "custom",
-      "diffEnabled": false,
-      "showFullMessageForDiff": false
+    "Publish!add_object": {
+      "topic": "/nora/tabletop_objects/add",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Add object",
+      "buttonTooltip": "Adds one object to the table (omit x and y for a free spot)",
+      "buttonColor": "#10b981",
+      "advancedView": true,
+      "value": "{\n  \"data\": \"{\\\"name\\\": \\\"Red Apple\\\", \\\"shape\\\": \\\"apple\\\", \\\"color\\\": \\\"#e11d48\\\"}\"\n}"
     },
-    "RosOut!system_logs": {
-      "searchTerms": [],
-      "minLogLevel": 1
-    }
+    "RawMessages!pipeline": { "topicPath": "/nora/pipeline" },
+    "RawMessages!detections": { "topicPath": "/nora/perception/detections" },
+    "RawMessages!gripper": { "topicPath": "/nora/gripper/state" },
+    "RawMessages!plan": { "topicPath": "/nora/planned_path" },
+    "Tab!state": {
+      "activeTabIdx": 0,
+      "tabs": [
+        { "title": "Pipeline", "layout": "RawMessages!pipeline" },
+        { "title": "Detections", "layout": "RawMessages!detections" },
+        { "title": "Gripper sensors", "layout": "RawMessages!gripper" },
+        { "title": "Plan", "layout": "RawMessages!plan" }
+      ]
+    },
+    "RosOut!logs": { "searchTerms": [], "minLogLevel": 1 }
   },
   "globalVariables": {},
   "userNodes": {},
-  "linkedGlobalVariables": [],
-  "playbackConfig": {
-    "speed": 1
-  },
+  "playbackConfig": { "speed": 1 },
   "layout": {
     "direction": "row",
     "first": {
       "direction": "column",
       "first": "3D!nora_arm_view",
-      "second": "Plot!slam_motion_telemetry",
-      "splitPercentage": 64
+      "second": "Tab!plots",
+      "splitPercentage": 66
     },
     "second": {
       "direction": "column",
-      "first": "Image!on_arm_camera",
+      "first": "Tab!camera",
       "second": {
         "direction": "column",
         "first": {
           "direction": "row",
-          "first": "Publish!add_object_publisher",
-          "second": "Publish!intent_publisher",
+          "first": "Publish!command",
+          "second": "Publish!add_object",
           "splitPercentage": 50
         },
         "second": {
           "direction": "row",
-          "first": "RawMessages!tabletop_objects",
-          "second": "RosOut!system_logs",
+          "first": "Tab!state",
+          "second": "RosOut!logs",
           "splitPercentage": 45
         },
         "splitPercentage": 35
       },
-      "splitPercentage": 50
+      "splitPercentage": 36
     },
-    "splitPercentage": 56
+    "splitPercentage": 58
   }
 }

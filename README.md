@@ -130,6 +130,189 @@ Everything below runs in the browser (Three.js) with no ROS needed:
 - **WebAssembly is used for two things: OpenCV.js and the Rapier physics engine**, because both are distributed that way. Everything written for this project is plain TypeScript: an NLU parse takes about 0.05 ms, an approach plan with collision checks about 0.7 ms, and the OpenCV step about 20 ms per frame. The camera render is GPU work.
 - **Not included: SLAM and Nav2.** The arm is table-mounted, so there is no map to build and nowhere to navigate.
 
+## Run the simulator in Foxglove (ROS 2 + MoveIt)
+
+The same simulation as the web app (same arm, table, tote, objects, physics, wrist camera, vision and language model), shown and driven from Foxglove, with MoveIt 2 planning the arm's joint-space moves.
+
+**What runs where**
+
+| Part | Runs in | Notes |
+|---|---|---|
+| Physics, wrist RGB-D camera, vision, language model (NLU), task logic | The simulator (`frontend/`, a browser page, can be headless) | Same code as the web app |
+| Motion planning | MoveIt 2 `move_group` (OMPL RRTConnect) | Called for every joint-space move; straight-line approach and lift moves are solved by the simulator |
+| Arm model and TF | `robot_state_publisher` with `frontend/public/nora_arm.urdf` | The identical URDF the web app loads |
+| Transport | `rosbridge_server` (simulator to ROS, port 9090), `foxglove_bridge` (ROS to Foxglove, port 8765) | |
+| Objects on the table | `ros2_ws/src/nora_bringup/config/scene.json` | Edit and save to change the scene |
+
+Voice input is not part of the Foxglove setup. Objects appear in Foxglove as simple shapes (their collision shapes) at their true physics poses, not as the detailed meshes of the web view.
+
+**Status:** the simulator side was checked on Windows against a stand-in rosbridge server (topics, camera images, scene JSON, English commands, and the MoveIt service calls with a scripted reply). The ROS 2 side (launch file, `move_group` configuration, scene loader, Foxglove layout) has not been run yet, because the development machine has no Linux. If MoveIt rejects a request, the simulator logs it and uses its own planner for that move.
+
+### 1. Install (Ubuntu 22.04, once)
+
+Install ROS 2 Humble first: <https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html> (`ros-humble-desktop`). Then:
+
+```bash
+sudo apt update
+sudo apt install -y ros-humble-rosbridge-server ros-humble-foxglove-bridge ros-humble-moveit \
+  ros-humble-robot-state-publisher python3-colcon-common-extensions git curl
+
+# Node.js 20 for the simulator
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+Install Foxglove from <https://foxglove.dev/download> (or use <https://app.foxglove.dev> in Chrome).
+
+### 2. Get the code and build (once)
+
+```bash
+git clone https://github.com/armaan-dot/NORA.git
+cd NORA/ros2_ws
+source /opt/ros/humble/setup.bash
+colcon build --packages-select nora_bringup
+
+cd ../frontend
+npm install
+```
+
+Only `nora_bringup` is needed. Rebuild it after pulling changes to the launch file or the URDF.
+
+### 3. Start everything (three terminals)
+
+Start them in this order: the simulator connects to rosbridge when its page loads.
+
+**Terminal 1: ROS 2 (robot model, rosbridge, Foxglove bridge, MoveIt, scene loader)**
+
+```bash
+cd NORA/ros2_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 launch nora_bringup sim_foxglove.launch.py scene:=$PWD/src/nora_bringup/config/scene.json
+```
+
+**Terminal 2: the simulator server**
+
+```bash
+cd NORA/frontend
+npm run dev
+```
+
+**Terminal 3: run the simulator page**
+
+Either open <http://localhost:5173> in Chrome and keep that window visible (browsers pause hidden tabs, which pauses the simulation), or run it headless:
+
+```bash
+google-chrome --headless=new --use-angle=swiftshader --enable-unsafe-swiftshader \
+  --remote-debugging-port=9222 http://localhost:5173
+```
+
+A visible window using the graphics card runs faster than headless software rendering. If ROS was started after the page, reload the page.
+
+Check that it is running:
+
+```bash
+source /opt/ros/humble/setup.bash
+ros2 topic hz /joint_states        # about 30 Hz
+ros2 topic list | grep -E "nora|camera"
+```
+
+Terminal 1 should print `Sent 3 objects from .../scene.json` once the simulator connects.
+
+### 4. Connect Foxglove
+
+1. Open Foxglove, choose **Open connection**, then **Foxglove WebSocket**, and enter `ws://localhost:8765` (from another computer: `ws://<linux-machine-ip>:8765`).
+2. Open the layout menu, choose **Import from file...**, and select `foxglove/nora_foxglove_layout.json`.
+
+The layout shows:
+
+- **3D**: the arm (from `/robot_description` and `/tf`), table, tote, handover mat, objects with name labels, and the planned tool path (cyan line).
+- **Camera / Depth / Vision tabs**: the wrist camera's colour image, depth image, and the vision stage's segmentation.
+- **Joints / Torques / Gripper tabs**: joint angles, joint torques, finger gap and grip force.
+- **Send command**: type English in the `data` field and press the button.
+- **Add object**: adds one object to the table.
+- **Pipeline / Detections / Gripper sensors / Plan tabs**: parsed intent and affordance scores, what the camera recognises, pad sensor readings, and which planner produced the last path.
+- **Log**: the simulator's log (NLU, planner, gripper, controller).
+
+### 5. Give commands in English
+
+In the **Send command** panel set the message to `{"data": "pick up the tennis ball"}` and press **Send command**, or from a terminal:
+
+```bash
+ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'pick up the tennis ball'}"
+ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'clean up the table'}"
+ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'stop'}"
+```
+
+The text goes through the same trained language model and task logic as the web app's command box. The parsed intent appears on `/nora/intent_parsed`, the stage (`PARSING`, `SCORING`, `PLANNING`, `EXECUTING`, `DONE`) on `/nora/orchestrator/state`.
+
+### 6. Add and place objects with JSON
+
+The table is described by `ros2_ws/src/nora_bringup/config/scene.json`:
+
+```json
+{
+  "objects": [
+    { "name": "Water Glass", "shape": "glass", "color": "#06b6d4", "x": 0.47, "y": -0.05 },
+    { "name": "Tennis Ball", "shape": "sphere", "color": "#84cc16", "x": 0.25, "y": -0.19 },
+    { "name": "Coffee Mug", "shape": "mug", "color": "#8B4513", "x": 0.63, "y": -0.15 }
+  ]
+}
+```
+
+Edit the file and save it: within a second the scene loader sends it and the simulator replaces every object on the table with the list. A reload is refused while a task is running (the log says so); save again when the arm is idle. To use another file, pass `scene:=/full/path/to/file.json` to the launch command.
+
+| Field | Meaning |
+|---|---|
+| `name` | Display name. It also selects the kind of object (see below) and is what you call it in commands. |
+| `shape` | One of `box`, `cylinder`, `sphere`, `glass`, `mug`, `apple`, `scissors`. |
+| `color` | Hex colour. |
+| `x`, `y` | Position in metres in the `base_link` frame, the same axes Foxglove's 3D panel shows (origin at the robot base, z up). Optional: leave both out and the object is put on a free, reachable spot. |
+| `mass` | Optional mass in kg, replacing the real mass of that kind of object. |
+
+Kinds of object: a name containing `scissors`, `stapler`, `pen` / `pencil` / `marker`, `mug` / `coffee`, `tennis`, `orange`, `apple`, `notebook` / `book`, `ruler` or `eraser` gives that object. Any other name takes its kind from `shape`: `box` is a cube, `cylinder` a can, `sphere` a ball, `glass` a drinking glass.
+
+Where things are (metres, `base_link`): the table covers x from -0.30 to 1.00 and y from -0.50 to 0.40. The arm reaches roughly x 0.19 to 0.87, y -0.39 to 0.27. The storage tote is centred at (0.32, 0.23) and the handover mat at (0.43, -0.33).
+
+To add a single object without touching the file, use the **Add object** panel or:
+
+```bash
+ros2 topic pub --once /nora/tabletop_objects/add std_msgs/msg/String \
+  '{data: "{\"name\": \"Red Apple\", \"shape\": \"apple\", \"color\": \"#e11d48\"}"}'
+```
+
+Objects added this way are replaced the next time the scene file is saved.
+
+### 7. Topics
+
+| Topic | Type | Direction | Content |
+|---|---|---|---|
+| `/nora/command` | `std_msgs/String` | to simulator | English command |
+| `/nora/scene` | `std_msgs/String` | to simulator | Whole scene JSON (sent by the scene loader) |
+| `/nora/tabletop_objects/add` | `std_msgs/String` | to simulator | One object as JSON |
+| `/joint_states` | `sensor_msgs/JointState` | from simulator, 30 Hz | Six arm joints, `gripper_joint` (finger gap), both finger joints; position, velocity, torque |
+| `/visualization_marker_array` | `visualization_msgs/MarkerArray` | from simulator | Table, tote, mat, objects, labels, planned tool path |
+| `/camera/color/image_raw/compressed` | `sensor_msgs/CompressedImage` | from simulator, up to 5 Hz | Wrist camera colour image (256 x 144) |
+| `/camera/depth/image_colorized/compressed` | `sensor_msgs/CompressedImage` | from simulator | Depth image, colourised |
+| `/camera/segmentation/compressed` | `sensor_msgs/CompressedImage` | from simulator | Vision segmentation |
+| `/nora/perception/detections` | `std_msgs/String` (JSON) | from simulator | Objects the camera recognises |
+| `/nora/gripper/state` | `std_msgs/String` (JSON) | from simulator | Finger gap, grip force, pad sensors |
+| `/nora/pipeline`, `/nora/orchestrator/state` | `std_msgs/String` | from simulator | Full pipeline state as JSON, and the stage name alone |
+| `/nora/intent_parsed` | `std_msgs/String` (JSON) | from simulator | Intent from the language model |
+| `/nora/planned_path`, `/nora/controller/state` | `std_msgs/String` (JSON) | from simulator | Planner used and result; trajectory tracking and torque limits |
+| `/rosout` | `rcl_interfaces/Log` | from simulator | Simulator log, node names prefixed `sim/` |
+| `/apply_planning_scene`, `/plan_kinematic_path` | MoveIt services | simulator calls MoveIt | Obstacles the robot believes in, then the plan request |
+
+### 8. Troubleshooting
+
+- **Nothing in Foxglove, `/joint_states` silent:** the simulator page is not running or loaded before rosbridge. Reload <http://localhost:5173> (or restart the headless browser) after Terminal 1 is up.
+- **The arm moves but the log says `RRTConnect (sim/planner.ts)`:** `move_group` did not answer, so the built-in planner was used. Look at the `move_group` output in Terminal 1, then reload the simulator page (it stops asking MoveIt after a failed call until it reconnects).
+- **`MoveIt error code ...` warnings in the log:** MoveIt answered but found no plan for that move (for example it judged the start state in collision); that move used the built-in planner.
+- **Simulation runs slowly or pauses:** the browser window is hidden or minimised. Keep it visible or use the headless command.
+- **Scene file ignored:** the JSON is invalid (Terminal 1 prints the error) or a task was running.
+
+---
+
 ## ROS 2 stack (work in progress)
 
 ROS 2 Humble packages exist for NLU, orchestration, skills, MoveIt 2 config, ros2_control and Gazebo, plus an Isaac Sim stub. Treat them as scaffolding:
@@ -140,7 +323,7 @@ ROS 2 Humble packages exist for NLU, orchestration, skills, MoveIt 2 config, ros
 
 ### MoveIt 2: where it is used
 
-**MoveIt 2 belongs to the ROS 2 side of the project (Gazebo simulation, inspected in Foxglove). The web frontend does not use it: it has its own planner.**
+**MoveIt 2 runs on the ROS 2 side. When the simulator is connected to a rosbridge (see "Run the simulator in Foxglove" above), every joint-space move is planned by MoveIt; with no ROS machine attached (for example the public Netlify site) the simulator uses its own planner.**
 
 - **ROS 2 / Gazebo side:** a MoveIt 2 config package (`ros2_ws/src/nora_moveit_config`: SRDF, OMPL planning, kinematics, joint limits, controllers, a `move_group` launch file) and a C++ skills package (`ros2_ws/src/nora_skills_cpp`) that calls `MoveGroupInterface` for move-to-pose, go-home and the gripper, with a mock fallback when MoveIt is not available. `move_group.launch.py` takes `use_sim_time:=true` for running against Gazebo. The Python skills only reference `MoveGroupInterface` in comments.
 - **Foxglove:** Foxglove is the viewer for the ROS side. It displays the topics MoveIt and the other nodes publish (planned paths, joint states, `/nora/affordance_score`); it does not plan anything itself.
@@ -160,12 +343,7 @@ ROS 2 Humble packages exist for NLU, orchestration, skills, MoveIt 2 config, ros
 
 It is the same algorithm family, but a small hand-written version: tool-down poses only, simplified collision shapes, one planner, no path constraints. The topic `/move_group/display_planned_path` is produced inside the simulator, not by MoveIt.
 
-**Plan to connect the web frontend to MoveIt (not started):**
-
-1. Make the ROS URDF and SRDF match the web arm exactly, including the gripper (`gripper_joint` = distance between the pad faces).
-2. Launch Gazebo and `move_group` together from one bringup launch file, on Linux or WSL with ROS 2 Humble.
-3. Add a planning bridge to the website: when a rosbridge is connected (`ws://localhost:9090`), send each motion goal to MoveIt, receive the trajectory, and execute it on the browser's joint controllers. Publish the robot's believed obstacles to MoveIt's planning scene.
-4. Keep the built-in planner as the fallback, and show in the UI which planner produced each path, so the public Netlify site still works with no ROS machine attached.
+**How the simulator uses MoveIt:** `frontend/src/sim/rosMirror.ts` sends the obstacles the robot believes in to `/apply_planning_scene`, then calls `/plan_kinematic_path` (OMPL RRTConnect, group `arm`) and executes the returned joint path on the simulated joint servos. The log and `/nora/planned_path` name the planner that produced each path. Straight-line approach, lift and set-down moves are still solved by the simulator. `nora_bringup/launch/sim_foxglove.launch.py` starts `move_group` with the web arm (`nora_bringup/config/nora_web_arm.srdf`); the older `nora_moveit_config` package still targets the old arm description.
 
 Giving every visitor of the public site a real MoveIt would need the ROS stack hosted on a server (a container plus a secure WebSocket). That is possible but is not planned.
 
