@@ -5,9 +5,6 @@
 
 nlu_node:
   ros__parameters:
-    # Backend selection: "ml" (trained ML model) or "mock" (rule-based fallback)
-    backend: "ml"
-
     # Optional explicit path to model JSON. If empty, auto-detects bundled nora_nlu_model.json.
     model_path: ""
 

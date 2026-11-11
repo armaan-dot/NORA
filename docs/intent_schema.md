@@ -135,7 +135,7 @@ The primary action the robot should perform. Must be one of the registered actio
 
 ### `target_object` *(optional, string | null)*
 
-Semantic label for the object of manipulation. The label must match an object class known to the perception module (or the mock world state dictionary in simulation).
+Semantic label for the object of manipulation. The label must match an object class known to the perception module.
 
 **Constraints:**
 - Max 128 characters.

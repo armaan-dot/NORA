@@ -20,8 +20,7 @@
 5. [Install Additional ROS 2 Packages](#5-install-additional-ros-2-packages)
 6. [Python Environment Setup](#6-python-environment-setup)
 7. [Build the NORA Workspace](#7-build-the-nora-workspace)
-8. [Run the Mock Demo](#8-run-the-mock-demo)
-9. [Troubleshooting](#9-troubleshooting)
+8. [Troubleshooting](#8-troubleshooting)
 
 ---
 
@@ -221,11 +220,6 @@ rosdep install --from-paths ros2_ws/src --ignore-src -r -y
 
 ```bash
 cd ~/NORA
-bash scripts/build.sh
-```
-
-This runs:
-```bash
 source /opt/ros/humble/setup.bash
 cd ros2_ws
 colcon build --symlink-install
@@ -248,51 +242,7 @@ ros2 pkg list | grep nora   # should list nora_nlu_node, nora_skills, etc.
 
 ---
 
-## 8. Run the Mock Demo
-
-The mock demo runs the full NORA pipeline (NLU → Affordance Scoring → Planner) without any hardware or ROS 2 nodes, using only the Python `core/` layer.
-
-```bash
-cd ~/NORA
-source .venv/bin/activate
-bash scripts/run_demo.sh --mock
-```
-
-Expected output:
-```
-[NORA Demo] Starting mock demo...
-[NORA Demo] Using mock parser and mock perception
-
-=== NORA Mock Demo ===
-Command: pick up the red cube
-Intent: {'action': 'pick', 'target_object': 'red_cube', ...}
-  Affordance [pick]: usefulness=0.85 feasibility=0.90 combined=0.836
-  Affordance [place]: usefulness=0.20 feasibility=0.90 combined=...
-  Affordance [go_home]: usefulness=0.20 feasibility=0.90 combined=...
-  Affordance [open_gripper]: usefulness=0.20 feasibility=0.90 combined=...
-Skill Plan: ['pick', ...]
-=== Demo Complete ===
-```
-
-### Run the benchmark suite
-
-```bash
-cd ~/NORA
-source .venv/bin/activate
-python3 sim/benchmarks/run_benchmark.py
-```
-
-### Run unit and integration tests
-
-```bash
-cd ~/NORA
-source .venv/bin/activate
-python3 -m pytest tests/ core/tests/ -v
-```
-
----
-
-## 9. Troubleshooting
+## 8. Troubleshooting
 
 ### `ros2: command not found` after opening a new terminal
 
