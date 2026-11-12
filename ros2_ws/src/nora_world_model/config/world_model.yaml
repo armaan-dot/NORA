@@ -3,7 +3,7 @@ nora_world_model:
     # Empty: $NORA_WORLD_MODEL_PATH, else ~/.ros/nora_world_model.json
     storage_path: ""
     world_frame: "base_link"
-    ee_frame: "gripper_link"
+    ee_frame: "tcp"
     detections_topic: "/nora/perception/detections"
     visibility_timeout_sec: 1.0
     confidence_half_life_sec: 60.0

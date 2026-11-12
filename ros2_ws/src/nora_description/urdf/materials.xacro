@@ -25,4 +25,12 @@
     <color rgba="1.0 1.0 1.0 1.0"/>
   </material>
 
+  <!-- Arm and gripper colours, same as the web simulator's nora_arm.urdf -->
+  <material name="ur_aluminium"><color rgba="0.80 0.82 0.84 1.0"/></material>
+  <material name="ur_cap"><color rgba="0.45 0.62 0.80 1.0"/></material>
+  <material name="ur_seal"><color rgba="0.10 0.11 0.12 1.0"/></material>
+  <material name="steel"><color rgba="0.55 0.57 0.60 1.0"/></material>
+  <material name="gripper_body"><color rgba="0.16 0.17 0.19 1.0"/></material>
+  <material name="gripper_pad"><color rgba="0.06 0.06 0.07 1.0"/></material>
+
 </robot>

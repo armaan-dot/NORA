@@ -41,7 +41,7 @@ class WorldModelNode(Node):
             "NORA_WORLD_MODEL_PATH", os.path.expanduser("~/.ros/nora_world_model.json")
         )
         self._world_frame = p("world_frame", "base_link").value
-        self._ee_frame = p("ee_frame", "gripper_link").value
+        self._ee_frame = p("ee_frame", "tcp").value
         self._graph = SceneGraph(
             visibility_timeout=p("visibility_timeout_sec", 1.0).value,
             half_life=p("confidence_half_life_sec", 60.0).value,

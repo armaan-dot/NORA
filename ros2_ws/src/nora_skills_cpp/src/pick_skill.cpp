@@ -2,9 +2,30 @@
 #include <regex>
 #include <chrono>
 #include <thread>
+#include <cmath>
 
 namespace nora_skills_cpp
 {
+
+namespace
+{
+// Top-down grasp like the web arm: tcp z axis straight down in base_link, jaw (tcp x) along yaw.
+geometry_msgs::msg::Quaternion top_down_orientation(double yaw)
+{
+  yaw = std::remainder(yaw, M_PI);  // the jaw is symmetric
+  geometry_msgs::msg::Quaternion q;
+  q.x = std::cos(yaw / 2.0);
+  q.y = std::sin(yaw / 2.0);
+  q.z = 0.0;
+  q.w = 0.0;
+  return q;
+}
+
+double yaw_of(const geometry_msgs::msg::Quaternion & q)
+{
+  return std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+}
+}  // namespace
 
 PickSkill::PickSkill(
   const rclcpp::Node::SharedPtr & node,
@@ -45,7 +66,7 @@ bool PickSkill::parse_object_pose(
   out_pose.position.x = 0.4;
   out_pose.position.y = 0.0;
   out_pose.position.z = 0.15;
-  out_pose.orientation.w = 1.0;
+  out_pose.orientation = top_down_orientation(0.0);
 
   if (json_str.empty()) {
     return true;
@@ -62,7 +83,7 @@ bool PickSkill::parse_object_pose(
         out_pose.position.x = tf.transform.translation.x;
         out_pose.position.y = tf.transform.translation.y;
         out_pose.position.z = tf.transform.translation.z;
-        out_pose.orientation = tf.transform.rotation;
+        out_pose.orientation = top_down_orientation(yaw_of(tf.transform.rotation));
         RCLCPP_INFO(node_->get_logger(), "[PickSkill] Found TF pose for '%s'", obj_frame.c_str());
         return true;
       }

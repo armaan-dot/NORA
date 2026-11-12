@@ -17,12 +17,15 @@ nora_gazebo/
 
 ## World Objects
 
+The arm base sits on the table top at world (0, 0, 0.45), same placement as the web simulator.
+
 | Name | Shape | Size | Pose (x, y, z) |
 |------|-------|------|----------------|
-| `table` | box | 0.8 × 1.4 × 0.75 m | (0.6, 0, 0.375) |
-| `red_cube` | box | 0.05 m³ | (0.55, −0.15, 0.775) |
-| `blue_cylinder` | cylinder | r=0.04 m, h=0.08 m | (0.60, 0.10, 0.79) |
-| `green_sphere` | sphere | r=0.04 m | (0.70, −0.05, 0.79) |
+| `table` | box top + 4 legs | 1.3 × 0.9 m, surface z=0.45 | (0.35, −0.05, 0) |
+| `red_cube` | box | 0.05 m³ | (0.47, −0.05, 0.475) |
+| `blue_cylinder` | cylinder | r=0.04 m, h=0.08 m | (0.63, −0.15, 0.49) |
+| `green_sphere` | sphere | r=0.04 m | (0.25, −0.19, 0.49) |
+| `overhead_camera` | depth camera | 640×480, looking down | (0.35, −0.05, 1.45) |
 
 ## Build
 

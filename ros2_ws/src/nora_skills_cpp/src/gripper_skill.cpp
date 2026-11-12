@@ -47,11 +47,11 @@ bool GripperSkill::actuate(bool open)
     return false;
   }
 
-  double target_position = open ? 0.04 : 0.0; // Aperture in meters
+  double target_position = open ? 0.085 : 0.0; // Gap between the finger pads in meters (web gripper)
 
 #if NORA_HAVE_MOVEIT
   if (move_group_) {
-    move_group_->setNamedTarget(open ? "open" : "close");
+    move_group_->setNamedTarget(open ? "open" : "closed");
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     if (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS) {
       auto res = move_group_->execute(plan);

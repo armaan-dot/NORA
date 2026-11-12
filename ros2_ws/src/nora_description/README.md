@@ -8,7 +8,7 @@ URDF/Xacro robot description for the **NORA 6-DOF arm**, using primitive box/cyl
 nora_description/
 ├── urdf/
 │   ├── nora_arm.urdf.xacro   # Main arm description (world→base→link1..6→gripper)
-│   ├── materials.xacro        # Silver, dark_grey, orange material defs
+│   ├── materials.xacro        # Arm/gripper colours (same as the web URDF)
 │   └── ros2_control.xacro     # ros2_control hardware interface stub
 ├── config/
 │   └── joint_limits.yaml      # Position / velocity / effort limits
@@ -39,35 +39,27 @@ Use the **Joint State Publisher GUI** sliders to pose the arm interactively.
 
 ## Joint Summary
 
-| Joint | Type | Parent → Child | Axis | Motion Limits |
-|---|---|---|---|---|
-| `joint1` | revolute | `base_link` → `link1` | Z (shoulder yaw) | [-180°, +180°] |
-| `joint2` | revolute | `link1` → `link2` | Y (shoulder pitch) | [-180°, +180°] |
-| `joint3` | revolute | `link2` → `link3` | Y (elbow pitch) | [-180°, +180°] |
-| `joint4` | revolute | `link3` → `link4` | Z (forearm roll) | [-180°, +180°] |
-| `joint5` | revolute | `link4` → `link5` | Y (wrist pitch) | [-180°, +180°] |
-| `joint6` | revolute | `link5` → `link6` | Z (wrist roll) | [-180°, +180°] |
-| `gripper_joint` | revolute | `link6` → `gripper_link` | X (gripper stroke) | [0 mm, 80 mm] |
+Same kinematics, limits and geometry as the web simulator (`frontend/public/nora_arm.urdf`), UR5e-style.
 
-## Arm Physical Dimensions & Link Specifications
-
-| Link | Geometry Primitive | Dimensions (mm) | Joint Origin Z-Offset (mm) | Mass (kg) | Material Color |
+| Joint | Type | Parent → Child | Axis | Origin (m) | Limits |
 |---|---|---|---|---|---|
-| `base_link` | Cylinder | Ø 160 mm × H 100 mm ($r=0.08\,\text{m}, l=0.10\,\text{m}$) | $z = 0\,\text{mm}$ (origin) | 2.0 kg | Dark Grey |
-| `link1` (Shoulder) | Rectangular Box | $70 \times 70 \times 150\,\text{mm}$ | $z = 100\,\text{mm}$ from base | 1.0 kg | Silver |
-| `link2` (Upper Arm) | Cylinder | Ø 80 mm × H 200 mm ($r=0.04\,\text{m}, l=0.20\,\text{m}$) | $z = 150\,\text{mm}$ from link1 | 1.0 kg | Silver |
-| `link3` (Elbow) | Cylinder | Ø 70 mm × H 180 mm ($r=0.035\,\text{m}, l=0.18\,\text{m}$) | $z = 200\,\text{mm}$ from link2 | 1.0 kg | Silver |
-| `link4` (Forearm) | Rectangular Box | $60 \times 60 \times 140\,\text{mm}$ | $z = 180\,\text{mm}$ from link3 | 0.8 kg | Dark Grey |
-| `link5` (Wrist 1) | Cylinder | Ø 60 mm × H 100 mm ($r=0.03\,\text{m}, l=0.10\,\text{m}$) | $z = 140\,\text{mm}$ from link4 | 0.5 kg | Silver |
-| `link6` (Wrist 2) | Cylinder | Ø 50 mm × H 60 mm ($r=0.025\,\text{m}, l=0.06\,\text{m}$) | $z = 100\,\text{mm}$ from link5 | 0.3 kg | Dark Grey |
-| `gripper_link` | Rectangular End-Effector | $50 \times 100 \times 80\,\text{mm}$ (stroke: 0–80 mm) | $z = 60\,\text{mm}$ from link6 | 0.2 kg | Orange |
+| `world_to_base` | fixed | `world` → `base_link` | — | (0, 0, 0.45) table top | — |
+| `joint1` | revolute | `base_link` → `link1` | Z (shoulder pan) | (0, 0, 0.086) | ±2π, 150 N·m |
+| `joint2` | revolute | `link1` → `link2` | Y (shoulder lift) | (0, 0, 0.0765) | ±2π, 150 N·m |
+| `joint3` | revolute | `link2` → `link3` | Y (elbow) | (0, 0, 0.425) | ±π, 150 N·m |
+| `joint4` | revolute | `link3` → `link4` | Y (wrist 1) | (0, 0, 0.3922) | ±2π, 28 N·m |
+| `joint5` | revolute | `link4` → `link5` | Z (wrist 2) | (0, 0.1333, 0.0997) | ±2π, 28 N·m |
+| `joint6` | revolute | `link5` → `link6` | Z (wrist 3) | (0, 0.0596, 0), roll −π/2 | ±2π, 28 N·m |
+| `gripper_mount_joint` | fixed | `link6` → `gripper_link` | — | (0, 0, 0.039) | — |
+| `tcp_joint` | fixed | `gripper_link` → `tcp` | — | (0, 0, 0.115) between the pads | — |
+| `gripper_joint` | prismatic | `gripper_link` → `gripper_driver_link` | X | (0, 0, 0.08) | 0 to 0.085 m pad gap |
+| `left_/right_finger_joint` | prismatic, mimic ∓0.5 | `gripper_link` → finger links | X | (∓0.0055, 0, 0.082) | — |
 
-### Overall Workspace & Kinematic Envelope
-- **Total Robot Mass:** ~5.8 kg
-- **Maximum Vertical Reach:** ~1,010 mm (1.01 m fully extended from base)
-- **Nominal Horizontal Reach Radius:** $150\,\text{mm} \le r \le 850\,\text{mm}$
-- **Payload Capacity:** 0.5 kg – 1.0 kg
-- **Gripper Opening Stroke:** 0.0 mm to 80.0 mm (0.08 m)
+All joint velocity limits are 3.14 rad/s (gripper 0.15 m/s). Every joint at 0 points the arm straight up.
+Top-down tool pose: joint2 + joint3 + joint4 = π/2 and joint5 = −π/2.
+Home (web simulator): joint1..6 = (−0.37, −0.35, 1.9, 0.02, −π/2, 0), gripper 0.03 m; tcp at (0.371, −0.001, 0.356) in `base_link`, pointing down.
+
+Link masses follow the UR5e (3.761, 8.058, 2.846, 1.37, 1.3, 0.365 kg) plus a 0.925 kg gripper; inertia tensors are primitive approximations.
 
 ## TODOs
 

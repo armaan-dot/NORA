@@ -10,17 +10,22 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="nora_ros2_control" params="name">
+  <xacro:macro name="nora_ros2_control" params="name use_gazebo:=false">
 
     <ros2_control name="${name}" type="system">
 
       <!-- ----------------------------------------------------------------
-           Hardware plugin (mock for simulation; swap for real driver)
+           Hardware plugin (mock, or Gazebo Classic when use_gazebo is true)
       ---------------------------------------------------------------- -->
       <hardware>
         <!-- TODO(nora): replace with actual driver plugin, e.g.
              <plugin>nora_hardware/NoraArmHardware</plugin> -->
-        <plugin>mock_components/GenericSystem</plugin>
+        <xacro:if value="${use_gazebo}">
+          <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+        </xacro:if>
+        <xacro:unless value="${use_gazebo}">
+          <plugin>mock_components/GenericSystem</plugin>
+        </xacro:unless>
       </hardware>
 
       <!-- ----------------------------------------------------------------
@@ -28,55 +33,67 @@
       ---------------------------------------------------------------- -->
       <joint name="joint1">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">-6.2832</param>
+          <param name="max">6.2832</param>
         </command_interface>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">-0.37</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
 
       <joint name="joint2">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">-6.2832</param>
+          <param name="max">6.2832</param>
         </command_interface>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">-0.35</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
 
       <joint name="joint3">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">-3.1416</param>
+          <param name="max">3.1416</param>
         </command_interface>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">1.9</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
 
       <joint name="joint4">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">-6.2832</param>
+          <param name="max">6.2832</param>
         </command_interface>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">0.02</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
 
       <joint name="joint5">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">-6.2832</param>
+          <param name="max">6.2832</param>
         </command_interface>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">-1.5708</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
 
       <joint name="joint6">
         <command_interface name="position">
-          <param name="min">${-pi}</param>
-          <param name="max">${pi}</param>
+          <param name="min">-6.2832</param>
+          <param name="max">6.2832</param>
         </command_interface>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
 
@@ -86,13 +103,41 @@
       <joint name="gripper_joint">
         <command_interface name="position">
           <param name="min">0.0</param>
-          <param name="max">0.08</param>
+          <param name="max">0.085</param>
         </command_interface>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">0.03</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
 
+      <!-- Fingers follow gripper_joint (same multipliers as the URDF mimic tags) -->
+      <xacro:if value="${use_gazebo}">
+        <joint name="left_finger_joint">
+          <param name="mimic">gripper_joint</param>
+          <param name="multiplier">-0.5</param>
+          <command_interface name="position"/>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+        <joint name="right_finger_joint">
+          <param name="mimic">gripper_joint</param>
+          <param name="multiplier">0.5</param>
+          <command_interface name="position"/>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:if>
+
     </ros2_control>
+
+    <xacro:if value="${use_gazebo}">
+      <gazebo>
+        <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+          <parameters>$(find nora_control)/config/ros2_controllers.yaml</parameters>
+        </plugin>
+      </gazebo>
+    </xacro:if>
 
   </xacro:macro>
 
