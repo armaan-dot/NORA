@@ -1,0 +1,24 @@
+services:
+  nora:
+    build: .
+    image: nora:latest
+    restart: unless-stopped
+    # DDS discovery and shared-memory transport need the host network and IPC namespace.
+    network_mode: host
+    ipc: host
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ROS_LOCALHOST_ONLY: ${ROS_LOCALHOST_ONLY:-0}
+      NORA_WORLD_MODEL_PATH: ${NORA_WORLD_MODEL_PATH:-/data/world_model.json}
+    volumes:
+      - nora-data:/data
+    # Real hardware: uncomment and adjust the device paths. The container user
+    # is already in the dialout group. Use privileged only if device passthrough
+    # is not enough.
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
+    # privileged: true
+
+volumes:
+  nora-data:

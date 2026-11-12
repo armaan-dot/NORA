@@ -1,0 +1,24 @@
+# Allowlist: only what the image needs. Everything else (frontend, ml datasets
+# and training code, .git, docs, build/install/log trees) stays out.
+*
+!ros2_ws/src
+!core/nora_core
+!ml/models/nora_nlu_model.json
+!docker/entrypoint.sh
+
+# Never send these, even inside allowed directories.
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/node_modules
+**/.env
+**/.env.*
+**/*.env
+**/*.pem
+**/*.key
+**/*.crt
+**/*.pfx
+**/secrets
+**/credentials*

@@ -169,6 +169,32 @@ It is the same algorithm family, but a small hand-written version: tool-down pos
 
 Giving every visitor of the public site a real MoveIt would need the ROS stack hosted on a server (a container plus a secure WebSocket). That is possible but is not planned.
 
+## Docker
+
+The `Dockerfile` builds the ROS 2 workspace in a ROS Humble image and copies only the install tree, the runtime dependencies, `core/nora_core` and the NLU model into a `ros-base` runtime image. Dependencies are resolved with `rosdep` from the `package.xml` files, so new packages need no Dockerfile change. The frontend is not part of the image.
+
+The full stack builds once `feature/nora-behavior-world-model` is merged: on `main`, `nora_bringup` has no build files yet and `colcon build` fails on it.
+
+```bash
+docker build -t nora .                            # with MoveIt
+docker build --build-arg WITH_MOVEIT=0 -t nora .  # without MoveIt, skills run in mock mode
+docker compose up                                 # runs ros2 launch nora_bringup nora.launch.py
+docker run --rm -it --network host --ipc host nora bash   # shell with the workspace sourced
+```
+
+Further rosdep keys can be skipped with `--build-arg EXTRA_SKIP_KEYS="gazebo_ros gazebo_ros_pkgs"`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ROS_DOMAIN_ID` | `0` | DDS domain |
+| `RMW_IMPLEMENTATION` | `rmw_fastrtps_cpp` | ROS middleware (only Fast DDS is installed) |
+| `ROS_LOCALHOST_ONLY` | `0` | `1` keeps traffic on the loopback interface |
+| `NORA_WORLD_MODEL_PATH` | `/data/world_model.json` | World-model storage; `/data` is the `nora-data` volume |
+
+The container runs as the non-root user `nora`. For real hardware, uncomment the `devices` section in `docker-compose.yml`.
+
+Compose uses host networking and host IPC so DDS discovery reaches other ROS 2 nodes on the machine and network. That works on Linux. Docker Desktop on Windows and macOS runs containers in a VM, so host networking does not expose the container on the physical network the same way, and nodes outside the VM may not discover it.
+
 ---
 
 Try the deployed web app: **[https://armnora.netlify.app](https://armnora.netlify.app)**
