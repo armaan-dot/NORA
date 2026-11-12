@@ -1,0 +1,15 @@
+newmtl tennis_ball_0
+Ka 0.8118 0.8863 0.2275
+Kd 0.8118 0.8863 0.2275
+Ks 0.15 0.15 0.15
+Ns 30
+d 1
+illum 2
+
+newmtl tennis_ball_1
+Ka 0.9569 0.9569 0.9373
+Kd 0.9569 0.9569 0.9373
+Ks 0.15 0.15 0.15
+Ns 30
+d 1
+illum 2
