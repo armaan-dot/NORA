@@ -585,7 +585,7 @@ class OrchestratorNode(Node):
     def _publish_state(self) -> None:
         """Publish the current FSM state to ``/nora/orchestrator/state``."""
         msg = String()
-        msg.data = self._sm.current_state.value
+        msg.data = self._sm.current_state.value.upper()
         self._state_pub.publish(msg)
 
 

@@ -1706,20 +1706,26 @@ class RosBridgeService {
 
     const nluClient = new ROSLIB.Service({
       ros: this.ros,
-      name: '/nora/extract_intent',
-      serviceType: 'nora_interfaces/srv/ExtractIntent'
+      name: '/nora/parse_command',
+      serviceType: 'nora_interfaces/srv/ParseCommand'
     });
 
     nluClient.callService(
       { raw_text: text },
       (res: any) => {
-        if (res && res.intent) {
+        if (res && res.success && res.intent) {
+          let parameters = {};
+          try {
+            parameters = JSON.parse(res.intent.parameters_json || '{}');
+          } catch {
+            // keep empty parameters
+          }
           const intent: Intent = {
             raw_text: text,
             action: res.intent.action,
             target_object: res.intent.target_object || null,
             target_location: res.intent.target_location || null,
-            parameters: {},
+            parameters,
             confidence: res.intent.confidence || 0.95
           };
           this.notifyPipeline({ stage: 'SCORING', intent });
@@ -5315,6 +5321,18 @@ class RosBridgeService {
     this.stateListeners.forEach((cb) => cb('IDLE'));
     this.eStopListeners.forEach((cb) => cb(false));
     this.notifyPipeline({ stage: 'DONE' });
+
+    if (this.ros && this.connected) {
+      try {
+        new ROSLIB.Topic({
+          ros: this.ros,
+          name: '/emergency_stop',
+          messageType: 'std_msgs/msg/Bool'
+        }).publish({ data: false });
+      } catch (err) {
+        // ignore
+      }
+    }
   }
 
   public onEStopChange(cb: (isStopped: boolean) => void): () => void {

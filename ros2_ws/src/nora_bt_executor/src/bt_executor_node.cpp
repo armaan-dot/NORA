@@ -11,7 +11,7 @@
 //   Action server  /nora/execute_plan        (nora_interfaces/ExecutePlan)
 //   Action clients /nora/skills/<skill>      (nora_interfaces/ExecuteSkill)
 //   Subscriptions  /nora/world_model/state   (nora_interfaces/WorldState)
-//                  /nora/estop               (std_msgs/Bool)
+//                  /emergency_stop           (std_msgs/Bool)
 //   Service client /nora/world_model/update  (nora_interfaces/UpdateWorld)
 //   Publisher      /nora/bt_executor/status  (std_msgs/String: IDLE|RUNNING|SUCCESS|FAILURE)
 //
@@ -327,7 +327,7 @@ BtExecutor::BtExecutor()
     "/nora/world_model/state", rclcpp::QoS(1).transient_local(),
     [this](WorldState::ConstSharedPtr msg) {world_ = msg->objects;});
   estop_sub_ = create_subscription<std_msgs::msg::Bool>(
-    "/nora/estop", 10, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+    "/emergency_stop", 10, [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
       if (msg->data != estop_) {
         RCLCPP_WARN(get_logger(), "Emergency stop %s", msg->data ? "ENGAGED" : "released");
       }
