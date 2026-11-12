@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "nora-core"
@@ -11,3 +11,4 @@ dependencies = ["pydantic>=2.0", "jsonschema>=4.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]  # finds nora_core/
+include = ["nora_core*"]
