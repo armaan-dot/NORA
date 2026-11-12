@@ -395,7 +395,7 @@ class OrchestratorNode(Node):
         is_loop = bool(params.get("is_loop") or action in ("clean_table", "rerack_table", "loop_task"))
 
         if is_loop:
-            targets = params.get("loop_targets") or params.get("objects") or ["red_cube", "blue_cylinder", "green_sphere"]
+            targets = params.get("loop_targets") or params.get("objects") or ["mug", "glass", "tennis_ball", "apple", "can", "notebook"]
             count = params.get("loop_count", len(targets))
             source = params.get("source", "tray" if action == "rerack_table" else "table")
             destination = params.get("destination", "table" if action == "rerack_table" else "tray")
