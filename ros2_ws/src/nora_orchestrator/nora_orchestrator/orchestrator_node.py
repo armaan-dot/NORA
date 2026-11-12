@@ -4,37 +4,43 @@ Top-level NORA task orchestrator ROS 2 node.
 
 Responsibilities
 ----------------
-1. Subscribe to ``/nora/intent`` (std_msgs/String — JSON-encoded intent).
+1. Subscribe to ``/nora/intent`` (nora_interfaces/Intent from the NLU node).
 2. Call the ``ScoreAffordances`` service to rank applicable skills.
-3. Use :mod:`nora_core.planner` to build an ordered skill plan.
-4. Dispatch skill action clients in sequence.
+3. Build an ordered skill plan.
+4. Send the plan to the behavior-tree executor (``/nora/execute_plan``).
 5. Publish orchestrator state to ``/nora/orchestrator/state``.
-6. Expose an ``ExecuteIntent`` action server for clients that want
-   end-to-end confirmation.
-7. Replan on skill failure via :meth:`_handle_skill_failure`.
+6. On a recoverable failure, replan from the executor's structured failure
+   report and the world model, and execute the revised plan
+   (:meth:`_handle_skill_failure`). Critical failures end in a safe stop.
+7. Answer "where is ..." questions from the world model on ``/nora/response``.
 """
 
 from __future__ import annotations
 
 import json
-import time
+import re
+import threading
 from typing import Any, Optional
 
 import rclpy
-from rclpy.action import ActionClient, ActionServer
+from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import String
 
+from nora_interfaces.action import ExecuteIntent as ExecuteIntentAction
+from nora_interfaces.action import ExecutePlan
+from nora_interfaces.msg import Intent, SkillCall, WorldState
+from nora_interfaces.srv import QueryWorld, ScoreAffordances, UpdateWorld
+from nora_orchestrator.replanner import find_object, replan
 from nora_orchestrator.state_machine import OrchestratorState, OrchestratorStateMachine
 
-# TODO(nora): import real interface types once nora_interfaces is built.
-try:
-    from nora_interfaces.action import ExecuteIntent as ExecuteIntentAction
-    from nora_interfaces.srv import ScoreAffordances
-except ImportError:
-    ExecuteIntentAction = None  # type: ignore[assignment,misc]
-    ScoreAffordances = None     # type: ignore[assignment,misc]
+_QUERY_WORDS = {
+    "where", "what", "which", "is", "are", "was", "did", "do", "does", "i", "you", "the", "my",
+    "a", "an", "it", "leave", "left", "put", "last", "see", "seen", "location", "of", "robot",
+    "now", "currently", "right",
+}
 
 
 class OrchestratorNode(Node):
@@ -48,24 +54,20 @@ class OrchestratorNode(Node):
     ROS Interfaces
     --------------
     Subscriptions:
-        /nora/intent             (std_msgs/String)  — JSON-encoded intent
+        /nora/intent             (nora_interfaces/Intent)
+        /nora/world_model/state  (nora_interfaces/WorldState)
 
     Publishers:
         /nora/orchestrator/state (std_msgs/String)  — current FSM state string
+        /nora/response           (std_msgs/String)  — answers and task outcomes
 
     Service clients:
         /nora/score_affordances  (ScoreAffordances) — ranks skills for intent
+        /nora/world_model/query  (QueryWorld)
+        /nora/world_model/update (UpdateWorld)
 
-    Action servers:
-        /nora/execute_intent     (ExecuteIntent)    — end-to-end task execution
-
-    Action clients (one per skill):
-        /nora/skills/pick
-        /nora/skills/place
-        /nora/skills/move_to_pose
-        /nora/skills/open_gripper
-        /nora/skills/close_gripper
-        /nora/skills/go_home
+    Action clients:
+        /nora/execute_plan       (ExecutePlan)      — behavior-tree executor
     """
 
     def __init__(self) -> None:
@@ -79,6 +81,7 @@ class OrchestratorNode(Node):
         self._max_replanning = self.get_parameter("max_replanning_attempts").value
         self._skill_timeout = self.get_parameter("skill_timeout_sec").value
         self._score_threshold = self.get_parameter("score_threshold").value
+        self._plan_timeout = self.declare_parameter("plan_timeout_sec", 600.0).value
 
         # ---- State machine -----------------------------------------------
         self._sm = OrchestratorStateMachine(
@@ -96,34 +99,31 @@ class OrchestratorNode(Node):
         )
 
         # ---- Subscriptions -----------------------------------------------
+        self._response_pub = self.create_publisher(String, "/nora/response", 10)
+
         self._intent_sub = self.create_subscription(
-            String,
+            Intent,
             "/nora/intent",
             self._intent_callback,
             10,
             callback_group=self._reentrant_group,
         )
+        # Latest world-model snapshot as plain dicts.
+        self._world: list[dict] = []
+        self._world_sub = self.create_subscription(
+            WorldState,
+            "/nora/world_model/state",
+            lambda msg: setattr(self, "_world", [self._object_dict(o) for o in msg.objects]),
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+        )
 
         # ---- Service clients ---------------------------------------------
-        # TODO(nora): create ScoreAffordances service client when the interface exists.
-        #   self._score_client = self.create_client(
-        #       ScoreAffordances, "/nora/score_affordances"
-        #   )
+        self._score_client = self.create_client(ScoreAffordances, "/nora/score_affordances")
+        self._query_client = self.create_client(QueryWorld, "/nora/world_model/query")
+        self._update_client = self.create_client(UpdateWorld, "/nora/world_model/update")
 
-        # ---- Action clients (one per skill) ------------------------------
-        self._skill_clients: dict[str, ActionClient] = {}
-        _skill_topics = [
-            "pick", "place", "move_to_pose",
-            "open_gripper", "close_gripper", "go_home",
-        ]
-        for skill in _skill_topics:
-            # TODO(nora): replace None with the concrete action type from nora_interfaces.
-            #   self._skill_clients[skill] = ActionClient(
-            #       self, SkillActionType, f"/nora/skills/{skill}"
-            #   )
-            self.get_logger().info(
-                f"[Orchestrator] Would create action client for /nora/skills/{skill}"
-            )
+        # ---- Behavior-tree executor --------------------------------------
+        self._plan_client = ActionClient(self, ExecutePlan, "/nora/execute_plan")
 
         # ---- ExecuteIntent action server ---------------------------------
         # TODO(nora): uncomment once nora_interfaces is available.
@@ -142,31 +142,93 @@ class OrchestratorNode(Node):
     # Intent subscription callback
     # ------------------------------------------------------------------
 
-    def _intent_callback(self, msg: String) -> None:
+    def _intent_callback(self, msg: Intent) -> None:
         """Handle an incoming intent from the NLU pipeline.
 
-        Parameters
-        ----------
-        msg:
-            std_msgs/String whose ``data`` field is a JSON-encoded intent dict,
-            e.g. ``{"action": "pick", "object": "red_cube"}``.
+        The task runs on a worker thread so this node keeps spinning and can
+        deliver the service and action responses the task waits for.
         """
-        self.get_logger().info(f"[Orchestrator] Received intent: {msg.data}")
         try:
-            intent = json.loads(msg.data)
+            parameters = json.loads(msg.parameters_json or "{}")
         except json.JSONDecodeError as exc:
-            self.get_logger().error(f"[Orchestrator] Bad intent JSON: {exc}")
+            self.get_logger().error(f"[Orchestrator] Bad intent parameters: {exc}")
+            return
+        intent = {
+            "command_id": msg.command_id,
+            "raw_text": msg.raw_text,
+            "action": msg.action,
+            "target_object": msg.target_object,
+            "target_location": msg.target_location,
+            "confidence": msg.confidence,
+            "parameters": parameters,
+        }
+        self.get_logger().info(f"[Orchestrator] Received intent: {intent}")
+
+        if re.match(r"\s*(where|what|which)\b", msg.raw_text, re.IGNORECASE):
+            threading.Thread(target=self._answer_query, args=(intent,), daemon=True).start()
+            return
+        if self._sm.current_state != OrchestratorState.IDLE:
+            self.get_logger().warn("[Orchestrator] Busy with another task; intent ignored.")
             return
 
         self._replanning_attempts = 0
         self._sm.transition(OrchestratorState.PARSING)
+        threading.Thread(target=self._run_task_guarded, args=(intent,), daemon=True).start()
 
-        # TODO(nora): validate intent schema (required fields: 'action').
-        self._run_task(intent)
+    @staticmethod
+    def _wait(future, timeout: float):
+        """Block a worker thread until *future* resolves; None on timeout."""
+        done = threading.Event()
+        future.add_done_callback(lambda _: done.set())
+        return future.result() if done.wait(timeout) else None
+
+    @staticmethod
+    def _object_dict(obj) -> dict:
+        p = obj.pose.pose.position
+        return {
+            "id": obj.id, "label": obj.label, "state": obj.state, "location": obj.location,
+            "visible": obj.visible, "confidence": obj.confidence,
+            "frame": obj.pose.header.frame_id, "position": [p.x, p.y, p.z],
+        }
+
+    def _respond(self, text: str) -> None:
+        self.get_logger().info(f"[Orchestrator] {text}")
+        self._response_pub.publish(String(data=text))
+
+    # ------------------------------------------------------------------
+    # World-model questions
+    # ------------------------------------------------------------------
+
+    def _answer_query(self, intent: dict) -> None:
+        """Answer "where is X", "what do you see", "what are you holding"."""
+        text = intent["raw_text"].lower()
+        request = QueryWorld.Request()
+        if "hold" in text:
+            request.query = "holding"
+        elif re.search(r"\b(see|visible|in view)\b", text) and not text.lstrip().startswith("where"):
+            request.query = "visible"
+        else:
+            request.query = "object"
+            request.object_id = intent["target_object"] or "_".join(
+                w for w in re.findall(r"[a-z0-9]+", text) if w not in _QUERY_WORDS
+            )
+        if not self._query_client.wait_for_service(timeout_sec=2.0):
+            self._respond("The world model is not running, so I have no record of the scene.")
+            return
+        response = self._wait(self._query_client.call_async(request), 5.0)
+        self._respond(response.answer if response else "The world model did not answer.")
 
     # ------------------------------------------------------------------
     # Main task pipeline
     # ------------------------------------------------------------------
+
+    def _run_task_guarded(self, intent: dict) -> None:
+        try:
+            self._run_task(intent)
+        except Exception as exc:  # keep the node usable after an unexpected error
+            self.get_logger().error(f"[Orchestrator] Task aborted: {exc!r}")
+            self._sm.reset()
+            self._publish_state()
 
     def _run_task(self, intent: dict) -> None:
         """Orchestrate a full task from intent to execution.
@@ -175,7 +237,7 @@ class OrchestratorNode(Node):
         -----
         1. Score affordances.
         2. Build skill plan.
-        3. Execute skills in order.
+        3. Execute it on the behavior-tree executor, replanning on failure.
         """
         # Step 1: Score affordances
         self._sm.transition(OrchestratorState.SCORING)
@@ -197,9 +259,42 @@ class OrchestratorNode(Node):
             self._sm.transition(OrchestratorState.IDLE)
             return
 
-        # Step 3: Execute
+        # Step 3: Execute, feeding failures back into planning
         self._sm.transition(OrchestratorState.EXECUTING)
-        self._execute_plan(plan, intent)
+        last_failure: Optional[dict] = None
+        while True:
+            result = self._execute_plan(plan, intent)
+            if result is not None and result.success:
+                self._sm.transition(OrchestratorState.DONE)
+                self._respond("Task completed.")
+                self._sm.transition(OrchestratorState.IDLE)
+                return
+            if result is None:
+                self._respond(
+                    "Task failed: the behavior-tree executor is unavailable, rejected the "
+                    "plan (emergency stop engaged?) or timed out."
+                )
+                self._sm.transition(OrchestratorState.FAILED)
+                self._sm.transition(OrchestratorState.IDLE)
+                return
+
+            failure = {
+                "index": result.failed_index,
+                "skill": result.failed_skill,
+                "code": result.failure_code,
+                "reason": result.failure_reason,
+                "recoverable": result.recoverable,
+            }
+            world = [self._object_dict(o) for o in result.world_state]
+            plan = self._handle_skill_failure(plan, failure, world, last_failure)
+            if plan is None:
+                self._respond(f"Task failed: {failure['code']}: {failure['reason']}")
+                self._sm.transition(OrchestratorState.FAILED)
+                self._sm.transition(OrchestratorState.IDLE)
+                return
+            last_failure = failure
+            self._sm.transition(OrchestratorState.PLANNING)
+            self._sm.transition(OrchestratorState.EXECUTING)
 
     # ------------------------------------------------------------------
     # Affordance scoring
@@ -207,18 +302,15 @@ class OrchestratorNode(Node):
 
     def _call_score_affordances(self, intent: dict) -> dict[str, float]:
         """Call the ScoreAffordances service and return skill→score mapping."""
-        if self._score_client is not None and self._score_client.service_is_ready():
+        if self._score_client.service_is_ready():
             try:
-                from nora_interfaces.srv import ScoreAffordances
                 request = ScoreAffordances.Request()
                 request.intent.raw_text = intent.get("raw_text", "")
                 request.intent.action = intent.get("action", "")
                 request.intent.target_object = intent.get("target_object") or ""
                 request.intent.target_location = intent.get("target_location") or ""
                 request.intent.confidence = float(intent.get("confidence", 1.0))
-                future = self._score_client.call_async(request)
-                rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-                response = future.result()
+                response = self._wait(self._score_client.call_async(request), 5.0)
                 if response is not None and response.scores:
                     return {
                         s.skill_name: float(s.combined_score)
@@ -245,8 +337,8 @@ class OrchestratorNode(Node):
         target_obj = (intent.get("target_object") or "").strip().lower()
         if target_obj and target_obj not in ("none", "null", "item", ""):
             # If detected objects are known and target is missing, return empty scores (SayCan guardrail rejection)
-            if hasattr(self, "_detected_objects") and self._detected_objects:
-                if not any(target_obj == o.lower() or target_obj in o.lower() or o.lower() in target_obj for o in self._detected_objects):
+            if self._world:
+                if find_object(self._world, target_obj) is None:
                     self.get_logger().warn(
                         f"[Orchestrator] SayCan Guardrail: target object '{target_obj}' is NOT present in detected objects. Affordance score: 0.00."
                     )
@@ -353,114 +445,106 @@ class OrchestratorNode(Node):
     # Execution
     # ------------------------------------------------------------------
 
-    def _execute_plan(self, plan: list[dict], intent: dict) -> None:
-        """Execute the skill plan sequentially.
+    def _execute_plan(self, plan: list[dict], intent: dict):
+        """Run *plan* on the behavior-tree executor.
 
-        On failure, calls :meth:`_handle_skill_failure` to attempt replanning.
+        Returns the ``ExecutePlan`` result, or None if the executor could not
+        be reached, rejected the plan, or did not finish in time.
         """
+        if not self._plan_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error("[Orchestrator] /nora/execute_plan is not available.")
+            return None
+        goal = ExecutePlan.Goal()
         for step in plan:
-            skill_name: str = step["skill"]
-            params: dict = step.get("params", {})
-
-            self.get_logger().info(
-                f"[Orchestrator] Executing skill '{skill_name}' with params {params}"
-            )
-
-            success = self._dispatch_skill(skill_name, params)
-
-            if not success:
-                error_msg = f"Skill '{skill_name}' failed."
-                self.get_logger().error(f"[Orchestrator] {error_msg}")
-                recovered = self._handle_skill_failure(skill_name, error_msg, intent)
-                if not recovered:
-                    self._sm.transition(OrchestratorState.FAILED)
-                    self._sm.transition(OrchestratorState.IDLE)
-                    return
-
-        self._sm.transition(OrchestratorState.DONE)
-        self.get_logger().info("[Orchestrator] Task completed successfully.")
-        self._sm.transition(OrchestratorState.IDLE)
-
-    def _dispatch_skill(self, skill_name: str, params: dict) -> bool:
-        """Send goal to a skill action server and wait for result.
-
-        Parameters
-        ----------
-        skill_name:
-            Key in ``self._skill_clients``.
-        params:
-            Goal parameters to populate the action goal message.
-
-        Returns
-        -------
-        True if the skill reported success, False otherwise.
-        """
-        # TODO(nora): implement real action client dispatch.
-        #   client = self._skill_clients.get(skill_name)
-        #   if client is None or not client.wait_for_server(timeout_sec=5.0):
-        #       self.get_logger().error(f"Skill server '{skill_name}' unavailable.")
-        #       return False
-        #   goal_msg = build_goal_msg(skill_name, params)
-        #   future = client.send_goal_async(goal_msg)
-        #   ...wait and check result...
-
-        self.get_logger().warn(
-            f"[Orchestrator] MOCK: pretending skill '{skill_name}' succeeded."
+            call = SkillCall()
+            call.skill_name = step["skill"]
+            call.intent_id = intent.get("command_id", "")
+            call.params_json = json.dumps(step.get("params", {}))
+            call.timestamp = self.get_clock().now().to_msg()
+            goal.plan.append(call)
+        self.get_logger().info(
+            f"[Orchestrator] Executing plan: {[step['skill'] for step in plan]}"
         )
-        time.sleep(0.1)   # simulate network round-trip
-        return True
+
+        handle = self._wait(self._plan_client.send_goal_async(goal), 5.0)
+        if handle is None or not handle.accepted:
+            return None
+        wrapped = self._wait(handle.get_result_async(), self._plan_timeout)
+        if wrapped is None:
+            handle.cancel_goal_async()
+            return None
+        return wrapped.result
 
     # ------------------------------------------------------------------
-    # Replanning hook
+    # Replanning
     # ------------------------------------------------------------------
 
     def _handle_skill_failure(
-        self, skill_name: str, error: str, intent: dict
-    ) -> bool:
-        """Handle a skill failure, potentially triggering a replan.
+        self,
+        plan: list[dict],
+        failure: dict,
+        world: list[dict],
+        last_failure: Optional[dict],
+    ) -> Optional[list[dict]]:
+        """Turn an execution failure into a revised plan.
 
         Parameters
         ----------
-        skill_name:
-            The name of the skill that failed.
-        error:
-            Human-readable error description.
-        intent:
-            The original intent, used to replan from scratch.
+        plan:
+            The plan that failed.
+        failure:
+            The executor's report: ``index``, ``skill``, ``code``, ``reason``,
+            ``recoverable``.
+        world:
+            World-model objects at the time of the failure.
+        last_failure:
+            The previous failure of this task, if any.
 
         Returns
         -------
-        True if recovery was successful, False if max attempts exhausted.
+        The revised plan, or None when the task must stop: the failure is
+        critical, the replanning budget is spent, or a precondition failed
+        twice in the same way (replanning made no progress).
         """
         self._sm.transition(OrchestratorState.RECOVERING)
+        self.get_logger().warn(
+            f"[Orchestrator] Step {failure['index']} ('{failure['skill']}') failed: "
+            f"{failure['code']}: {failure['reason']}"
+        )
+
+        if not failure["recoverable"]:
+            self.get_logger().error("[Orchestrator] Critical failure: safe stop, no replanning.")
+            return None
+        if self._replanning_attempts >= self._max_replanning:
+            self.get_logger().error("[Orchestrator] Max replanning attempts reached. Giving up.")
+            return None
+        if (
+            failure["code"] == "PRECONDITION"
+            and last_failure is not None
+            and (last_failure["code"], last_failure["reason"])
+            == (failure["code"], failure["reason"])
+        ):
+            self.get_logger().error("[Orchestrator] Same precondition failed again. Giving up.")
+            return None
         self._replanning_attempts += 1
 
-        self.get_logger().warn(
-            f"[Orchestrator] Skill failure: '{skill_name}' — attempt "
-            f"{self._replanning_attempts}/{self._max_replanning}. Error: {error}"
-        )
+        # A failed grasp on an object the camera no longer sees: stop trusting
+        # the remembered pose until perception finds the object again.
+        if failure["skill"] == "pick" and failure["code"] in ("SKILL_ABORTED", "TIMEOUT"):
+            target = plan[failure["index"]].get("params", {}).get("target_object")
+            obj = find_object(world, target)
+            if obj is not None and not obj["visible"] and self._update_client.service_is_ready():
+                self._update_client.call_async(
+                    UpdateWorld.Request(object_id=obj["id"], state="missing")
+                )
 
-        if self._replanning_attempts >= self._max_replanning:
-            self.get_logger().error(
-                "[Orchestrator] Max replanning attempts reached. Giving up."
+        new_plan = replan(plan, failure, world)
+        if new_plan is not None:
+            self.get_logger().info(
+                f"[Orchestrator] Replan {self._replanning_attempts}/{self._max_replanning}: "
+                f"{[step['skill'] for step in new_plan]}"
             )
-            return False
-
-        # TODO(nora): implement real replanning strategy:
-        #   1. Update world state to reflect the failure.
-        #   2. Query the skill registry for alternative skills.
-        #   3. Re-score with ScoreAffordances using updated context.
-        #   4. Build a new plan that avoids the failed skill or uses recovery.
-        #   e.g.:
-        #     new_scores = self._call_score_affordances(intent)
-        #     new_plan = self._build_plan(intent, new_scores)
-        #     self._sm.transition(OrchestratorState.PLANNING)
-        #     self._execute_plan(new_plan, intent)
-
-        self.get_logger().warn(
-            "[Orchestrator] STUB: replanning not yet implemented — returning False."
-        )
-        return False
+        return new_plan
 
     # ------------------------------------------------------------------
     # ExecuteIntent action server callback (stub)
