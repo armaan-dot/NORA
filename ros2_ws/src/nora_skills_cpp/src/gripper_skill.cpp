@@ -31,8 +31,22 @@ GripperSkill::GripperSkill(
 #endif
 }
 
+void GripperSkill::stop()
+{
+  BaseSkill::stop();
+#if NORA_HAVE_MOVEIT
+  if (move_group_) {
+    move_group_->stop();
+  }
+#endif
+}
+
 bool GripperSkill::actuate(bool open)
 {
+  if (stop_requested_) {
+    return false;
+  }
+
   double target_position = open ? 0.04 : 0.0; // Aperture in meters
 
 #if NORA_HAVE_MOVEIT
@@ -44,6 +58,9 @@ bool GripperSkill::actuate(bool open)
       if (res == moveit::core::MoveItErrorCode::SUCCESS) {
         return true;
       }
+    }
+    if (stop_requested_) {
+      return false;
     }
   }
 #endif

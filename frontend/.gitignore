@@ -24,3 +24,6 @@ credentials.json
 
 # generated from ml/ by scripts/build-nlu-model.mjs
 public/nora_nlu_model.json
+
+# TypeScript incremental build info
+*.tsbuildinfo

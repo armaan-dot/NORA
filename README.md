@@ -138,6 +138,39 @@ ROS 2 Humble packages exist for NLU, orchestration, skills, MoveIt 2 config, ros
 - The affordance node publishes `/nora/affordance_score` (Float32) so Foxglove or `rqt_plot` can chart it. The web app publishes `/nora/task_affordance` and `/nora/affordance_score` as well when it is connected to a rosbridge.
 - The ROS arm description does not yet match the web simulator's UR5e-style model, and there is no point-cloud publisher. Gazebo and Isaac Sim integration are in progress.
 
+### Behavior-tree executor, replanning and world model
+
+None of this has been built or run yet: it was written on a machine without ROS 2.
+
+```
+/nora/intent -> nora_orchestrator (plan) -> /nora/execute_plan -> nora_bt_executor -> /nora/skills/<skill>
+                      ^   ^                                            |      |
+                      |   +------ failure report + world state --------+      | pick/place results
+                      +---------------- nora_world_model <--------------------+
+                                             ^
+                                 /nora/perception/detections
+```
+
+- **`nora_bt_executor`** (C++, BehaviorTree.CPP 4). Turns the orchestrator's skill list into a tree: a `Sequence` of steps, each skill an asynchronous `ExecuteSkill` action inside `RetryUntilSuccessful`. When the world model has objects, a pick becomes `Fallback(already held, Sequence(object known, pick))` and a place is guarded by "object is held". The tree is ticked from a timer, so nothing blocks. Status (`IDLE`, `RUNNING`, `SUCCESS`, `FAILURE`) is on `/nora/bt_executor/status`.
+- **Failure report.** A failed plan returns the step index, skill, a code (`SKILL_ABORTED`, `GOAL_REJECTED`, `TIMEOUT`, `PRECONDITION`, `SERVER_UNAVAILABLE`, `INTERNAL_ERROR`, `INVALID_PLAN`, `ESTOP`, `CANCELED`), the reason, whether it is recoverable, and the world state.
+- **Replanning.** For a recoverable failure the orchestrator builds a revised plan (retreat to home, pick the object again if it is no longer held, resume from the approach before the failed step) and runs it without a new command. It stops after `max_replanning_attempts` (default 3), when the same precondition fails twice, or on a critical failure.
+- **Emergency stop.** Publishing `true` on `/emergency_stop` (`std_msgs/Bool`, the topic the web app's E-stop button uses) halts the tree, cancels the running skill goal and rejects new plans until `false` is published. A cancelled skill calls `MoveGroupInterface::stop()` and skips its remaining steps.
+- **`nora_world_model`** (Python). Scene graph of objects with pose in `base_link`, state (`detected`, `grasped`, `moved`, `placed`, `missing`, `unknown`), `visible` flag, last-seen time and a confidence that halves every `confidence_half_life_sec` once the object is out of view. Input is `vision_msgs/Detection3DArray` on `/nora/perception/detections`, one message per camera frame, published by `nora_perception`. Objects that leave the view are kept as remembered, and become `unknown` after `stale_after_sec`. The graph is saved to `$NORA_WORLD_MODEL_PATH` (default `~/.ros/nora_world_model.json`) and reloaded on start. It publishes `/nora/world_model/state` and the TF frames `nora/objects/<id>` that the pick skill looks up.
+- **`nora_perception`** (Python, OpenCV). Finds the largest blob of each configured colour in the RGB image (`/camera/color/image_raw`), takes its median depth from the aligned depth image, deprojects it with the camera intrinsics and publishes the position in `base_link`. Objects are keyed by hue range in `config/perception.yaml` (`red_cube`, `blue_cylinder`, `green_sphere` for the Gazebo tabletop), so a new object needs a new entry and two objects of the same colour cannot be told apart. The position is the visible surface, not the object centre. The Gazebo world now has an overhead RGB-D camera that publishes these topics; a RealSense with aligned depth uses the same names.
+- **Questions.** A command starting with "where" or "what" is answered from the world model on `/nora/response`, e.g. "cup is not currently visible. It was last seen 42 s ago at (0.40, 0.00, 0.10) in base_link (remembered, confidence 0.55)."
+
+```bash
+ros2 launch nora_bringup nora.launch.py
+ros2 service call /nora/parse_command nora_interfaces/srv/ParseCommand "{raw_text: 'pick up the cup'}"
+ros2 service call /nora/world_model/query nora_interfaces/srv/QueryWorld "{query: object, object_id: cup}"
+
+# Replanning check: fail every pick attempt of the first plan, then let the revised plan run
+ros2 run nora_bt_executor bt_executor_node --ros-args -p inject_failure_skill:=pick -p inject_failure_count:=3
+
+# Unit tests of the scene graph, the replanner and the detector
+colcon test --packages-select nora_world_model nora_orchestrator nora_perception
+```
+
 ### MoveIt 2: where it is used
 
 **MoveIt 2 belongs to the ROS 2 side of the project (Gazebo simulation, inspected in Foxglove). The web frontend does not use it: it has its own planner.**

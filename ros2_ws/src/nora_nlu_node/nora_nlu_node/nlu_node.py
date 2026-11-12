@@ -7,12 +7,11 @@ Subscribes to nothing by default. Exposes:
   - Service  ``/nora/parse_command``  (nora_interfaces/srv/ParseCommand)
   - Publisher ``/nora/intent``         (nora_interfaces/msg/Intent)
 
-On each service call the node runs the configured NLU backend (trained ML model
-or mock), publishes the resulting Intent, and returns it in the service response.
+On each service call the node runs the trained ML NLU model,
+publishes the resulting Intent, and returns it in the service response.
 
 ROS Parameters
 --------------
-backend              : str = "ml"       — backend type: "ml" | "mock"
 model_path           : str = ""         — path to local ML model JSON or HuggingFace dir
 confidence_threshold : float = 0.5      — intents below this are flagged low-confidence
 """
@@ -27,7 +26,6 @@ from nora_interfaces.srv import ParseCommand
 
 from nora_nlu_node.intent_parser import IntentParser
 from nora_nlu_node.local_parser import LocalMLParser
-from nora_nlu_node.mock_parser import MockIntentParser
 
 _TOPIC_INTENT = "/nora/intent"
 _SERVICE_PARSE = "/nora/parse_command"
@@ -40,11 +38,9 @@ class NLUNode(Node):
         super().__init__("nlu_node")
 
         # ── Declare parameters ─────────────────────────────────────────────────
-        self.declare_parameter("backend", "ml")
         self.declare_parameter("model_path", "")
         self.declare_parameter("confidence_threshold", 0.5)
 
-        backend: str = self.get_parameter("backend").get_parameter_value().string_value.lower()
         model_path: str = self.get_parameter("model_path").get_parameter_value().string_value
         self._confidence_threshold: float = (
             self.get_parameter("confidence_threshold")
@@ -52,13 +48,9 @@ class NLUNode(Node):
             .double_value
         )
 
-        # ── Instantiate selected parser ────────────────────────────────────────
-        if backend == "mock":
-            self._parser: IntentParser = MockIntentParser()
-            self.get_logger().info("Using rule-based MockIntentParser")
-        else:
-            self._parser = LocalMLParser(model_path=model_path)
-            self.get_logger().info(f"Loaded local ML NLU model (model_path='{model_path}')")
+        # ── Instantiate parser ─────────────────────────────────────────────────
+        self._parser: IntentParser = LocalMLParser(model_path=model_path)
+        self.get_logger().info(f"Loaded local ML NLU model (model_path='{model_path}')")
 
         # ── Publisher ──────────────────────────────────────────────────────────
         self._intent_pub = self.create_publisher(Intent, _TOPIC_INTENT, 10)
@@ -69,7 +61,7 @@ class NLUNode(Node):
         )
         self.get_logger().info(
             f"ParseCommand service ready at '{_SERVICE_PARSE}' "
-            f"(backend='{backend}', confidence_threshold={self._confidence_threshold})"
+            f"(confidence_threshold={self._confidence_threshold})"
         )
 
     # ── Service handlers ───────────────────────────────────────────────────────

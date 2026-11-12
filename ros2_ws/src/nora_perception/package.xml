@@ -4,9 +4,7 @@
   <name>nora_perception</name>
   <version>0.1.0</version>
   <description>
-    Perception node for NORA.  In mock mode (default) it publishes synthetic
-    object poses and states so the rest of the stack can be developed and
-    tested without real hardware or a running camera pipeline.
+    Perception node for NORA. Detects coloured objects in an RGB-D camera stream and publishes their 3D positions as vision_msgs/Detection3DArray.
   </description>
 
   <maintainer email="nora@example.com">NORA Team</maintainer>
@@ -18,8 +16,17 @@
   <depend>nora_interfaces</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>vision_msgs</depend>
+  <depend>message_filters</depend>
+  <depend>cv_bridge</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
 
-  <test_depend>ament_pytest</test_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

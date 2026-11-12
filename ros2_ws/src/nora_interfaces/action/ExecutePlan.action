@@ -1,0 +1,20 @@
+# ExecutePlan.action — run a planner-generated skill sequence as a behavior tree
+# Goal
+nora_interfaces/SkillCall[] plan
+---
+# Result
+bool success
+string message
+nora_interfaces/SkillCall[] executed_skills
+int32 failed_index      # index into plan of the failed step, -1 if none
+string failed_skill
+string failure_code     # SKILL_ABORTED | GOAL_REJECTED | TIMEOUT | PRECONDITION | SERVER_UNAVAILABLE | INTERNAL_ERROR | INVALID_PLAN | ESTOP | CANCELED
+string failure_reason
+bool recoverable        # false means safe stop, do not replan
+nora_interfaces/WorldObject[] world_state
+---
+# Feedback
+string status           # IDLE | RUNNING | SUCCESS | FAILURE
+string current_skill
+int32 current_index
+float32 progress        # [0.0, 1.0]

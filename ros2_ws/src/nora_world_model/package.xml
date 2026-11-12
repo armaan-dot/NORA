@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>nora_skills</name>
+  <name>nora_world_model</name>
   <version>0.1.0</version>
   <description>
-    Primitive skill action servers for NORA. Each skill wraps a single
-    atomic robot capability (pick, place, move_to_pose, etc.) behind a
-    ROS 2 action interface so the orchestrator can compose them.
+    Persistent world model for NORA: a scene graph of observed objects with
+    poses, states and observation freshness, fed by perception and by
+    manipulation results.
   </description>
 
   <maintainer email="nora@example.com">NORA Team</maintainer>
@@ -16,11 +16,12 @@
 
   <depend>rclpy</depend>
   <depend>nora_interfaces</depend>
-  <depend>moveit_ros_planning_interface</depend>
-  <depend>tf2_ros</depend>
   <depend>geometry_msgs</depend>
+  <depend>vision_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
 
-  <test_depend>ament_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

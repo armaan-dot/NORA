@@ -32,6 +32,28 @@ public:
   {
   }
 
+  void stop() override
+  {
+    BaseSkill::stop();
+    if (move_to_pose_skill_) {move_to_pose_skill_->stop();}
+    if (open_gripper_skill_) {open_gripper_skill_->stop();}
+    if (close_gripper_skill_) {close_gripper_skill_->stop();}
+    if (pick_skill_) {pick_skill_->stop();}
+    if (place_skill_) {place_skill_->stop();}
+    if (go_home_skill_) {go_home_skill_->stop();}
+  }
+
+  void clear_stop() override
+  {
+    BaseSkill::clear_stop();
+    if (move_to_pose_skill_) {move_to_pose_skill_->clear_stop();}
+    if (open_gripper_skill_) {open_gripper_skill_->clear_stop();}
+    if (close_gripper_skill_) {close_gripper_skill_->clear_stop();}
+    if (pick_skill_) {pick_skill_->clear_stop();}
+    if (place_skill_) {place_skill_->clear_stop();}
+    if (go_home_skill_) {go_home_skill_->clear_stop();}
+  }
+
 protected:
   bool execute(const std::shared_ptr<GoalHandleExecuteSkill> goal_handle) override
   {

@@ -1,0 +1,15 @@
+nora_perception:
+  ros__parameters:
+    # One entry per object: label and its hue range (OpenCV hue, 0-179).
+    # hue_min > hue_max wraps around 0 (red).
+    labels: ["red_cube", "blue_cylinder", "green_sphere"]
+    hue_min: [170, 100, 45]
+    hue_max: [6, 130, 85]
+    min_saturation: 80
+    min_value: 40
+    min_area_px: 150
+    output_frame: "base_link"
+    color_topic: "/camera/color/image_raw"
+    depth_topic: "/camera/aligned_depth_to_color/image_raw"
+    camera_info_topic: "/camera/color/camera_info"
+    detections_topic: "/nora/perception/detections"

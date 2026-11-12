@@ -1,0 +1,9 @@
+# QueryWorld.srv — spatial query against the world model
+# Request
+string query        # "object" (where is object_id) | "visible" | "holding" | "all"
+string object_id    # used by "object"; matched against id and label
+---
+# Response
+bool success
+string answer                           # plain-language answer; states whether it is observed or remembered
+nora_interfaces/WorldObject[] objects

@@ -16,7 +16,7 @@ setup(
     zip_safe=True,
     maintainer="NORA Team",
     maintainer_email="nora@example.com",
-    description="Perception node for NORA (mock + real).",
+    description="Colour-based RGB-D object detector for NORA.",
     license="Apache-2.0",
     tests_require=["pytest"],
     entry_points={

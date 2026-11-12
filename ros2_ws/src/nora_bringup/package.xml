@@ -14,7 +14,6 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <!-- Runtime deps — every nora sub-package -->
-  <exec_depend>nora_skills</exec_depend>
   <exec_depend>nora_skills_cpp</exec_depend>
   <exec_depend>nora_orchestrator</exec_depend>
   <exec_depend>nora_perception</exec_depend>
@@ -23,9 +22,12 @@
   <exec_depend>nora_gazebo</exec_depend>
   <exec_depend>nora_control</exec_depend>
   <exec_depend>nora_moveit_config</exec_depend>
-  <exec_depend>nora_nlu</exec_depend>
   <exec_depend>nora_affordance</exec_depend>
-  <exec_depend>nora_core</exec_depend>
+  <exec_depend>nora_nlu_node</exec_depend>
+  <exec_depend>nora_bt_executor</exec_depend>
+  <exec_depend>nora_world_model</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

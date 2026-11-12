@@ -76,6 +76,7 @@ rclcpp_action::CancelResponse BaseSkill::handle_cancel(
     node_->get_logger(),
     "[Skill: %s] Goal cancellation requested",
     skill_name_.c_str());
+  stop();
   return rclcpp_action::CancelResponse::ACCEPT;
 }
 
@@ -87,6 +88,10 @@ void BaseSkill::handle_accepted(const std::shared_ptr<GoalHandleExecuteSkill> go
       auto result = std::make_shared<ExecuteSkill::Result>();
       try {
         publish_feedback(goal_handle, "EXECUTING");
+        clear_stop();
+        if (goal_handle->is_canceling()) {
+          stop();
+        }
         bool success = this->execute(goal_handle);
 
         if (goal_handle->is_canceling()) {

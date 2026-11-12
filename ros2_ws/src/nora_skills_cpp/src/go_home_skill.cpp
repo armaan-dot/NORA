@@ -21,6 +21,16 @@ GoHomeSkill::GoHomeSkill(
 #endif
 }
 
+void GoHomeSkill::stop()
+{
+  BaseSkill::stop();
+#if NORA_HAVE_MOVEIT
+  if (move_group_) {
+    move_group_->stop();
+  }
+#endif
+}
+
 bool GoHomeSkill::returnToHome()
 {
 #if NORA_HAVE_MOVEIT
@@ -40,6 +50,9 @@ bool GoHomeSkill::returnToHome()
     }
 
     if (planned) {
+      if (stop_requested_) {
+        return false;
+      }
       auto exec_code = move_group_->execute(plan);
       return (exec_code == moveit::core::MoveItErrorCode::SUCCESS);
     } else {

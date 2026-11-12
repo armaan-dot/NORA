@@ -21,6 +21,22 @@ PickSkill::PickSkill(
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 }
 
+void PickSkill::stop()
+{
+  BaseSkill::stop();
+  if (move_to_pose_skill_) {move_to_pose_skill_->stop();}
+  if (open_gripper_skill_) {open_gripper_skill_->stop();}
+  if (close_gripper_skill_) {close_gripper_skill_->stop();}
+}
+
+void PickSkill::clear_stop()
+{
+  BaseSkill::clear_stop();
+  if (move_to_pose_skill_) {move_to_pose_skill_->clear_stop();}
+  if (open_gripper_skill_) {open_gripper_skill_->clear_stop();}
+  if (close_gripper_skill_) {close_gripper_skill_->clear_stop();}
+}
+
 bool PickSkill::parse_object_pose(
   const std::string & json_str,
   geometry_msgs::msg::Pose & out_pose)
@@ -88,6 +104,9 @@ bool PickSkill::execute(const std::shared_ptr<GoalHandleExecuteSkill> goal_handl
   if (open_gripper_skill_) {
     open_gripper_skill_->actuate(true);
   }
+  if (stop_requested_) {
+    return false;
+  }
 
   // 2. Pre-grasp approach (10 cm above object)
   publish_feedback(goal_handle, "APPROACHING_PRE_GRASP");
@@ -113,6 +132,9 @@ bool PickSkill::execute(const std::shared_ptr<GoalHandleExecuteSkill> goal_handl
   publish_feedback(goal_handle, "CLOSING_GRIPPER");
   if (close_gripper_skill_) {
     close_gripper_skill_->actuate(false);
+  }
+  if (stop_requested_) {
+    return false;
   }
 
   // 5. Vertical lift retreat (15 cm above)

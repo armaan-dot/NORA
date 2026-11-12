@@ -23,14 +23,19 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Intent.msg"
   "msg/SkillCall.msg"
   "msg/AffordanceScore.msg"
+  "msg/WorldObject.msg"
+  "msg/WorldState.msg"
 
   # Services
   "srv/ParseCommand.srv"
   "srv/ScoreAffordances.srv"
+  "srv/QueryWorld.srv"
+  "srv/UpdateWorld.srv"
 
   # Actions
   "action/ExecuteIntent.action"
   "action/ExecuteSkill.action"
+  "action/ExecutePlan.action"
 
   DEPENDENCIES
     builtin_interfaces

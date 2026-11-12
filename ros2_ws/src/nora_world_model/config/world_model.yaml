@@ -1,0 +1,12 @@
+nora_world_model:
+  ros__parameters:
+    # Empty: $NORA_WORLD_MODEL_PATH, else ~/.ros/nora_world_model.json
+    storage_path: ""
+    world_frame: "base_link"
+    ee_frame: "gripper_link"
+    detections_topic: "/nora/perception/detections"
+    visibility_timeout_sec: 1.0
+    confidence_half_life_sec: 60.0
+    stale_after_sec: 300.0
+    moved_threshold_m: 0.05
+    publish_rate_hz: 2.0
