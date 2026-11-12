@@ -18,7 +18,8 @@ public:
 
   bool returnToHome();
 
-protected:
+  void stop() override;
+
   bool execute(const std::shared_ptr<GoalHandleExecuteSkill> goal_handle) override;
 
 private:

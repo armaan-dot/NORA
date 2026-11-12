@@ -17,7 +17,9 @@ public:
     const std::shared_ptr<GripperSkill> & close_gripper_skill,
     const std::string & action_topic_name = "/nora/skills/pick");
 
-protected:
+  void stop() override;
+  void clear_stop() override;
+
   bool execute(const std::shared_ptr<GoalHandleExecuteSkill> goal_handle) override;
 
 private:

@@ -85,8 +85,22 @@ bool MoveToPoseSkill::parse_pose_from_json(
   return true;
 }
 
+void MoveToPoseSkill::stop()
+{
+  BaseSkill::stop();
+#if NORA_HAVE_MOVEIT
+  if (move_group_) {
+    move_group_->stop();
+  }
+#endif
+}
+
 bool MoveToPoseSkill::moveToTargetPose(const geometry_msgs::msg::Pose & target_pose)
 {
+  if (stop_requested_) {
+    return false;
+  }
+
 #if NORA_HAVE_MOVEIT
   if (move_group_) {
     move_group_->setPoseTarget(target_pose);
@@ -94,6 +108,9 @@ bool MoveToPoseSkill::moveToTargetPose(const geometry_msgs::msg::Pose & target_p
     bool success = (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
     if (!success) {
       RCLCPP_ERROR(node_->get_logger(), "[MoveToPoseSkill] MoveIt 2 motion planning failed for target pose");
+      return false;
+    }
+    if (stop_requested_) {
       return false;
     }
     auto exec_code = move_group_->execute(plan);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <functional>
@@ -28,6 +29,10 @@ public:
   const std::string & get_skill_name() const { return skill_name_; }
   const std::string & get_action_topic() const { return action_topic_; }
 
+  // Interrupt any motion in progress; cleared before each new goal
+  virtual void stop() { stop_requested_ = true; }
+  virtual void clear_stop() { stop_requested_ = false; }
+
 protected:
   // Hook for concrete skills to implement actual motion execution
   virtual bool execute(const std::shared_ptr<GoalHandleExecuteSkill> goal_handle) = 0;
@@ -47,6 +52,8 @@ protected:
 
   rclcpp::CallbackGroup::SharedPtr cb_group_;
   rclcpp_action::Server<ExecuteSkill>::SharedPtr action_server_;
+
+  std::atomic<bool> stop_requested_{false};
 
 private:
   rclcpp_action::GoalResponse handle_goal(
