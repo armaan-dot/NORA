@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { cameraFeed, type CameraFrame } from '../sim/wristCamera';
 import { topicBus, type TopicStats } from '../sim/topicBus';
 import { rosService } from '../services/rosService';
+import { yoloxMonitor } from '../sim/yolox';
 
 /* ------------------------------------------------------------------ */
 /* Sensors: what the wrist camera actually renders and detects          */
@@ -110,6 +111,9 @@ export const SensorsPanel: React.FC = () => {
   const [fps, setFps] = useState(0);
   const stamps = useRef<number[]>([]);
   const [belief, setBelief] = useState(rosService.getBelief());
+  const [yolo, setYolo] = useState(yoloxMonitor.state);
+
+  useEffect(() => yoloxMonitor.subscribe(setYolo), []);
 
   useEffect(() => {
     const t = setInterval(() => setBelief(rosService.getBelief()), 500);
@@ -137,6 +141,20 @@ export const SensorsPanel: React.FC = () => {
           ctx.fillStyle = '#ececee';
           ctx.fillText(label, x0 + 1, Math.max(9, y0 - 3));
         }
+        // YOLOX second opinion (from the most recent inferred frame)
+        ctx.setLineDash([3, 2]);
+        for (const b of yoloxMonitor.state.boxes) {
+          const [x0, y0, x1, y1] = b.bbox;
+          ctx.strokeStyle = '#e8a53c';
+          ctx.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
+          const label = `${b.label} ${Math.round(b.score * 100)}%`;
+          const ty = Math.min(f.height - 1, y1 + 10);
+          ctx.fillStyle = 'rgba(15,16,18,0.75)';
+          ctx.fillRect(x0, ty - 9, ctx.measureText(label).width + 6, 11);
+          ctx.fillStyle = '#e8a53c';
+          ctx.fillText(label, x0 + 3, ty);
+        }
+        ctx.setLineDash([]);
       }
       const now = performance.now();
       stamps.current.push(now);
@@ -172,6 +190,24 @@ export const SensorsPanel: React.FC = () => {
           <figcaption>OpenCV regions by class</figcaption>
         </figure>
       </div>
+
+      <label className="ao-check">
+        <input type="checkbox" checked={yolo.enabled} onChange={(e) => yoloxMonitor.setEnabled(e.target.checked)} />
+        YOLOX (COCO) second opinion
+        <span className="fx-dim">
+          {yolo.status === 'loading' && 'loading onnxruntime-web and the 20 MB model…'}
+          {yolo.status === 'ready' && `dashed amber boxes · ${yolo.inferMs.toFixed(0)} ms per frame · not used for grasping`}
+          {yolo.status === 'off' && 'off · downloads nothing until enabled'}
+        </span>
+      </label>
+      {yolo.status === 'error' && <p className="fx-warn">YOLOX unavailable: {yolo.error}</p>}
+      {yolo.tally.frames > 0 && (
+        <p className="fx-note-dim">
+          {yolo.tally.frames} frames compared: YOLOX agreed with {yolo.tally.matched} of {yolo.tally.recognised} recogniser detections;{' '}
+          {yolo.tally.yoloxOnly} of {yolo.tally.yoloxBoxes} YOLOX boxes matched no recogniser detection. Agreement means the
+          detection's centre lies inside a YOLOX box of a compatible class.
+        </p>
+      )}
 
       <h4 className="fx-h">
         Robot's belief <span className="fx-dim">built only from camera frames · forgets objects it sees gone</span>
