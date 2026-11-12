@@ -25,6 +25,7 @@ def generate_launch_description():
         _node("nora_nlu_node", "nora_nlu_node", "nlu.yaml"),
         _node("nora_affordance", "nora_affordance_node", "weights.yaml"),
         _node("nora_skills_cpp", "nora_skills_cpp_node", "skills_cpp_params.yaml", name="nora_skills_cpp_node"),
+        _node("nora_perception", "nora_perception", "perception.yaml"),
         _node("nora_world_model", "world_model_node", "world_model.yaml"),
         _node("nora_bt_executor", "bt_executor_node", "bt_executor.yaml"),
         _node("nora_orchestrator", "nora_orchestrator"),

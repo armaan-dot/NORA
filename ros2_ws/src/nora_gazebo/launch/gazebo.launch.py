@@ -100,6 +100,31 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    world_to_camera = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="world_to_camera_link",
+        arguments=[
+            "--x", "0.6", "--y", "0", "--z", "1.8",
+            "--roll", "0", "--pitch", "1.5708", "--yaw", "0",
+            "--frame-id", "world", "--child-frame-id", "camera_link",
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    camera_to_optical = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="camera_link_to_optical",
+        arguments=[
+            "--x", "0", "--y", "0", "--z", "0",
+            "--roll", "-1.5708", "--pitch", "0", "--yaw", "-1.5708",
+            "--frame-id", "camera_link",
+            "--child-frame-id", "camera_color_optical_frame",
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
     return LaunchDescription(
         [
             use_sim_time_arg,
@@ -108,5 +133,7 @@ def generate_launch_description() -> LaunchDescription:
             gazebo,
             rsp_node,
             spawn_node,
+            world_to_camera,
+            camera_to_optical,
         ]
     )
