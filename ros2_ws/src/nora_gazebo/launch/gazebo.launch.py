@@ -129,8 +129,8 @@ def generate_launch_description() -> LaunchDescription:
         executable="static_transform_publisher",
         name="world_to_camera_link",
         arguments=[
-            "--x", "0.35", "--y", "-0.05", "--z", "1.45",
-            "--roll", "0", "--pitch", "1.5708", "--yaw", "0",
+            "--x", "0.981", "--y", "-0.05", "--z", "1.351",
+            "--roll", "0", "--pitch", "0.9599", "--yaw", "3.1416",
             "--frame-id", "world", "--child-frame-id", "camera_link",
         ],
         parameters=[{"use_sim_time": use_sim_time}],
