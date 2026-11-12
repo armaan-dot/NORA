@@ -23,6 +23,7 @@ import rclpy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import PointStamped
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, Image
@@ -39,9 +40,9 @@ class PerceptionNode(Node):
     def __init__(self) -> None:
         super().__init__("nora_perception")
         p = self.declare_parameter
-        labels = p("labels", ["red_cube", "blue_cylinder", "green_sphere"]).value
-        hue_min = p("hue_min", [170, 100, 45]).value
-        hue_max = p("hue_max", [6, 130, 85]).value
+        labels = p("labels", Parameter.Type.STRING_ARRAY).value or []
+        hue_min = p("hue_min", Parameter.Type.INTEGER_ARRAY).value or []
+        hue_max = p("hue_max", Parameter.Type.INTEGER_ARRAY).value or []
         if not len(labels) == len(hue_min) == len(hue_max):
             raise ValueError("labels, hue_min and hue_max must have the same length")
         self._specs = list(zip(labels, hue_min, hue_max))
@@ -56,6 +57,14 @@ class PerceptionNode(Node):
         if unknown:
             raise ValueError(f"not COCO classes: {sorted(unknown)}")
         self._classes = classes
+        # "coco name:label" pairs, e.g. "wine glass:glass"; applied to YOLOX labels before ids are assigned
+        aliases = p("class_aliases", Parameter.Type.STRING_ARRAY).value or []
+        if any(":" not in a for a in aliases):
+            raise ValueError("class_aliases entries must look like 'coco name:label'")
+        self._aliases = {
+            k.strip().replace(" ", "_"): v.strip()
+            for k, v in (a.split(":", 1) for a in aliases)
+        }
         self._yolox = self._load_model(
             os.path.expanduser(p("model_path", "~/.ros/nora/yolox_tiny.onnx").value),
             p("model_url", "").value,
@@ -131,7 +140,10 @@ class PerceptionNode(Node):
         if self._yolox is not None:
             boxes = self._yolox.boxes(bgr, self._score_threshold, self._nms_threshold,
                                       self._classes)
-            found = merge(found, locate_boxes(boxes, depth_m, *intrinsics))
+            located = locate_boxes(boxes, depth_m, *intrinsics)
+            for item in located:
+                item["label"] = self._aliases.get(item["label"], item["label"])
+            found = merge(found, located)
 
         out = Detection3DArray()
         out.header.stamp = color.header.stamp

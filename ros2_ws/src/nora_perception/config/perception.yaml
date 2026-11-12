@@ -1,10 +1,8 @@
 nora_perception:
   ros__parameters:
-    # Colour detection for plain primitives with no COCO class: label and hue range (OpenCV hue, 0-179).
-    # hue_min > hue_max wraps around 0 (red).
-    labels: ["red_cube", "blue_cylinder", "green_sphere"]
-    hue_min: [170, 100, 45]
-    hue_max: [6, 130, 85]
+    # Colour detection for plain primitives with no COCO class: labels, hue_min, hue_max (equal-length
+    # arrays, OpenCV hue 0-179; hue_min > hue_max wraps around 0). Every object in tabletop.world has a
+    # COCO class, so none are set.
     min_saturation: 80
     min_value: 40
     min_area_px: 150
@@ -18,6 +16,8 @@ nora_perception:
     classes: ["bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
               "orange", "sandwich", "donut", "sports ball", "book", "scissors", "cell phone",
               "remote", "mouse", "teddy bear", "vase", "toothbrush", "clock"]
+    # Report COCO classes under the names the world and the web simulator use ("coco name:label").
+    class_aliases: ["cup:mug", "wine glass:glass", "sports ball:tennis_ball", "bottle:can", "book:notebook"]
     output_frame: "base_link"
     color_topic: "/camera/color/image_raw"
     depth_topic: "/camera/aligned_depth_to_color/image_raw"
