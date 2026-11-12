@@ -248,6 +248,16 @@ class OrchestratorNode(Node):
             self._sm.transition(OrchestratorState.FAILED)
             self._sm.transition(OrchestratorState.IDLE)
             return
+        # The skill the command is about must itself be feasible, not just some skill.
+        primary = {"deliver_to_user": "pick"}.get(intent.get("action"), intent.get("action"))
+        if primary in ("pick", "place") and primary not in scores:
+            self._respond(
+                f"Task refused: '{primary}' scored below {self._score_threshold} "
+                "(target not known, not reachable or blocked)."
+            )
+            self._sm.transition(OrchestratorState.FAILED)
+            self._sm.transition(OrchestratorState.IDLE)
+            return
 
         # Step 2: Plan
         self._sm.transition(OrchestratorState.PLANNING)
@@ -310,6 +320,10 @@ class OrchestratorNode(Node):
                 request.intent.target_object = intent.get("target_object") or ""
                 request.intent.target_location = intent.get("target_location") or ""
                 request.intent.confidence = float(intent.get("confidence", 1.0))
+                request.intent.parameters_json = json.dumps(intent.get("parameters", {}))
+                request.skill_names = [
+                    "pick", "place", "move_to_pose", "open_gripper", "close_gripper", "go_home",
+                ]
                 response = self._wait(self._score_client.call_async(request), 5.0)
                 if response is not None and response.scores:
                     return {

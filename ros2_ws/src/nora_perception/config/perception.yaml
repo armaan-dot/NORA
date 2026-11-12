@@ -1,6 +1,6 @@
 nora_perception:
   ros__parameters:
-    # One entry per object: label and its hue range (OpenCV hue, 0-179).
+    # Colour detection for plain primitives with no COCO class: label and hue range (OpenCV hue, 0-179).
     # hue_min > hue_max wraps around 0 (red).
     labels: ["red_cube", "blue_cylinder", "green_sphere"]
     hue_min: [170, 100, 45]
@@ -8,6 +8,16 @@ nora_perception:
     min_saturation: 80
     min_value: 40
     min_area_px: 150
+    # COCO-trained YOLOX (Apache-2.0), run with onnxruntime. Downloaded on first start.
+    model_path: "~/.ros/nora/yolox_tiny.onnx"
+    model_url: "https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.onnx"
+    input_size: 416
+    score_threshold: 0.35
+    nms_threshold: 0.45
+    # COCO classes reported; the rest (person, dining table, ...) are ignored.
+    classes: ["bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+              "orange", "sandwich", "donut", "sports ball", "book", "scissors", "cell phone",
+              "remote", "mouse", "teddy bear", "vase", "toothbrush", "clock"]
     output_frame: "base_link"
     color_topic: "/camera/color/image_raw"
     depth_topic: "/camera/aligned_depth_to_color/image_raw"

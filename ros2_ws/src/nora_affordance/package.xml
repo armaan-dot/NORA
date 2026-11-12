@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>
     SayCan-inspired affordance scoring pipeline for NORA.
-    Scores candidate skills by usefulness (LLM) and feasibility (IK, collision, object state).
+    Scores candidate skills by usefulness (action relevance) and feasibility (IK, collision, object state).
   </description>
   <maintainer email="nora@example.com">NORA Team</maintainer>
   <license>Apache-2.0</license>
@@ -16,6 +16,10 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>nora_interfaces</exec_depend>
+  <exec_depend>nora_description</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
 
   <!-- Local workspace dep (must be built first) -->
   <!-- NOTE: nora_core is a local package in this workspace, not yet on rosdep -->

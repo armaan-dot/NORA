@@ -1,52 +1,23 @@
-"""
-nora_affordance/scorers/feasibility_reachability.py
-────────────────────────────────────────────────────
-IK-based reachability feasibility scorer.
-
-Checks whether the robot can physically reach the target object pose using
-inverse kinematics.  Returns 1.0 if reachable, 0.0 if not.
-"""
+"""IK reachability of the skill's target; see :mod:`nora_affordance.scoring`."""
 
 from __future__ import annotations
 
-from nora_affordance.scorers.base import BaseScorer
+from typing import Optional, Sequence
 
-_MOCK_SCORE = 0.9
+from nora_affordance import scoring
+from nora_affordance.scorers.base import BaseScorer
 
 
 class ReachabilityScorer(BaseScorer):
-    """Scores the IK reachability of executing a skill.
+    """Set ``chain`` (parsed URDF) and ``objects`` (world-model objects) before scoring."""
 
-    Parameters
-    ----------
-    planning_group:
-        MoveIt planning group name (default ``"arm"``).
-    """
-
-    def __init__(self, planning_group: str = "arm") -> None:
-        self._planning_group = planning_group
-
-        # TODO(nora): Initialise MoveIt / KDL IK interface here, e.g.:
-        #   from moveit.python_tools import RobotCommander
-        #   self._robot = RobotCommander()
+    def __init__(self, params: scoring.Params = scoring.Params()) -> None:
+        self.params = params
+        self.chain: Optional[scoring.Chain] = None
+        self.objects: Optional[Sequence[dict]] = None
 
     def score(self, intent_dict: dict, skill_name: str) -> float:
-        """Score the IK reachability of *skill_name* for *intent_dict*.
-
-        Parameters
-        ----------
-        intent_dict:
-            Parsed intent (keys: action, target_object, confidence, raw_text).
-        skill_name:
-            Candidate skill identifier.
-
-        Returns
-        -------
-        float
-            Reachability score in ``[0.0, 1.0]``.
-        """
-        # TODO(nora): Check IK feasibility for the target object pose, e.g.:
-        #   target_pose = self._lookup_object_pose(intent_dict["target_object"])
-        #   ik_solution = self._robot.get_group(self._planning_group).get_ik(target_pose)
-        #   return 1.0 if ik_solution is not None else 0.0
-        return _MOCK_SCORE
+        scores, _ = scoring.feasibility_scores(
+            skill_name, intent_dict, self.objects, self.chain, self.params
+        )
+        return scores["reachability"]
