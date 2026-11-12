@@ -1,74 +1,75 @@
 # joint_limits.yaml — position, velocity, and effort limits for the NORA arm.
 # Used by ros2_control, MoveIt2, and any trajectory planning stack.
+# Values match nora_arm.urdf.xacro (same as the web simulator's nora_arm.urdf).
 
 joint_limits:
 
   joint1:
     has_position_limits: true
-    min_position: -3.14159   # [rad]  -π
-    max_position:  3.14159   # [rad]  +π
+    min_position: -6.2832    # [rad]  -2π
+    max_position:  6.2832    # [rad]  +2π
     has_velocity_limits: true
-    max_velocity: 1.0        # [rad/s]
+    max_velocity: 3.14       # [rad/s]
     has_acceleration_limits: false
     has_effort_limits: true
-    max_effort: 100.0        # [N·m]
+    max_effort: 150.0        # [N·m]
 
   joint2:
     has_position_limits: true
-    min_position: -3.14159
-    max_position:  3.14159
+    min_position: -6.2832
+    max_position:  6.2832
     has_velocity_limits: true
-    max_velocity: 1.0
+    max_velocity: 3.14
     has_acceleration_limits: false
     has_effort_limits: true
-    max_effort: 100.0
+    max_effort: 150.0
 
   joint3:
     has_position_limits: true
-    min_position: -3.14159
-    max_position:  3.14159
+    min_position: -3.1416
+    max_position:  3.1416
     has_velocity_limits: true
-    max_velocity: 1.0
+    max_velocity: 3.14
     has_acceleration_limits: false
     has_effort_limits: true
-    max_effort: 100.0
+    max_effort: 150.0
 
   joint4:
     has_position_limits: true
-    min_position: -3.14159
-    max_position:  3.14159
+    min_position: -6.2832
+    max_position:  6.2832
     has_velocity_limits: true
-    max_velocity: 1.0
+    max_velocity: 3.14
     has_acceleration_limits: false
     has_effort_limits: true
-    max_effort: 100.0
+    max_effort: 28.0
 
   joint5:
     has_position_limits: true
-    min_position: -3.14159
-    max_position:  3.14159
+    min_position: -6.2832
+    max_position:  6.2832
     has_velocity_limits: true
-    max_velocity: 1.0
+    max_velocity: 3.14
     has_acceleration_limits: false
     has_effort_limits: true
-    max_effort: 100.0
+    max_effort: 28.0
 
   joint6:
     has_position_limits: true
-    min_position: -3.14159
-    max_position:  3.14159
+    min_position: -6.2832
+    max_position:  6.2832
     has_velocity_limits: true
-    max_velocity: 1.0
+    max_velocity: 3.14
     has_acceleration_limits: false
     has_effort_limits: true
-    max_effort: 100.0
+    max_effort: 28.0
 
   gripper_joint:
     has_position_limits: true
-    min_position: 0.0        # [m] fully closed
-    max_position: 0.08       # [m] fully open
+    min_position: 0.0        # [m] pad faces touching (closed)
+    max_position: 0.085      # [m] fully open
     has_velocity_limits: true
-    max_velocity: 0.5        # [m/s]
+    max_velocity: 0.15       # [m/s]
     has_acceleration_limits: false
     has_effort_limits: true
     max_effort: 50.0         # [N]

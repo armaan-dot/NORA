@@ -8,6 +8,8 @@ Steps:
   3. Load the NORA arm URDF via xacro.
   4. Start robot_state_publisher.
   5. Spawn the NORA arm into Gazebo using spawn_entity.py.
+  6. Once spawned, start joint_state_broadcaster, arm_controller and
+     gripper_controller (gazebo_ros2_control).
 """
 
 import os
@@ -18,10 +20,13 @@ from launch.actions import (
     AppendEnvironmentVariable,
     DeclareLaunchArgument,
     IncludeLaunchDescription,
+    RegisterEventHandler,
 )
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -69,7 +74,9 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------
     xacro_file = os.path.join(pkg_desc, "urdf", "nora_arm.urdf.xacro")
     robot_description = {
-        "robot_description": Command(["xacro ", xacro_file])
+        "robot_description": ParameterValue(
+            Command(["xacro ", xacro_file, " use_gazebo:=true"]), value_type=str
+        )
     }
 
     # ------------------------------------------------------------------
@@ -100,13 +107,30 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    # ------------------------------------------------------------------
+    # Controllers (names from nora_control/config/ros2_controllers.yaml),
+    # started once the entity exists and gazebo_ros2_control is loaded
+    # ------------------------------------------------------------------
+    controller_spawners = [
+        Node(
+            package="controller_manager",
+            executable="spawner",
+            arguments=[controller, "--controller-manager", "/controller_manager"],
+            output="screen",
+        )
+        for controller in ("joint_state_broadcaster", "arm_controller", "gripper_controller")
+    ]
+    start_controllers = RegisterEventHandler(
+        OnProcessExit(target_action=spawn_node, on_exit=controller_spawners)
+    )
+
     world_to_camera = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
         name="world_to_camera_link",
         arguments=[
-            "--x", "0.6", "--y", "0", "--z", "1.8",
-            "--roll", "0", "--pitch", "1.5708", "--yaw", "0",
+            "--x", "0.981", "--y", "-0.05", "--z", "1.351",
+            "--roll", "0", "--pitch", "0.9599", "--yaw", "3.1416",
             "--frame-id", "world", "--child-frame-id", "camera_link",
         ],
         parameters=[{"use_sim_time": use_sim_time}],
@@ -133,6 +157,7 @@ def generate_launch_description() -> LaunchDescription:
             gazebo,
             rsp_node,
             spawn_node,
+            start_controllers,
             world_to_camera,
             camera_to_optical,
         ]

@@ -1,7 +1,8 @@
 <?xml version="1.0"?>
 <!--
   NORA Arm — Semantic Robot Description Format (SRDF)
-  Generated for MoveIt 2.  Edit joint/link names to match your URDF.
+  Matches nora_description/urdf/nora_arm.urdf.xacro (same kinematics as the
+  web simulator). The arm plans for the tcp frame between the finger pads.
 -->
 <robot name="nora_arm">
 
@@ -9,38 +10,36 @@
        PLANNING GROUPS
        ================================================================ -->
 
-  <!-- 6-DOF arm group -->
+  <!-- 6-DOF arm group, IK tip at the tcp -->
   <group name="arm">
-    <joint name="joint1" />
-    <joint name="joint2" />
-    <joint name="joint3" />
-    <joint name="joint4" />
-    <joint name="joint5" />
-    <joint name="joint6" />
+    <chain base_link="base_link" tip_link="tcp" />
   </group>
 
-  <!-- 1-DOF gripper group -->
+  <!-- Parallel-jaw gripper; gripper_joint = pad-face gap in metres, fingers mimic it -->
   <group name="gripper">
-    <joint name="gripper_joint" />
+    <link name="gripper_link" />
+    <link name="gripper_driver_link" />
+    <link name="left_finger_link" />
+    <link name="right_finger_link" />
   </group>
 
   <!-- ================================================================
        GROUP STATES (named configurations)
        ================================================================ -->
 
-  <!-- Home: all arm joints at zero -->
+  <!-- Home: same as the web simulator, tool pointing down ~0.36 m above the table -->
   <group_state name="home" group="arm">
-    <joint name="joint1" value="0" />
-    <joint name="joint2" value="0" />
-    <joint name="joint3" value="0" />
-    <joint name="joint4" value="0" />
-    <joint name="joint5" value="0" />
+    <joint name="joint1" value="-0.37" />
+    <joint name="joint2" value="-0.35" />
+    <joint name="joint3" value="1.9" />
+    <joint name="joint4" value="0.02" />
+    <joint name="joint5" value="-1.5708" />
     <joint name="joint6" value="0" />
   </group_state>
 
-  <!-- Gripper open / closed reference states -->
+  <!-- Gripper open / closed reference states (pad-face gap, m) -->
   <group_state name="open" group="gripper">
-    <joint name="gripper_joint" value="0.04" />
+    <joint name="gripper_joint" value="0.085" />
   </group_state>
   <group_state name="closed" group="gripper">
     <joint name="gripper_joint" value="0.0" />
@@ -50,7 +49,7 @@
        END-EFFECTORS
        ================================================================ -->
   <end_effector name="gripper_eef"
-                parent_link="link6"
+                parent_link="tcp"
                 group="gripper"
                 parent_group="arm" />
 
@@ -69,5 +68,9 @@
   <disable_collisions link1="link4"      link2="link5"  reason="Adjacent" />
   <disable_collisions link1="link5"      link2="link6"  reason="Adjacent" />
   <disable_collisions link1="link6"      link2="gripper_link" reason="Adjacent" />
+  <disable_collisions link1="gripper_link" link2="left_finger_link"  reason="Adjacent" />
+  <disable_collisions link1="gripper_link" link2="right_finger_link" reason="Adjacent" />
+  <!-- finger collision boxes overlap when the pad gap is under 5 mm -->
+  <disable_collisions link1="left_finger_link" link2="right_finger_link" reason="Adjacent" />
 
 </robot>

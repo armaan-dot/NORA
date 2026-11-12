@@ -7,7 +7,7 @@ MoveIt 2 configuration package for the **NORA** robotic arm.
 | Path | Purpose |
 |---|---|
 | `config/nora_arm.srdf` | Semantic robot description — planning groups, named states, collision pairs |
-| `config/kinematics.yaml` | IK solver settings (KDL, tip link = `gripper_link`) |
+| `config/kinematics.yaml` | IK solver settings (KDL, arm chain tip = `tcp`) |
 | `config/ompl_planning.yaml` | OMPL planner plugin + planner catalogue (default: RRTConnect) |
 | `config/moveit_controllers.yaml` | Maps MoveIt to `ros2_control` controllers |
 | `config/joint_limits.yaml` | Velocity & acceleration limits used by trajectory adapters |

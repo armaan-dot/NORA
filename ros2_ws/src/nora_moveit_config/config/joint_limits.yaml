@@ -1,50 +1,51 @@
 # nora_moveit_config/config/joint_limits.yaml
 #
 # Joint velocity and acceleration limits used by MoveIt trajectory generation.
-# Units: velocity  → rad/s
-#        acceleration → rad/s²
+# Units: velocity  → rad/s (gripper_joint: m/s)
+#        acceleration → rad/s² (gripper_joint: m/s²)
 #
-# These are conservative defaults — tune to your actual motor specs.
+# Velocities are the URDF limits; accelerations are the ones the web
+# simulator's planner uses (JOINT_MAX_ACCELERATION in kinematics.ts).
 
 joint_limits:
   joint1:
     has_velocity_limits: true
-    max_velocity: 1.5708          # π/2 rad/s  ≈ 90 °/s
+    max_velocity: 3.14
     has_acceleration_limits: true
-    max_acceleration: 3.1416      # π rad/s²
+    max_acceleration: 8.0
 
   joint2:
     has_velocity_limits: true
-    max_velocity: 1.5708
+    max_velocity: 3.14
     has_acceleration_limits: true
-    max_acceleration: 3.1416
+    max_acceleration: 8.0
 
   joint3:
     has_velocity_limits: true
-    max_velocity: 1.5708
+    max_velocity: 3.14
     has_acceleration_limits: true
-    max_acceleration: 3.1416
+    max_acceleration: 10.0
 
   joint4:
     has_velocity_limits: true
-    max_velocity: 2.0944          # 2π/3 rad/s ≈ 120 °/s
+    max_velocity: 3.14
     has_acceleration_limits: true
-    max_acceleration: 4.1888
+    max_acceleration: 16.0
 
   joint5:
     has_velocity_limits: true
-    max_velocity: 2.0944
+    max_velocity: 3.14
     has_acceleration_limits: true
-    max_acceleration: 4.1888
+    max_acceleration: 16.0
 
   joint6:
     has_velocity_limits: true
-    max_velocity: 2.0944
+    max_velocity: 3.14
     has_acceleration_limits: true
-    max_acceleration: 4.1888
+    max_acceleration: 16.0
 
   gripper_joint:
     has_velocity_limits: true
-    max_velocity: 0.5
+    max_velocity: 0.15
     has_acceleration_limits: true
     max_acceleration: 1.0
