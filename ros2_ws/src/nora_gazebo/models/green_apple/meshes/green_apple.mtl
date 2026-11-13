@@ -1,0 +1,23 @@
+newmtl green_apple_0
+Ka 0.3961 0.6392 0.0510
+Kd 0.3961 0.6392 0.0510
+Ks 0.15 0.15 0.15
+Ns 30
+d 1
+illum 2
+
+newmtl green_apple_1
+Ka 0.2902 0.2039 0.1255
+Kd 0.2902 0.2039 0.1255
+Ks 0.15 0.15 0.15
+Ns 30
+d 1
+illum 2
+
+newmtl green_apple_2
+Ka 0.2471 0.4902 0.1726
+Kd 0.2471 0.4902 0.1726
+Ks 0.15 0.15 0.15
+Ns 30
+d 1
+illum 2

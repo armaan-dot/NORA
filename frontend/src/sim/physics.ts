@@ -23,13 +23,14 @@ export const GRASP_WIDTH: Record<ObjectKind, number> = {
   glass: 0.067,
   pen: 0.0095,
   scissors: 0.02,
-  stapler: 0.03
+  stapler: 0.03,
+  sponge: 0.05
 };
 
 /** Overall height of each object lying/standing in its normal pose (m). */
 export const OBJECT_HEIGHT: Record<ObjectKind, number> = {
   cube: 0.06, book: BOOK.H, ruler: 0.011, eraser: 0.021, can: 0.09, sphere: 0.07, orange: 0.072, apple: 0.066,
-  tennis_ball: 0.067, mug: 0.085, glass: 0.11, pen: 0.011, scissors: 0.012, stapler: 0.027
+  tennis_ball: 0.067, mug: 0.085, glass: 0.11, pen: 0.011, scissors: 0.012, stapler: 0.027, sponge: 0.03
 };
 
 /** Parallel-jaw gripper: distance between the pads when fully open (m), and its drive limits. */

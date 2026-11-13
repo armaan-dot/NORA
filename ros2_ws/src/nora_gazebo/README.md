@@ -22,15 +22,10 @@ The arm base sits on the table top at world (0, 0, 0.45), same placement as the 
 | Name | Shape | Size | Pose (x, y, z) |
 |------|-------|------|----------------|
 | `table` | box top + 4 legs | 1.3 × 0.9 m, surface z=0.45 | (0.35, −0.05, 0) |
-| `mug` | mesh; collision cylinder r=0.0372 m, h=0.085 m + handle box | Ø 0.076 m, 0.085 m tall, 0.33 kg | (0.63, −0.15, 0.4925) |
-| `glass` | mesh; collision cylinder r=0.0317 m, h=0.11 m | Ø 0.070 m rim, 0.11 m tall, 0.34 kg | (0.47, −0.05, 0.505) |
-| `tennis_ball` | mesh; collision sphere r=0.0335 m | Ø 0.067 m, 0.058 kg | (0.25, −0.19, 0.4835) |
-| `apple` | mesh; collision cylinder r=0.0383 m, h=0.064 m | Ø 0.077 m, 0.18 kg | (0.40, 0.12, 0.4827) |
-| `can` | mesh; collision cylinder r=0.035 m, h=0.09 m | Ø 0.071 m, 0.09 m tall, 0.37 kg | (0.58, 0.10, 0.495) |
-| `notebook` | mesh; collision box 0.12 × 0.07 × 0.018 m | 0.11 kg | (0.32, −0.36, 0.459) |
+| objects | mesh + collision primitives from the web physics | see below | `GAZEBO_SCENE` in `frontend/src/sim/objectLibrary.ts` |
 | `overhead_camera` | depth camera | 640×480, 55° below horizontal, aimed at the table centre | (0.981, −0.05, 1.351), rpy (0, 0.9599, 3.1416) |
 
-The object models in `models/` are generated from the web simulator's meshes and physics (`frontend/src/sim/objectMeshes.ts`, `objectPhysics.ts`) by `npm run export:gazebo` in `frontend/`. Each model's origin is its body centre; the glass, mug, tennis ball positions are the web default scene's, the others are free spots on the table.
+The objects come from one library shared with the web simulator, `frontend/src/sim/objectLibrary.ts`. `npm run export:gazebo` (in `frontend/`) turns every library entry into `models/<id>` using the web meshes and physics (`objectMeshes.ts`, `objectPhysics.ts`), writes the `GAZEBO_SCENE` objects into `worlds/tabletop.world` (between the `BEGIN objects` / `END objects` markers), and writes the arm commander's catalogue in `nora_bringup/config/gazebo_scene.json`. Do not edit those generated parts by hand: change the library and run the export. Each model's origin is its body centre; friction is 1.0 for every model, not the web value, because Gazebo Classic lets objects slip out of position-controlled fingers.
 
 ## Build
 

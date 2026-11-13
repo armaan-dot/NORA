@@ -81,7 +81,7 @@ export const ThreeCanvas: React.FC = () => {
 
   const handleQuickSpawn = (
     name: string,
-    shape: 'mug' | 'apple' | 'glass' | 'box' | 'cylinder' | 'sphere',
+    shape: 'mug' | 'apple' | 'glass' | 'box' | 'cylinder' | 'sphere' | 'scissors',
     color: string
   ) => {
     rosService.addObject({
@@ -1331,7 +1331,7 @@ export const ThreeCanvas: React.FC = () => {
             title="Inspect tabletop objects & live coordinates"
           >
             <Box size={14} />
-            <span>{tableObjects.length} Objects</span>
+            <span>Tabletop ({tableObjects.length})</span>
             {showObjectsPopover ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
           </button>
 
@@ -1351,7 +1351,7 @@ export const ThreeCanvas: React.FC = () => {
               type="button"
               onClick={() => rosService.resetToDefaultObjects()}
               className="hud-btn hud-btn-restore"
-              title="Restore default tabletop items (Red Cube, Blue Cylinder, Green Sphere, Water Glass)"
+              title="Restore default tabletop items (Pen, Scissors, Red Apple, Water Glass, Tennis Ball)"
             >
               <RotateCcw size={13} />
               <span>Restore Defaults</span>
@@ -1420,7 +1420,10 @@ export const ThreeCanvas: React.FC = () => {
             <div className="popover-header">
               <div className="popover-title-row">
                 <Box size={14} className="icon-cyan" />
-                <span className="popover-title">Tabletop Objects ({tableObjects.length})</span>
+                <span className="popover-title">Tabletop Workspace ({tableObjects.length} Physical Items)</span>
+              </div>
+              <div style={{ fontSize: '10.5px', color: '#94a3b8', margin: '2px 0 6px 0' }}>
+                Physical workspace — On-arm RealSense camera discovers items dynamically during motion
               </div>
               <div className="popover-actions-row">
                 {tableObjects.length > 0 ? (

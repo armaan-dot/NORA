@@ -22,25 +22,27 @@ export type ObjectKind =
   | 'glass'
   | 'pen'
   | 'scissors'
-  | 'stapler';
+  | 'stapler'
+  | 'sponge';
 
 /** Notebook cover size (m): a pocket notebook, narrow enough to fit across the 85 mm jaw. */
 export const BOOK = { W: 0.12, D: 0.07, H: 0.018 };
 
 export const ALL_KINDS: ObjectKind[] = [
-  'cube', 'book', 'ruler', 'eraser', 'can', 'sphere', 'orange', 'apple', 'tennis_ball', 'mug', 'glass', 'pen', 'scissors', 'stapler'
+  'cube', 'book', 'ruler', 'eraser', 'can', 'sphere', 'orange', 'apple', 'tennis_ball', 'mug', 'glass', 'pen', 'scissors', 'stapler', 'sponge'
 ];
 
 /** Kinds that look alike from above (round, ~7 cm); used when matching detections to named objects. */
 export const KIND_GROUP: Record<ObjectKind, string> = {
   cube: 'block', eraser: 'block', book: 'flat', ruler: 'flat', can: 'cylinder', glass: 'cylinder', mug: 'mug',
-  sphere: 'round', orange: 'round', apple: 'round', tennis_ball: 'round', pen: 'stick', scissors: 'scissors', stapler: 'stapler'
+  sphere: 'round', orange: 'round', apple: 'round', tennis_ball: 'round', pen: 'stick', scissors: 'scissors', stapler: 'stapler', sponge: 'block'
 };
 
 export function objectKind(o: { name: string; shape: string }): ObjectKind {
   const n = o.name.toLowerCase();
   if (n.includes('scissor') || n.includes('shears')) return 'scissors';
   if (n.includes('stapler')) return 'stapler';
+  if (n.includes('sponge')) return 'sponge';
   if (n.includes('pen') || n.includes('pencil') || n.includes('marker') || n.includes('highlighter')) return 'pen';
   if (o.shape === 'mug' || n.includes('mug') || n.includes('coffee') || n.includes('tea cup')) return 'mug';
   if (n.includes('tennis')) return 'tennis_ball';
@@ -349,6 +351,14 @@ export function createObjectMesh(obj: ObjectSpec): THREE.Object3D {
       add(new THREE.TubeGeometry(handle, 40, 0.0058, 14, false), glaze);
       break;
     }
+    case 'sponge': {
+      // Kitchen sponge: foam body with a dark scouring pad on top (70 x 50 x 30 mm)
+      const foam = add(new RoundedBoxGeometry(0.07, 0.022, 0.05, 3, 0.004), new THREE.MeshStandardMaterial({ color, roughness: 0.95, bumpMap: noiseBump('foam', 128, 120), bumpScale: 1.2 }));
+      foam.position.y = -0.004;
+      const pad = add(new RoundedBoxGeometry(0.07, 0.008, 0.05, 2, 0.002), new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 1, bumpMap: noiseBump('scour', 128, 160), bumpScale: 1.5 }));
+      pad.position.y = 0.011;
+      break;
+    }
     case 'pen': {
       const nm = obj.name.toLowerCase();
       const pen = new THREE.Group();
@@ -477,6 +487,7 @@ export function footprintRadius(kind: ObjectKind): number {
     case 'pen': return 0.055;
     case 'eraser': return 0.03;
     case 'cube': return 0.04;
+    case 'sponge': return 0.045;
     default: return 0.038;
   }
 }

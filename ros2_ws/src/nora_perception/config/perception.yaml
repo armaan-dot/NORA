@@ -2,7 +2,10 @@ nora_perception:
   ros__parameters:
     # Colour detection for plain primitives with no COCO class: labels, hue_min, hue_max (equal-length
     # arrays, OpenCV hue 0-179; hue_min > hue_max wraps around 0). Every object in tabletop.world has a
-    # COCO class, so none are set.
+    # COCO class except the sponge (#22c55e in frontend/src/sim/objectLibrary.ts, OpenCV hue 71).
+    labels: ["sponge"]
+    hue_min: [55]
+    hue_max: [78]
     min_saturation: 80
     min_value: 40
     min_area_px: 150

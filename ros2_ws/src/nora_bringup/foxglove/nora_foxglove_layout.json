@@ -1,0 +1,165 @@
+{
+  "configById": {
+    "3D!nora_arm_view": {
+      "cameraState": {
+        "perspective": true,
+        "distance": 2.2,
+        "phi": 55,
+        "thetaOffset": 120,
+        "targetOffset": [0.35, 0, 0.15],
+        "target": [0, 0, 0],
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "base_link",
+      "scene": { "enableStats": false, "transforms": { "showLabel": false, "axisScale": 0.08 } },
+      "topics": {
+        "/robot_description": { "visible": true },
+        "/visualization_marker_array": { "visible": true }
+      },
+      "layers": {
+        "grid": {
+          "layerId": "foxglove.Grid",
+          "size": 4,
+          "divisions": 16,
+          "lineWidth": 1,
+          "color": "#334155",
+          "position": [0, 0, -0.45],
+          "rotation": [0, 0, 0],
+          "frameId": "base_link"
+        }
+      }
+    },
+    "Image!camera_color": {
+      "cameraTopic": "/camera/color/image_raw/compressed",
+      "imageMode": { "imageTopic": "/camera/color/image_raw/compressed" }
+    },
+    "Image!camera_depth": {
+      "cameraTopic": "/camera/depth/image_colorized/compressed",
+      "imageMode": { "imageTopic": "/camera/depth/image_colorized/compressed" }
+    },
+    "Image!camera_vision": {
+      "cameraTopic": "/camera/segmentation/compressed",
+      "imageMode": { "imageTopic": "/camera/segmentation/compressed" }
+    },
+    "Tab!camera": {
+      "activeTabIdx": 0,
+      "tabs": [
+        { "title": "Camera", "layout": "Image!camera_color" },
+        { "title": "Depth", "layout": "Image!camera_depth" },
+        { "title": "Vision", "layout": "Image!camera_vision" }
+      ]
+    },
+    "Plot!joints": {
+      "title": "Arm joints (rad)",
+      "paths": [
+        { "value": "/joint_states.position[0]", "enabled": true, "label": "joint1", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.position[1]", "enabled": true, "label": "joint2", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.position[2]", "enabled": true, "label": "joint3", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.position[3]", "enabled": true, "label": "joint4", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.position[4]", "enabled": true, "label": "joint5", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.position[5]", "enabled": true, "label": "joint6", "timestampMethod": "receiveTime" }
+      ],
+      "showLegend": true,
+      "xAxisVal": "timestamp"
+    },
+    "Plot!torques": {
+      "title": "Joint torques (N m)",
+      "paths": [
+        { "value": "/joint_states.effort[0]", "enabled": true, "label": "joint1", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[1]", "enabled": true, "label": "joint2", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[2]", "enabled": true, "label": "joint3", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[3]", "enabled": true, "label": "joint4", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[4]", "enabled": true, "label": "joint5", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[5]", "enabled": true, "label": "joint6", "timestampMethod": "receiveTime" }
+      ],
+      "showLegend": true,
+      "xAxisVal": "timestamp"
+    },
+    "Plot!gripper": {
+      "title": "Gripper: finger gap (m) and force (N)",
+      "paths": [
+        { "value": "/joint_states.position[6]", "enabled": true, "label": "gap (m)", "timestampMethod": "receiveTime" },
+        { "value": "/joint_states.effort[6]", "enabled": true, "label": "force (N)", "timestampMethod": "receiveTime" }
+      ],
+      "showLegend": true,
+      "xAxisVal": "timestamp"
+    },
+    "Tab!plots": {
+      "activeTabIdx": 0,
+      "tabs": [
+        { "title": "Joints", "layout": "Plot!joints" },
+        { "title": "Torques", "layout": "Plot!torques" },
+        { "title": "Gripper", "layout": "Plot!gripper" }
+      ]
+    },
+    "Publish!command": {
+      "topic": "/nora/command",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Send command",
+      "buttonTooltip": "Plain-English command, parsed by the NLU model",
+      "buttonColor": "#0284c7",
+      "advancedView": true,
+      "value": "{\n  \"data\": \"pick up the tennis ball and put it in the tote\"\n}"
+    },
+    "Publish!add_object": {
+      "topic": "/nora/tabletop_objects/add",
+      "datatype": "std_msgs/msg/String",
+      "buttonText": "Add object",
+      "buttonTooltip": "Adds one object to the table (omit x and y for a free spot)",
+      "buttonColor": "#10b981",
+      "advancedView": true,
+      "value": "{\n  \"data\": \"{\\\"name\\\": \\\"Red Apple\\\", \\\"shape\\\": \\\"apple\\\", \\\"color\\\": \\\"#e11d48\\\"}\"\n}"
+    },
+    "RawMessages!pipeline": { "topicPath": "/nora/pipeline" },
+    "RawMessages!detections": { "topicPath": "/nora/perception/detections" },
+    "RawMessages!gripper": { "topicPath": "/nora/gripper/state" },
+    "RawMessages!plan": { "topicPath": "/nora/planned_path" },
+    "Tab!state": {
+      "activeTabIdx": 0,
+      "tabs": [
+        { "title": "Pipeline", "layout": "RawMessages!pipeline" },
+        { "title": "Detections", "layout": "RawMessages!detections" },
+        { "title": "Gripper sensors", "layout": "RawMessages!gripper" },
+        { "title": "Plan", "layout": "RawMessages!plan" }
+      ]
+    },
+    "RosOut!logs": { "searchTerms": [], "minLogLevel": 1 }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1 },
+  "layout": {
+    "direction": "row",
+    "first": {
+      "direction": "column",
+      "first": "3D!nora_arm_view",
+      "second": "Tab!plots",
+      "splitPercentage": 66
+    },
+    "second": {
+      "direction": "column",
+      "first": "Tab!camera",
+      "second": {
+        "direction": "column",
+        "first": {
+          "direction": "row",
+          "first": "Publish!command",
+          "second": "Publish!add_object",
+          "splitPercentage": 50
+        },
+        "second": {
+          "direction": "row",
+          "first": "Tab!state",
+          "second": "RosOut!logs",
+          "splitPercentage": 45
+        },
+        "splitPercentage": 35
+      },
+      "splitPercentage": 36
+    },
+    "splitPercentage": 58
+  }
+}

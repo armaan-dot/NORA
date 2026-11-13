@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<!-- MoveIt semantics for the web simulator's arm (frontend/public/nora_arm.urdf). -->
+<robot name="nora_arm">
+  <group name="arm">
+    <chain base_link="base_link" tip_link="gripper_link"/>
+  </group>
+  <group name="gripper">
+    <joint name="gripper_joint"/>
+    <joint name="left_finger_joint"/>
+    <joint name="right_finger_joint"/>
+  </group>
+  <end_effector name="gripper" parent_link="gripper_link" group="gripper" parent_group="arm"/>
+
+  <disable_collisions link1="base_link" link2="link1" reason="Adjacent"/>
+  <disable_collisions link1="link1" link2="link2" reason="Adjacent"/>
+  <disable_collisions link1="link2" link2="link3" reason="Adjacent"/>
+  <disable_collisions link1="link3" link2="link4" reason="Adjacent"/>
+  <disable_collisions link1="link4" link2="link5" reason="Adjacent"/>
+  <disable_collisions link1="link5" link2="link6" reason="Adjacent"/>
+  <disable_collisions link1="link4" link2="link6" reason="Never"/>
+  <disable_collisions link1="link6" link2="gripper_link" reason="Adjacent"/>
+  <disable_collisions link1="link5" link2="gripper_link" reason="Never"/>
+  <disable_collisions link1="link6" link2="camera_link" reason="Never"/>
+  <disable_collisions link1="link5" link2="camera_link" reason="Never"/>
+  <disable_collisions link1="gripper_link" link2="camera_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_link" link2="left_finger_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_link" link2="right_finger_link" reason="Adjacent"/>
+  <disable_collisions link1="left_finger_link" link2="right_finger_link" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="left_finger_link" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="right_finger_link" reason="Never"/>
+  <disable_collisions link1="link6" link2="left_finger_link" reason="Never"/>
+  <disable_collisions link1="link6" link2="right_finger_link" reason="Never"/>
+</robot>

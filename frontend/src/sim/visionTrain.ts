@@ -37,7 +37,8 @@ const SPEC: Record<ObjectKind, { names: string[]; shape: string }> = {
   glass: { names: ['Water Glass', 'Glass'], shape: 'glass' },
   pen: { names: ['Writing Pen', 'Yellow Pencil', 'Highlighter'], shape: 'cylinder' },
   scissors: { names: ['Office Scissors'], shape: 'box' },
-  stapler: { names: ['Paper Stapler'], shape: 'box' }
+  stapler: { names: ['Paper Stapler'], shape: 'box' },
+  sponge: { names: ['Cleaning Sponge'], shape: 'box' }
 };
 
 function mulberry(seed: number) {

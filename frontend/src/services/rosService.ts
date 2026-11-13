@@ -21,8 +21,10 @@ import { objectKind, footprintRadius } from '../sim/objectMeshes';
 import { GRASP_WIDTH, GRIPPER_FORCE, GRIPPER_MAX_OPEN, OBJECT_HEIGHT, FINGER_TIP_Z, dropRegion, restLift, chooseToteSlot, TOTE, TOTE_GEOM, MAT, type RestRegion } from '../sim/physics';
 import { physicsFor } from '../sim/objectPhysics';
 import { simWorld } from '../sim/world';
+import { planWithMoveIt, startRosMirror } from '../sim/rosMirror';
 import type { CameraFrame } from '../sim/wristCamera';
 import { associate, type Perceived } from '../sim/vision';
+import { libraryObject } from '../sim/objectLibrary';
 
 export { UR5E_GEOMETRY, MAX_TABLE_REACH };
 
@@ -468,7 +470,8 @@ export function getEntityMetadata(targetNameOrText: string): EntityMetadata | un
     return { name: 'Playing Cards', shape: 'box', color: '#ffffff', emoji: '🃏' };
   }
   if (l.includes('sponge')) {
-    return { name: 'Cleaning Sponge', shape: 'box', color: '#fde047', emoji: '🧽' };
+    const sponge = libraryObject('sponge');
+    return { name: sponge.name, shape: sponge.shape, color: sponge.color, emoji: '🧽' };
   }
   if (l.includes('bottle') || l.includes('can') || l.includes('soda')) {
     return { name: 'Soda Can', shape: 'cylinder', color: '#ef4444', emoji: '🥫' };
@@ -781,8 +784,6 @@ class RosBridgeService {
 
   // Active ROS subscriptions
   private rosoutSub: ROSLIB.Topic | null = null;
-  private jointStatesSub: ROSLIB.Topic | null = null;
-  private orchStateSub: ROSLIB.Topic | null = null;
 
   private audioMuted = false;
 
@@ -921,6 +922,7 @@ class RosBridgeService {
           nodeName: 'web_bridge',
           message: `Connected to ROS 2 bridge at ${this.wsUrl}`
         });
+        startRosMirror(this.ros!, this.robotBasePos, () => this.tabletopObjects);
         this.subscribeTopics();
       });
 
@@ -1507,6 +1509,7 @@ class RosBridgeService {
       messageType: 'rcl_interfaces/msg/Log'
     });
     this.rosoutSub.subscribe((msg: any) => {
+      if (String(msg.name || '').startsWith('sim/')) return; // our own logs, mirrored out by rosMirror
       const levelMap: Record<number, 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL'> = {
         10: 'DEBUG',
         20: 'INFO',
@@ -1524,50 +1527,77 @@ class RosBridgeService {
       });
     });
 
-    // 2. Subscribe to /joint_states
-    this.jointStatesSub = new ROSLIB.Topic({
+    // 4. Subscribe to /nora/tabletop_objects/add for real-time Foxglove integration
+    const addObjectSub = new ROSLIB.Topic({
       ros: this.ros,
-      name: '/joint_states',
-      messageType: 'sensor_msgs/msg/JointState'
-    });
-    this.jointStatesSub.subscribe((msg: any) => {
-      if (msg.name && msg.position) {
-        msg.name.forEach((name: string, i: number) => {
-          const mapIdx: Record<string, number> = {
-            joint1: 0,
-            joint2: 1,
-            joint3: 2,
-            joint4: 3,
-            joint5: 4,
-            joint6: 5,
-            gripper_joint: 6
-          };
-          if (name in mapIdx) {
-            this.currentJointPositions[mapIdx[name]] = msg.position[i];
-          }
-        });
-
-        this.jointListeners.forEach((cb) =>
-          cb({
-            names: msg.name,
-            positions: msg.position,
-            velocities: msg.velocity,
-            efforts: msg.effort
-          })
-        );
-      }
-    });
-
-    // 3. Subscribe to orchestrator status
-    this.orchStateSub = new ROSLIB.Topic({
-      ros: this.ros,
-      name: '/nora/orchestrator/state',
+      name: '/nora/tabletop_objects/add',
       messageType: 'std_msgs/msg/String'
     });
-    this.orchStateSub.subscribe((msg: any) => {
-      if (msg.data) {
-        this.stateListeners.forEach((cb) => cb(msg.data as OrchestratorFsmState));
+    addObjectSub.subscribe((msg: any) => {
+      try {
+        const data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
+        if (data && data.name) {
+          this.spawnFromJson(data);
+          this.emitLog({
+            level: 20,
+            levelName: 'INFO',
+            nodeName: 'foxglove_bridge',
+            message: `[Foxglove Remote Spawn] Object "${data.name}" added to tabletop workspace.`
+          });
+        }
+      } catch (err) {
+        console.warn('Could not parse remote add_object message:', err);
       }
+    });
+
+    // Plain-English commands from Foxglove: parsed by the NLU model and executed like a typed command
+    new ROSLIB.Topic({ ros: this.ros, name: '/nora/command', messageType: 'std_msgs/msg/String' }).subscribe((msg: any) => {
+      if (msg.data) void this.executeCommand(String(msg.data));
+    });
+
+    // Whole-scene description (scene.json): replaces every object on the table
+    new ROSLIB.Topic({ ros: this.ros, name: '/nora/scene', messageType: 'std_msgs/msg/String' }).subscribe((msg: any) => {
+      try {
+        const list = JSON.parse(msg.data).objects;
+        if (!Array.isArray(list)) throw new Error('"objects" must be a list');
+        if (this.isExecuting) throw new Error('a task is running');
+        [...this.tabletopObjects].forEach((o) => this.removeObject(o.id));
+        this.catalogue = []; // a new scene is a new object database, and nothing in it has been seen yet
+        this.perceived = {};
+        list.forEach((o) => this.spawnFromJson(o));
+      } catch (err) {
+        this.emitLog({ level: 40, levelName: 'ERROR', nodeName: 'tabletop_env', message: `[Workspace] Scene JSON not loaded: ${err}` });
+      }
+    });
+
+    // 5. Subscribe to /nora/intent for remote task execution from Foxglove
+    const remoteIntentSub = new ROSLIB.Topic({
+      ros: this.ros,
+      name: '/nora/intent',
+      messageType: 'std_msgs/msg/String'
+    });
+    remoteIntentSub.subscribe((msg: any) => {
+      try {
+        const data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
+        const text = data.raw_text || data.text || (data.action ? `${data.action} ${data.target_object || ''}` : '');
+        if (text && !this.isExecuting) {
+          this.executeSimulated(text);
+        }
+      } catch (err) {
+        console.warn('Could not parse remote intent message:', err);
+      }
+    });
+  }
+
+  /** One object from JSON. x, y are metres in base_link (as shown in Foxglove); omit them for a free spot. */
+  private spawnFromJson(o: { name: string; shape?: TabletopObject['shape']; color?: string; x?: number; y?: number; mass?: number }): void {
+    const placed = typeof o.x === 'number' && typeof o.y === 'number';
+    this.addObject({
+      name: String(o.name),
+      shape: o.shape || 'box',
+      color: o.color || '#3b82f6',
+      mass: o.mass,
+      position: placed ? { x: o.x! + this.robotBasePos.x, y: 0, z: this.robotBasePos.z - o.y! } : undefined
     });
   }
 
@@ -1684,111 +1714,7 @@ class RosBridgeService {
       message: `User instruction dispatched: "${text}"`
     });
 
-    if (this.connected && this.ros) {
-      await this.executeViaRosbridge(text);
-    } else {
-      await this.executeSimulated(text);
-    }
-  }
-
-  private async executeViaRosbridge(text: string): Promise<void> {
-    if (!this.ros) return;
-
-    this.notifyPipeline({ stage: 'PARSING' });
-    this.stateListeners.forEach((cb) => cb('PARSING'));
-
-    const intentTopic = new ROSLIB.Topic({
-      ros: this.ros,
-      name: '/nora/intent_raw',
-      messageType: 'std_msgs/msg/String'
-    });
-    intentTopic.publish({ data: text });
-
-    const nluClient = new ROSLIB.Service({
-      ros: this.ros,
-      name: '/nora/parse_command',
-      serviceType: 'nora_interfaces/srv/ParseCommand'
-    });
-
-    nluClient.callService(
-      { raw_text: text },
-      (res: any) => {
-        if (res && res.success && res.intent) {
-          let parameters = {};
-          try {
-            parameters = JSON.parse(res.intent.parameters_json || '{}');
-          } catch {
-            // keep empty parameters
-          }
-          const intent: Intent = {
-            raw_text: text,
-            action: res.intent.action,
-            target_object: res.intent.target_object || null,
-            target_location: res.intent.target_location || null,
-            parameters,
-            confidence: res.intent.confidence || 0.95
-          };
-          this.notifyPipeline({ stage: 'SCORING', intent });
-          this.fetchAffordances(intent);
-        } else {
-          this.executeSimulated(text);
-        }
-      },
-      () => {
-        this.executeSimulated(text);
-      }
-    );
-  }
-
-  private fetchAffordances(intent: Intent): void {
-    if (!this.ros) return;
-
-    const affClient = new ROSLIB.Service({
-      ros: this.ros,
-      name: '/nora/score_affordances',
-      serviceType: 'nora_interfaces/srv/ScoreAffordances'
-    });
-
-    affClient.callService(
-      {
-        intent: {
-          raw_text: intent.raw_text,
-          action: intent.action,
-          target_object: intent.target_object || '',
-          target_location: intent.target_location || '',
-          parameters_json: JSON.stringify(intent.parameters),
-          confidence: intent.confidence
-        }
-      },
-      (res: any) => {
-        if (res && res.scores) {
-          const scores: AffordanceScore[] = res.scores.map((s: any) => ({
-            skill_name: s.skill_name,
-            usefulness: s.usefulness || 0.9,
-            feasibility: s.feasibility || 0.95,
-            combined_score: s.combined_score || 0.85
-          }));
-          scores.sort((a, b) => b.combined_score - a.combined_score);
-          if (scores.length > 0) {
-            this.publishAffordanceScore(intent, scores[0]);
-          }
-          this.notifyPipeline({ stage: 'PLANNING', intent, affordances: scores });
-        } else {
-          const localAffs = this.computeLocalAffordances(intent);
-          if (localAffs.length > 0) {
-            this.publishAffordanceScore(intent, localAffs[0]);
-          }
-          this.notifyPipeline({ stage: 'PLANNING', intent, affordances: localAffs });
-        }
-      },
-      () => {
-        const localAffs = this.computeLocalAffordances(intent);
-        if (localAffs.length > 0) {
-          this.publishAffordanceScore(intent, localAffs[0]);
-        }
-        this.notifyPipeline({ stage: 'PLANNING', intent, affordances: localAffs });
-      }
-    );
+    await this.executeSimulated(text);
   }
 
   private publishAffordanceScore(intent: Intent, topAff: AffordanceScore): void {
@@ -2418,7 +2344,7 @@ class RosBridgeService {
             level: 20,
             levelName: 'INFO',
             nodeName: 'nora_perception',
-            message: `[Category Grounding] Query "${catInfo.category}" maps to candidate item [${catInfo.defaultName}]. Scanning tabletop...`
+            message: `[Category Grounding] Query "${catInfo.category}" maps to candidate item [${catInfo.defaultName}]. Articulating arm to survey pose...`
           });
           this.emitArmSpeech({
             message: `Looking for ${catInfo.defaultName} (${catInfo.category}).`,
@@ -2453,7 +2379,7 @@ class RosBridgeService {
               level: 30,
               levelName: 'WARN',
               nodeName: 'nora_perception',
-              message: `[RGB-D Vision Scan] Search completed: "${catInfo.category}" (candidate: ${catInfo.defaultName}) was NOT detected anywhere across tabletop workspace.`
+              message: `[RGB-D Vision Scan] Search completed: "${catInfo.category}" (candidate: ${catInfo.defaultName}) was NOT detected in camera field-of-view.`
             });
             this.emitLog({
               level: 40,
@@ -2472,7 +2398,7 @@ class RosBridgeService {
               active: true,
               type: 'missing_object',
               title: 'Object Grounding Guardrail',
-              reason: `SayCan Perception Guardrail: "${catInfo.defaultName}" (matching category "${catInfo.category}") is not present on the tabletop. Please click "+ Place ${catInfo.defaultName} on Tabletop" to place one in the workspace.`,
+              reason: `SayCan Perception Guardrail: "${catInfo.defaultName}" (matching category "${catInfo.category}") was not detected by the camera on the tabletop. Please click "+ Place ${catInfo.defaultName} on Tabletop" to place one in the workspace.`,
               score: 0.15,
               threshold: 0.30,
               targetObject: catInfo.defaultId,
@@ -2485,7 +2411,7 @@ class RosBridgeService {
               intent,
               affordances,
               guardrailEvent: gEvent,
-              error: `Visual search failed: "${catInfo.defaultName}" (matching category "${catInfo.category}") was not found on the table. Click "Place ${catInfo.defaultName} on Tabletop" to place one in the workspace.`
+              error: `Visual search failed: "${catInfo.defaultName}" (matching category "${catInfo.category}") was not detected in camera view. Click "Place ${catInfo.defaultName} on Tabletop" to place one in the workspace.`
             });
             this.stateListeners.forEach((cb) => cb('FAILED'));
             setTimeout(() => {
@@ -2570,7 +2496,7 @@ class RosBridgeService {
               level: 30,
               levelName: 'WARN',
               nodeName: 'nora_perception',
-              message: `[RGB-D Vision Scan] Search completed: "${friendlyTarget}" was NOT detected anywhere across tabletop workspace.`
+              message: `[RGB-D Vision Scan] Search completed: "${friendlyTarget}" was NOT detected in camera field-of-view across tabletop workspace.`
             });
             this.emitLog({
               level: 40,
@@ -2589,7 +2515,7 @@ class RosBridgeService {
               active: true,
               type: 'missing_object',
               title: 'Object Grounding Guardrail',
-              reason: `SayCan Perception Guardrail: "${friendlyTarget}" is not present on the tabletop. Please click "+ Add Object" to place one in the workspace.`,
+              reason: `SayCan Perception Guardrail: "${friendlyTarget}" is not visible in camera field-of-view. Please click "+ Add Object" to place one in the workspace.`,
               score: 0.15,
               threshold: 0.30,
               targetObject: obj || step.targetObject,
@@ -2602,7 +2528,7 @@ class RosBridgeService {
               intent,
               affordances,
               guardrailEvent: gEvent,
-              error: `Visual search failed: "${friendlyTarget}" was not found on the table. Click "Add Object" to place one in the workspace.`
+              error: `Visual search failed: "${friendlyTarget}" was not detected by camera on the table. Click "Add Object" to place one in the workspace.`
             });
             this.stateListeners.forEach((cb) => cb('FAILED'));
             setTimeout(() => {
@@ -5115,7 +5041,7 @@ class RosBridgeService {
 
   private publishJointState(): void {
     const names = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper_joint'];
-    const sim = simWorld.isReady && !this.connected;
+    const sim = simWorld.isReady;
     const velocities = sim ? [...simWorld.jointVelocities(), simWorld.fingerGapRate] : undefined;
     const efforts = sim ? [...simWorld.jointEfforts, simWorld.gripEffort] : undefined;
     this.jointListeners.forEach((cb) => cb({ names, positions: [...this.currentJointPositions], velocities, efforts, timestamp: Date.now() }));
@@ -5157,10 +5083,20 @@ class RosBridgeService {
   ): Promise<PlanResult> {
     await simWorld.ready;
     const start = [...this.currentJointPositions];
-    const plan = planJointPath(start.slice(0, 6), target.slice(0, 6), this.robotBasePos, world);
+    // With a ROS machine attached, MoveIt plans; otherwise (or if it finds nothing) the built-in planner does.
+    const moveit = await planWithMoveIt(start.slice(0, 6), target.slice(0, 6), world);
+    let plan: PlanResult;
+    if (moveit && 'path' in moveit) {
+      const c = pathClearance(moveit.path, this.robotBasePos, world);
+      plan = { ok: true, path: moveit.path, iterations: 0, planningMs: moveit.ms, minClearance: c.clearance, nearest: c.nearest };
+    } else {
+      if (moveit) this.emitLog({ level: 30, levelName: 'WARN', nodeName: 'motion_planner', message: `[Planner] ${opts.label}: ${moveit.error}. Using the built-in planner.` });
+      plan = planJointPath(start.slice(0, 6), target.slice(0, 6), this.robotBasePos, world);
+    }
+    const planner = moveit && 'path' in moveit ? 'MoveIt 2 OMPL RRTConnect' : 'RRTConnect (sim/planner.ts)';
     const path = plan.ok ? plan.path : [start.slice(0, 6), target.slice(0, 6)];
     this.publishPath(opts.label, path, {
-      planner: 'RRTConnect (sim/planner.ts)',
+      planner,
       ok: plan.ok,
       iterations: plan.iterations,
       ms: plan.planningMs,
@@ -5174,7 +5110,7 @@ class RosBridgeService {
         level: 20,
         levelName: 'INFO',
         nodeName: 'motion_planner',
-        message: `[Planner] RRTConnect ${opts.label}: ${plan.path.length} waypoints, ${plan.iterations} iterations, ${plan.planningMs.toFixed(1)} ms, min clearance ${(plan.minClearance * 1000).toFixed(0)} mm (${plan.nearest})`
+        message: `[Planner] ${planner} ${opts.label}: ${plan.path.length} waypoints, ${plan.iterations} iterations, ${plan.planningMs.toFixed(1)} ms, min clearance ${(plan.minClearance * 1000).toFixed(0)} mm (${plan.nearest})`
       });
     } else {
       this.emitLog({
