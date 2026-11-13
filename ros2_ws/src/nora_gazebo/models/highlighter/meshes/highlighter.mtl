@@ -1,0 +1,47 @@
+newmtl highlighter_0
+Ka 0.9176 0.7020 0.0314
+Kd 0.9176 0.7020 0.0314
+Ks 0.15 0.15 0.15
+Ns 30
+d 1
+illum 2
+
+newmtl highlighter_1
+Ka 0.9176 0.7020 0.0314
+Kd 0.9176 0.7020 0.0314
+Ks 0.15 0.15 0.15
+Ns 30
+d 1
+illum 2
+
+newmtl highlighter_2
+Ka 0.8392 0.8471 0.8588
+Kd 0.8392 0.8471 0.8588
+Ks 0.60 0.60 0.60
+Ns 30
+d 1
+illum 2
+
+newmtl highlighter_3
+Ka 0.8392 0.8471 0.8588
+Kd 0.8392 0.8471 0.8588
+Ks 0.60 0.60 0.60
+Ns 30
+d 1
+illum 2
+
+newmtl highlighter_4
+Ka 0.0941 0.0980 0.1098
+Kd 0.0941 0.0980 0.1098
+Ks 0.15 0.15 0.15
+Ns 30
+d 1
+illum 2
+
+newmtl highlighter_5
+Ka 0.8392 0.8471 0.8588
+Kd 0.8392 0.8471 0.8588
+Ks 0.60 0.60 0.60
+Ns 30
+d 1
+illum 2

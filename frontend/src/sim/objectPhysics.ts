@@ -159,6 +159,11 @@ const SPECS: Record<ObjectKind, KindPhysics> = {
     ],
     friction: 0.4, restitution: 0.1, restHalf: 0.0062, linDamp: 0.05, angDamp: 0.2, spawnYaw: 0
   },
+  sponge: {
+    // 70 x 30 x 50 mm kitchen sponge; rigid here (and in Gazebo), the foam does not compress
+    colliders: [{ shape: { t: 'box', h: [0.035, 0.015, 0.025] }, mass: 0.03 }],
+    friction: 0.9, restitution: 0.05, restHalf: 0.015, linDamp: 0.05, angDamp: 0.1, spawnYaw: 0
+  },
   stapler: {
     colliders: [
       { shape: { t: 'box', h: [0.016, 0.004, 0.055] }, mass: 0.12, pos: [0, -0.008, 0] },

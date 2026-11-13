@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { rosService } from '../services/rosService';
+import { OBJECT_CATEGORIES, OBJECT_LIBRARY } from '../sim/objectLibrary';
 import { physicsFor } from '../sim/objectPhysics';
 import type { TabletopObject } from '../types';
 
@@ -11,28 +12,8 @@ interface AddObjectModalProps {
 }
 type ObjectShape = 'box' | 'cylinder' | 'sphere' | 'glass' | 'mug' | 'apple';
 type SpawnZone = 'auto' | 'center' | 'left' | 'right' | 'user';
-type Category = 'Drinks' | 'Food' | 'Stationery' | 'Shapes';
-interface Preset { name: string; shape: ObjectShape; color: string; category: Category }
-const PRESETS: Preset[] = [
-  { name: 'Coffee Mug', shape: 'mug', color: '#8b4513', category: 'Drinks' },
-  { name: 'Water Glass', shape: 'glass', color: '#38bdf8', category: 'Drinks' },
-  { name: 'Tea Cup', shape: 'mug', color: '#10b981', category: 'Drinks' },
-  { name: 'Red Apple', shape: 'apple', color: '#e11d48', category: 'Food' },
-  { name: 'Green Apple', shape: 'apple', color: '#65a30d', category: 'Food' },
-  { name: 'Orange Fruit', shape: 'sphere', color: '#f97316', category: 'Food' },
-  { name: 'Writing Pen', shape: 'cylinder', color: '#2563eb', category: 'Stationery' },
-  { name: 'Yellow Pencil', shape: 'cylinder', color: '#f59e0b', category: 'Stationery' },
-  { name: 'Highlighter', shape: 'cylinder', color: '#eab308', category: 'Stationery' },
-  { name: 'Notebook', shape: 'box', color: '#3b82f6', category: 'Stationery' },
-  { name: 'Desk Ruler', shape: 'box', color: '#cbd5e1', category: 'Stationery' },
-  { name: 'Office Scissors', shape: 'box', color: '#64748b', category: 'Stationery' },
-  { name: 'Paper Stapler', shape: 'box', color: '#475569', category: 'Stationery' },
-  { name: 'Pink Eraser', shape: 'box', color: '#f43f5e', category: 'Stationery' },
-  { name: 'Yellow Box', shape: 'box', color: '#eab308', category: 'Shapes' },
-  { name: 'Blue Package', shape: 'box', color: '#2563eb', category: 'Shapes' },
-  { name: 'Purple Canister', shape: 'cylinder', color: '#a855f7', category: 'Shapes' },
-  { name: 'Tennis Ball', shape: 'sphere', color: '#84cc16', category: 'Shapes' }
-];
+type Preset = (typeof OBJECT_LIBRARY)[number];
+const PRESETS = OBJECT_LIBRARY;
 
 export const AddObjectModal: React.FC<AddObjectModalProps> = ({ isOpen, onClose, onObjectAdded }) => {
   const [query, setQuery] = useState('');
@@ -90,7 +71,7 @@ export const AddObjectModal: React.FC<AddObjectModalProps> = ({ isOpen, onClose,
             <div className="ao-toolbar">
               <label className="ao-search"><Search size={15} /><input aria-label="Search objects" placeholder="Search objects" value={query} onChange={e => setQuery(e.target.value)} /></label>
               <div className="ao-segment" aria-label="Categories">
-                {['All', 'Drinks', 'Food', 'Stationery', 'Shapes'].map(c => <button key={c} aria-pressed={category === c} className={category === c ? 'on' : ''} onClick={() => setCategory(c)}>{c}</button>)}
+                {['All', ...OBJECT_CATEGORIES].map(c => <button key={c} aria-pressed={category === c} className={category === c ? 'on' : ''} onClick={() => setCategory(c)}>{c}</button>)}
               </div>
             </div>
             <ul className="ao-list">

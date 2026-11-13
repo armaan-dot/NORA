@@ -24,6 +24,7 @@ import { simWorld } from '../sim/world';
 import { planWithMoveIt, startRosMirror } from '../sim/rosMirror';
 import type { CameraFrame } from '../sim/wristCamera';
 import { associate, type Perceived } from '../sim/vision';
+import { libraryObject } from '../sim/objectLibrary';
 
 export { UR5E_GEOMETRY, MAX_TABLE_REACH };
 
@@ -469,7 +470,8 @@ export function getEntityMetadata(targetNameOrText: string): EntityMetadata | un
     return { name: 'Playing Cards', shape: 'box', color: '#ffffff', emoji: '🃏' };
   }
   if (l.includes('sponge')) {
-    return { name: 'Cleaning Sponge', shape: 'box', color: '#fde047', emoji: '🧽' };
+    const sponge = libraryObject('sponge');
+    return { name: sponge.name, shape: sponge.shape, color: sponge.color, emoji: '🧽' };
   }
   if (l.includes('bottle') || l.includes('can') || l.includes('soda')) {
     return { name: 'Soda Can', shape: 'cylinder', color: '#ef4444', emoji: '🥫' };
