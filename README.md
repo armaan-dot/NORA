@@ -131,7 +131,7 @@ Everything below runs in the browser (Three.js) with no ROS needed:
 - **WebAssembly is used for two things: OpenCV.js and the Rapier physics engine**, because both are distributed that way. Everything written for this project is plain TypeScript: an NLU parse takes about 0.05 ms, an approach plan with collision checks about 0.7 ms, and the OpenCV step about 20 ms per frame. The camera render is GPU work.
 - **Not included: SLAM and Nav2.** The arm is table-mounted, so there is no map to build and nowhere to navigate.
 
-## ROS 2 stack (work in progress)
+## ROS 2 stack
 
 ROS 2 Humble packages exist for NLU, orchestration, skills, MoveIt 2 config, ros2_control and Gazebo, plus an Isaac Sim stub. Treat them as scaffolding:
 
@@ -194,7 +194,7 @@ colcon test --packages-select nora_world_model nora_orchestrator nora_perception
 
 It is the same algorithm family, but a small hand-written version: tool-down poses only, simplified collision shapes, one planner, no path constraints. The topic `/move_group/display_planned_path` is produced inside the simulator, not by MoveIt.
 
-**Plan to connect the web frontend to MoveIt (not started):**
+**Plan to connect the web frontend to MoveIt :**
 
 1. Make the ROS URDF and SRDF match the web arm exactly, including the gripper (`gripper_joint` = distance between the pad faces).
 2. Launch Gazebo and `move_group` together from one bringup launch file, on Linux or WSL with ROS 2 Humble.
