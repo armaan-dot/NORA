@@ -25,6 +25,11 @@
   <exec_depend>nora_nlu_node</exec_depend>
   <exec_depend>nora_affordance</exec_depend>
   <exec_depend>nora_core</exec_depend>
+  <exec_depend>nora_bt_executor</exec_depend>
+  <exec_depend>nora_world_model</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>vision_msgs</exec_depend>
   <exec_depend>foxglove_bridge</exec_depend>
   <exec_depend>gazebo_ros</exec_depend>
   <exec_depend>gazebo_ros2_control</exec_depend>

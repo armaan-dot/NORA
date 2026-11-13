@@ -20,12 +20,12 @@ controller_manager:
 arm_controller:
   ros__parameters:
     joints:
-      - shoulder_pan_joint
-      - shoulder_lift_joint
-      - elbow_joint
-      - wrist_1_joint
-      - wrist_2_joint
-      - wrist_3_joint
+      - joint1
+      - joint2
+      - joint3
+      - joint4
+      - joint5
+      - joint6
     command_interfaces:
       - position
     state_interfaces:
@@ -45,3 +45,4 @@ gripper_controller:
     allow_stalling: false
     stall_velocity_threshold: 0.001
     stall_timeout: 1.0
+    max_velocity: 0.15          # m/s — gripper_joint is the pad-face gap (0 to 0.085 m)

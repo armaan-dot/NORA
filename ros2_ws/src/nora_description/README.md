@@ -8,7 +8,7 @@ URDF/Xacro robot description for the **NORA 6-DOF arm**, using primitive box/cyl
 nora_description/
 ├── urdf/
 │   ├── nora_arm.urdf.xacro   # Main arm description (world→base→link1..6→gripper)
-│   ├── materials.xacro        # Silver, dark_grey, orange material defs
+│   ├── materials.xacro        # Arm/gripper colours (same as the web URDF)
 │   └── ros2_control.xacro     # ros2_control hardware interface stub
 ├── config/
 │   └── joint_limits.yaml      # Position / velocity / effort limits
@@ -39,34 +39,27 @@ Use the **Joint State Publisher GUI** sliders to pose the arm interactively.
 
 ## Joint Summary
 
-| Joint | Type | Parent → Child | Axis | Motion Limits | Max Speed |
+Same kinematics, limits and geometry as the web simulator (`frontend/public/nora_arm.urdf`), UR5e-style.
+
+| Joint | Type | Parent → Child | Axis | Origin (m) | Limits |
 |---|---|---|---|---|---|
-| `shoulder_pan_joint` | revolute | `base_link` → `shoulder_link` | Z (base yaw) | [-360°, +360°] | 180 °/s |
-| `shoulder_lift_joint` | revolute | `shoulder_link` → `upper_arm_link` | Y (shoulder pitch) | [-360°, +360°] | 180 °/s |
-| `elbow_joint` | revolute | `upper_arm_link` → `forearm_link` | Y (elbow pitch) | [-180°, +180°] | 180 °/s |
-| `wrist_1_joint` | revolute | `forearm_link` → `wrist_1_link` | Y (wrist pitch) | [-360°, +360°] | 360 °/s |
-| `wrist_2_joint` | revolute | `wrist_1_link` → `wrist_2_link` | Z (wrist yaw) | [-360°, +360°] | 360 °/s |
-| `wrist_3_joint` | revolute | `wrist_2_link` → `wrist_3_link` | Y (wrist pitch) | [-360°, +360°] | 360 °/s |
-| `gripper_joint` | prismatic | `tool0` → `gripper_link` | Y (parallel stroke) | [0 mm, 80 mm] | 0.5 m/s |
+| `world_to_base` | fixed | `world` → `base_link` | — | (0, 0, 0.45) table top | — |
+| `joint1` | revolute | `base_link` → `link1` | Z (shoulder pan) | (0, 0, 0.086) | ±2π, 150 N·m |
+| `joint2` | revolute | `link1` → `link2` | Y (shoulder lift) | (0, 0, 0.0765) | ±2π, 150 N·m |
+| `joint3` | revolute | `link2` → `link3` | Y (elbow) | (0, 0, 0.425) | ±π, 150 N·m |
+| `joint4` | revolute | `link3` → `link4` | Y (wrist 1) | (0, 0, 0.3922) | ±2π, 28 N·m |
+| `joint5` | revolute | `link4` → `link5` | Z (wrist 2) | (0, 0.1333, 0.0997) | ±2π, 28 N·m |
+| `joint6` | revolute | `link5` → `link6` | Z (wrist 3) | (0, 0.0596, 0), roll −π/2 | ±2π, 28 N·m |
+| `gripper_mount_joint` | fixed | `link6` → `gripper_link` | — | (0, 0, 0.039) | — |
+| `tcp_joint` | fixed | `gripper_link` → `tcp` | — | (0, 0, 0.115) between the pads | — |
+| `gripper_joint` | prismatic | `gripper_link` → `gripper_driver_link` | X | (0, 0, 0.08) | 0 to 0.085 m pad gap |
+| `left_/right_finger_joint` | prismatic, mimic ∓0.5 | `gripper_link` → finger links | X | (∓0.0055, 0, 0.082) | — |
 
-## Arm Physical Dimensions & Link Specifications (UR5e Official Specs)
+All joint velocity limits are 3.14 rad/s (gripper 0.15 m/s). Every joint at 0 points the arm straight up.
+Top-down tool pose: joint2 + joint3 + joint4 = π/2 and joint5 = −π/2.
+Home (web simulator): joint1..6 = (−0.37, −0.35, 1.9, 0.02, −π/2, 0), gripper 0.03 m; tcp at (0.371, −0.001, 0.356) in `base_link`, pointing down.
 
-| Link | Geometry Primitive | Dimensions (mm) | Joint Origin Offset (mm) | Mass (kg) | Material Color |
-|---|---|---|---|---|---|
-| `base_link` | Cylinder | Ø 150 mm × H 162.5 mm | $z = 0\,\text{mm}$ (origin) | 4.0 kg | Dark Grey |
-| `shoulder_link` | Cylinder & Collar | Ø 130 mm × H 160 mm | $z = 162.5\,\text{mm}$ ($d_1$) | 3.7 kg | UR Blue / Grey |
-| `upper_arm_link` | Tube & Cap | Ø 110 mm × L 425 mm | $y = 133.3\,\text{mm}$ ($d_4$) | 8.39 kg | UR Grey / Blue |
-| `forearm_link` | Tube & Cap | Ø 90 mm × L 392.2 mm | $z = 425\,\text{mm}$ ($a_2$) | 2.275 kg | UR Grey / Blue |
-| `wrist_1_link` | Cylinder | Ø 80 mm × L 99.7 mm | $z = 392.2\,\text{mm}$ ($a_3$) | 1.219 kg | UR Blue |
-| `wrist_2_link` | Cylinder | Ø 76 mm × L 99.7 mm | $y = 99.7\,\text{mm}$ ($d_5$) | 1.219 kg | UR Grey |
-| `wrist_3_link` | Cylinder & Flange | Ø 70 mm × L 99.6 mm | $z = 99.7\,\text{mm}$ ($d_5$) | 0.188 kg | UR Blue / Dark |
-| `gripper_link` | Parallel End-Effector | $50 \times 80 \times 80\,\text{mm}$ | $z = 50\,\text{mm}$ from `tool0` | 0.3 kg | Dark / Orange |
-
-### Overall Workspace & Kinematic Envelope
-- **Total Robot Mass:** ~21.3 kg
-- **Maximum Nominal Reach:** 850 mm (0.85 m radius from base)
-- **Rated Payload:** 5.0 kg
-- **Gripper Opening Stroke:** 0.0 mm to 80.0 mm (0.08 m)
+Link masses follow the UR5e (3.761, 8.058, 2.846, 1.37, 1.3, 0.365 kg) plus a 0.925 kg gripper; inertia tensors are primitive approximations.
 
 ## TODOs
 

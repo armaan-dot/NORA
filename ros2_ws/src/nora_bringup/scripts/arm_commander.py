@@ -4,18 +4,18 @@ arm_commander.py: turns a command into arm motion in Gazebo, through the ROS 2 i
 
   /nora/command (std_msgs/String, English)
      -> NLU node            /nora/parse_command               what is being asked
-     -> camera perception   /nora/perception/detections       where the objects are (wrist camera)
+     -> camera perception   /nora/perception/detections       where the objects are (overhead camera)
      -> MoveIt              /compute_cartesian_path, /execute_trajectory, /move_action
           -> /arm_controller/follow_joint_trajectory          ros2_control
      -> /gripper_controller/gripper_cmd                       ros2_control
 
-Examples: "I am thirsty", "bring me the apple", "clean the table", "put the sponge in the tray",
+Examples: "I am thirsty", "bring me the apple", "clean the table", "put the can in the tray",
 "rerack the table", "go home". Without the NLU node these still work:
   home | open | close | scan | pick <class> | place <tray|user|table>
 
 The commander never reads object poses from Gazebo. It knows what the camera has seen (its "belief") and
 where it has put things itself. It publishes that belief as /nora/scene_markers and progress on /nora/status.
-It also spawns the scene's objects into Gazebo at startup; those positions are not kept.
+The objects themselves are part of nora_gazebo/worlds/tabletop.world.
 """
 import json
 import math
@@ -29,30 +29,29 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 
 from control_msgs.action import GripperCommand
-from gazebo_msgs.srv import SpawnEntity
 from geometry_msgs.msg import Pose
 from moveit_msgs.action import ExecuteTrajectory, MoveGroup
 from moveit_msgs.msg import CollisionObject, Constraints, JointConstraint, PlanningScene
 from moveit_msgs.srv import GetCartesianPath
 from shape_msgs.msg import SolidPrimitive
 from std_msgs.msg import String
+from vision_msgs.msg import Detection3DArray
 from visualization_msgs.msg import Marker, MarkerArray
 
-ARM_JOINTS = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
-HOME = [0.0, 0.5, 1.3, -0.2292, -1.5708, 0.0]  # same as the SRDF "home" state and the URDF initial values
-FRAME = "world"
-TIP = "grasp_link"
-# grasp_link Z pointing straight down, fingers opening along world X (x, y, z, w)
-DOWN = (0.70710678, -0.70710678, 0.0, 0.0)
+ARM_JOINTS = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
+HOME = [-0.37, -0.35, 1.9, 0.02, -1.5708, 0.0]  # same as the SRDF "home" state and the URDF initial values
+FRAME = "base_link"   # origin on the table top under the arm, so z is the height above the table
+TIP = "tcp"
+# tcp Z pointing straight down, fingers opening along X (x, y, z, w)
+DOWN = (1.0, 0.0, 0.0, 0.0)
 
 HOVER_Z = 0.20        # travel height of the grasp point above the table
-SCAN_Z = 0.40         # height of the grasp point while the camera looks over the table
-SCAN_POSES = [(0.42, -0.22), (0.42, 0.22), (0.62, 0.22), (0.62, -0.22)]
-REST = (0.50, 0.0, 0.30)
-MIN_GRASP_Z = 0.023   # keeps the fingertips 8 mm above the table
-OPEN = 0.05           # finger travel when open (0.10 m between the pads)
+REST = (0.37, 0.0, 0.356)  # tcp position of the home pose: the arm is clear of the camera's view of the table
+CAMERA = (0.981, -0.05, 0.901)  # overhead_camera of tabletop.world, in FRAME
+MIN_GRASP_Z = 0.027   # keeps the fingertips 8 mm above the table
+OPEN = 0.085          # gripper_joint is the gap between the pad faces
 SQUEEZE = 0.0015      # how far each pad is pressed into the object
-TABLE = {"center": (0.6, 0.0), "size": (0.8, 1.4)}
+TABLE = {"center": (0.35, -0.05), "size": (1.3, 0.9)}
 TABLE_SPOTS = [(0.50, 0.00), (0.42, 0.10), (0.58, -0.10), (0.42, -0.12), (0.60, 0.08), (0.50, 0.14), (0.66, -0.02)]
 ZONE_SLOTS = [(dx, dy) for dy in (-0.09, 0.0, 0.09) for dx in (-0.045, 0.045)]
 # NLU location names -> zones of this scene
@@ -76,14 +75,12 @@ class ArmCommander(Node):
             scene = json.load(f)
         self.catalogue = scene["catalogue"]
         self.zones = scene["zones"]
-        self.to_spawn = scene["objects"]
 
         group = ReentrantCallbackGroup()
         self.move = ActionClient(self, MoveGroup, "/move_action", callback_group=group)
         self.execute = ActionClient(self, ExecuteTrajectory, "/execute_trajectory", callback_group=group)
         self.gripper = ActionClient(self, GripperCommand, "/gripper_controller/gripper_cmd", callback_group=group)
         self.cartesian = self.create_client(GetCartesianPath, "/compute_cartesian_path", callback_group=group)
-        self.spawn = self.create_client(SpawnEntity, "/spawn_entity", callback_group=group)
         self.nlu = None
         try:
             from nora_interfaces.srv import ParseCommand
@@ -97,7 +94,7 @@ class ArmCommander(Node):
         self.status_pub = self.create_publisher(String, "/nora/status", latched)
         self.marker_pub = self.create_publisher(MarkerArray, "/nora/scene_markers", 1)
         self.scene_pub = self.create_publisher(PlanningScene, "/planning_scene", 1)
-        self.create_subscription(String, "/nora/perception/detections", self.on_detections, 1, callback_group=group)
+        self.create_subscription(Detection3DArray, "/nora/perception/detections", self.on_detections, 1, callback_group=group)
         self.create_subscription(String, "/nora/command", self.on_command, 10, callback_group=group)
         self.create_timer(0.5, self.publish_markers, callback_group=group)
 
@@ -133,60 +130,12 @@ class ArmCommander(Node):
 
     # ------------------------------------------------------------------ startup
     def setup(self):
-        self.say("Waiting for Gazebo...")
-        if not self.spawn.wait_for_service(timeout_sec=120.0):
-            self.say("Gazebo /spawn_entity never appeared: no objects spawned.", error=True)
-        else:
-            for i, item in enumerate(self.to_spawn):
-                name = f"{item['class']}_{i}"
-                try:
-                    res = self.wait(self.spawn.call_async(self.spawn_request(name, item)), 20.0, f"spawn {name}")
-                    if not res.success:
-                        self.say(f"Gazebo refused to spawn {name}: {res.status_message}", error=True)
-                except Abort as exc:
-                    self.say(str(exc), error=True)
         self.say("Waiting for MoveIt...")
         if not self.move.wait_for_server(timeout_sec=120.0):
             self.say("MoveIt /move_action never appeared: the arm cannot be moved.", error=True)
             return
         self.add_table()
         self.say('Ready. Publish a command on /nora/command, e.g. "I am thirsty" or "clean the table".')
-
-    def spawn_request(self, name, item):
-        obj = self.catalogue[item["class"]]
-        shape, m = obj["shape"], obj["mass"]
-        if shape == "box":
-            x, y, z = obj["size"]
-            geometry = f"<box><size>{x} {y} {z}</size></box>"
-            inertia = (m * (y * y + z * z) / 12, m * (x * x + z * z) / 12, m * (x * x + y * y) / 12)
-        elif shape == "cylinder":
-            r, h = obj["radius"], obj["height"]
-            geometry = f"<cylinder><radius>{r}</radius><length>{h}</length></cylinder>"
-            side = m * (3 * r * r + h * h) / 12
-            inertia = (side, side, m * r * r / 2)
-        else:
-            r = obj["radius"]
-            geometry = f"<sphere><radius>{r}</radius></sphere>"
-            inertia = (0.4 * m * r * r,) * 3
-        red, green, blue = obj["color"]
-        req = SpawnEntity.Request()
-        req.name = name
-        req.xml = f"""<sdf version="1.6"><model name="{name}"><link name="link">
-  <inertial><mass>{m}</mass><inertia><ixx>{inertia[0]}</ixx><iyy>{inertia[1]}</iyy><izz>{inertia[2]}</izz>
-    <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia></inertial>
-  <collision name="collision"><geometry>{geometry}</geometry><surface>
-    <friction><ode><mu>1.5</mu><mu2>1.5</mu2></ode></friction>
-    <contact><ode><kp>100000</kp><kd>100</kd><max_vel>0.1</max_vel><min_depth>0.001</min_depth></ode></contact>
-  </surface></collision>
-  <visual name="visual"><geometry>{geometry}</geometry>
-    <material><ambient>{red} {green} {blue} 1</ambient><diffuse>{red} {green} {blue} 1</diffuse></material></visual>
-</link></model></sdf>"""
-        req.initial_pose.position.x = float(item["xy"][0])
-        req.initial_pose.position.y = float(item["xy"][1])
-        req.initial_pose.position.z = self.height(obj) / 2 + 0.002
-        req.initial_pose.orientation.w = 1.0
-        req.reference_frame = "world"
-        return req
 
     def add_table(self):
         table = CollisionObject()
@@ -211,12 +160,12 @@ class ArmCommander(Node):
 
     @staticmethod
     def width(obj):
-        """Extent along world X, the axis the fingers close on."""
-        return obj["size"][0] if obj["shape"] == "box" else 2 * obj["radius"]
+        """Extent along X, the axis the fingers close on ("width" in the catalogue overrides the shape, e.g. a mug handle)."""
+        return obj.get("width") or (obj["size"][0] if obj["shape"] == "box" else 2 * obj["radius"])
 
     def grasp_height(self, obj):
         h = self.height(obj)
-        return max(h / 2, h - 0.035, MIN_GRASP_Z)  # middle of the object, but keep the palm clear of tall ones
+        return max(h / 2, h - 0.025, MIN_GRASP_Z)  # middle of the object, but keep the finger rail clear of tall ones
 
     def zone_of(self, x, y):
         for name, zone in self.zones.items():
@@ -239,20 +188,32 @@ class ArmCommander(Node):
 
     # ------------------------------------------------------------------ camera
     def on_detections(self, msg):
-        data = json.loads(msg.data)
+        objects = []
+        for d in msg.detections:
+            if d.results:
+                p = d.results[0].pose.pose.position
+                objects.append({"class": d.results[0].hypothesis.class_id, "x": p.x, "y": p.y, "z": p.z})
         with self.fresh:
-            self.seen = (float(data["stamp"]), data["objects"])
+            self.seen = (msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9, objects)
             self.fresh.notify_all()
 
     def observe(self):
-        """What the camera sees now: waits for an image taken after the arm has stopped."""
+        """Scene objects the camera sees on the table now: waits for an image taken after the arm has stopped."""
         threading.Event().wait(0.6)
         start = self.now()
         with self.fresh:
             if not self.fresh.wait_for(lambda: self.seen[0] > start, timeout=10.0):
-                raise Abort("No camera detections arrived. Is camera_perception running and is Gazebo rendering the camera?")
+                raise Abort("No camera detections arrived. Is nora_perception running and is Gazebo rendering the camera?")
             objects = list(self.seen[1])
-        return [o for o in objects if not o["partial"] and o["class"] != "unknown"]
+        found = []
+        for o in objects:
+            obj = self.catalogue.get(o["class"])
+            if obj is None or o["z"] > self.height(obj) + 0.03:
+                continue  # not an object of this scene, or held above the table
+            # The detector reports a point on the surface facing the camera: follow the camera ray to the centre height.
+            t = (o["z"] - self.height(obj) / 2) / (CAMERA[2] - o["z"])
+            found.append({"class": o["class"], "x": o["x"] + t * (o["x"] - CAMERA[0]), "y": o["y"] + t * (o["y"] - CAMERA[1])})
+        return found
 
     def remember(self, objects):
         for o in objects:
@@ -264,11 +225,10 @@ class ArmCommander(Node):
                 self.belief.append({"class": o["class"], "x": o["x"], "y": o["y"]})
 
     def scan(self):
-        self.say("Looking over the table with the wrist camera.")
+        self.say("Looking over the table with the overhead camera.")
+        self.rest()  # out of the camera's view of the table
         self.belief = []
-        for x, y in SCAN_POSES:
-            self.line_to(x, y, SCAN_Z, "move to a scan position")
-            self.remember(self.observe())
+        self.remember(self.observe())
         listing = ", ".join(f"{b['class']} ({self.zone_of(b['x'], b['y'])})" for b in self.belief) or "nothing"
         self.say(f"I see: {listing}.")
 
@@ -376,25 +336,26 @@ class ArmCommander(Node):
             raise Abort(f"Already holding a {self.held}. Place it first.")
         kind = target["class"]
         obj = self.catalogue[kind]
-        if self.width(obj) > 2 * OPEN - 0.01:
+        if self.width(obj) > OPEN - 0.006:
             raise Abort(f"A {kind} is too wide for the gripper.")
         self.say(f"Picking the {kind} at ({target['x']:.2f}, {target['y']:.2f}).")
         self.set_gripper(OPEN, "open gripper")
-        self.line_to(target["x"], target["y"], HOVER_Z, "move above the object")
 
-        # Close look from directly above: more accurate than the scan, and confirms it is still there.
+        # Fresh look with the arm out of the view: confirms the object is still there.
+        self.rest()
         near = [o for o in self.observe() if o["class"] == kind and math.hypot(o["x"] - target["x"], o["y"] - target["y"]) < 0.06]
         if not near:
             self.belief.remove(target)
             raise Abort(f"The {kind} is no longer where I saw it.")
         x, y = near[0]["x"], near[0]["y"]
         target["x"], target["y"] = x, y
-        self.line_to(x, y, HOVER_Z, "centre over the object")
+        self.line_to(x, y, HOVER_Z, "move above the object")
         self.line_to(x, y, self.grasp_height(obj), "descend")
-        self.set_gripper(self.width(obj) / 2 - SQUEEZE, "close gripper")
+        self.set_gripper(self.width(obj) - 2 * SQUEEZE, "close gripper")
         self.line_to(x, y, HOVER_Z, "lift")
 
-        # Camera check: if the object is still on the table under the gripper, the grasp failed.
+        # Camera check from the rest pose: if the object is still on the table, the grasp failed.
+        self.rest()
         if any(o["class"] == kind and math.hypot(o["x"] - x, o["y"] - y) < 0.05 for o in self.observe()):
             self.set_gripper(OPEN, "open gripper")
             raise Abort(f"Grasp failed: the camera still sees the {kind} on the table.")
@@ -513,7 +474,6 @@ class ArmCommander(Node):
             self.set_gripper(0.0, "close gripper")
         elif action == "scan":
             self.scan()
-            self.rest()
         elif action == "clean_table":
             self.move_all("table", zone if zone != "table" else "tray")
         elif action == "rerack_table":

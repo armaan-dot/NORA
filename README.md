@@ -118,6 +118,7 @@ Everything below runs in the browser (Three.js) with no ROS needed:
   - **After adding touching-object splitting and stricter association** (40 fresh scenes, 169 detections): 96.9% found, 87.6% named, 87.6% matched, 0 false positives. Association now refuses a look-alike match from a cropped view or one that would make an object jump more than 15 cm; the robot looks again from another viewpoint instead of guessing, which costs about one point of matching on single frames.
   - **Cost:** OpenCV.js is ~11 MB (3.5 MB gzipped), loaded lazily the first time the camera is used. Recognition takes about 20 ms per frame in the browser.
   - **Retrain:** `npm run build && npx vite preview --port 4799`, then `npm run train:vision`. It renders scenes in the real app, measures held-out accuracy and rewrites `public/vision_model.json`.
+  - **YOLOX second opinion (optional).** The Sensors panel has a "YOLOX (COCO) second opinion" toggle that runs the pretrained YOLOX-Tiny COCO detector (Apache-2.0, ONNX via onnxruntime-web, single-threaded WebAssembly) on the same camera frames at up to about 2 Hz and draws its boxes in amber over the RGB view. The runtime and the 20 MB model are downloaded only when the toggle is turned on (`scripts/fetch-yolox.mjs` puts the model in `public/models/` at dev/build time). It is not used for grasping. The panel keeps a running tally: frames compared, recogniser detections that fall inside a YOLOX box of a compatible COCO class, and YOLOX boxes that match no recogniser detection. Results are published on `/nora/perception/yolox_detections`.
 - **Closed-loop control: the robot only knows what it senses.** The simulator holds the physical world; the robot's control code never reads it.
   - **Belief.** The camera runs continuously. Every frame updates the robot's belief about where objects are, and an object it believes is somewhere the camera can clearly see, but where the camera sees bare table, is forgotten after two frames. The Sensors tab shows this belief live. Target positions, collision obstacles, reachability and affordance are all computed from it.
   - **Physical grasps with feedback.** Before reaching, the arm looks straight down at the object and plans the pinch from what the camera measured: tool point over the centre of the outline, jaw turned across the narrow side, as low as the fingers reach without the palm touching the top. An object wider than the 85 mm jaw is refused with that reason. Then it descends, closes, and reads the finger gap. A gap of 0 mm means it closed on nothing; a gap of the wrong width means the wrong object or a bad hold. Either way it backs off, looks again and retries (up to 3 attempts). While carrying, the gap is watched: if it collapses, the object slipped out and the robot says so.
@@ -321,7 +322,7 @@ This is the path to a physical arm. There is no web simulator in the loop: Gazeb
 /nora/command (String, English)
   -> arm_commander              nora_bringup/scripts/arm_commander.py
        -> NLU node              /nora/parse_command: what is being asked ("I am thirsty" -> bring water)
-       <- camera_perception     /nora/perception/detections: where the objects are, from the wrist RGB-D camera
+       <- nora_perception       /nora/perception/detections: where the objects are, from the overhead RGB-D camera
        -> MoveIt move_group     plans (Cartesian paths, OMPL)
             -> /arm_controller/follow_joint_trajectory      ros2_control JointTrajectoryController
        -> /gripper_controller/gripper_cmd                   ros2_control GripperActionController
@@ -335,20 +336,21 @@ Install (Ubuntu 22.04, ROS 2 Humble), then build:
 
 ```bash
 sudo apt install -y ros-humble-gazebo-ros-pkgs ros-humble-gazebo-ros2-control ros-humble-ros2-control \
-  ros-humble-ros2-controllers ros-humble-moveit ros-humble-xacro ros-humble-foxglove-bridge
+  ros-humble-ros2-controllers ros-humble-moveit ros-humble-xacro ros-humble-foxglove-bridge ros-humble-vision-msgs
+pip install onnxruntime   # runs the YOLOX detection model
 cd ros2_ws && colcon build --symlink-install && source install/setup.bash
 ros2 launch nora_bringup sim_gazebo.launch.py
 ```
 
 No Gazebo window opens (add `gui:=true` for it).
 
-> **About the camera.** Object finding depends on the wrist RGB-D camera, and Gazebo renders that camera even with no window open. This needs working 3D graphics (OpenGL), and on a laptop with weak or no GPU rendering the camera topics stay silent. `camera_perception` then logs "No depth images yet", and every command that looks at the table fails with "No camera detections arrived".
+> **About the camera.** Object finding depends on the overhead RGB-D camera in the world, and Gazebo renders that camera even with no window open. This needs working 3D graphics (OpenGL), and on a laptop with weak or no GPU rendering the camera topics stay silent. Every command that looks at the table then fails with "No camera detections arrived".
 >
 > Two ways to proceed:
 > - **Fix rendering** (preferred, real perception): check `glxinfo | grep "OpenGL renderer"` and make sure it is not `llvmpipe`, or install the GPU driver. Then confirm `ros2 topic hz /camera/color/image_raw` shows frames.
-> - **Test without the camera** (not real perception): `ros2 launch nora_bringup sim_gazebo.launch.py camera:=false perception:=ground_truth`. Object positions are then read from Gazebo, so the commander is not using vision at all. Use this only to check arm motion and commands.
+> - **Test without the camera** (not real perception): `ros2 launch nora_bringup sim_gazebo.launch.py perception:=ground_truth`. Object positions are then read from Gazebo, so the commander is not using vision at all. Use this only to check arm motion and commands.
 
-In Foxglove, connect to `ws://localhost:8765`, add a 3D panel (show `/robot_description` and `/nora/scene_markers`, display frame `world`), an Image panel on `/camera/color/image_raw`, and a Raw Messages panel on `/nora/status`. Send commands from a Publish panel, or from a terminal:
+In Foxglove, connect to `ws://localhost:8765`, add a 3D panel (show `/robot_description` and `/nora/scene_markers`, display frame `base_link`), an Image panel on `/camera/color/image_raw`, and a Raw Messages panel on `/nora/status`. Send commands from a Publish panel, or from a terminal:
 
 ```bash
 ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'I am thirsty'}"
@@ -359,22 +361,55 @@ ros2 topic pub --once /nora/command std_msgs/msg/String "{data: 'bring me the ap
 How a command runs:
 
 - **Language.** The text goes to the NLU node (same trained model as the web app). "I am thirsty" becomes *pick water, deliver to user*; "clean the table" becomes *move everything on the table to the tray*; "rerack the table" moves the tray's contents back.
-- **Perception.** The robot does not know where anything is. It moves the wrist camera over four scan positions, and `camera_perception.py` finds objects from the depth image (anything standing above the table), names each by its colour, and reports its position. Before grasping it looks again from directly above. After lifting it looks at the table once more: if the object is still there, it reports `Grasp failed`.
-- **Limits.** Objects are recognised by colour, so each class in the scene must have its own colour, and two objects touching each other are seen as one. Sizes (how wide to close the gripper) come from the catalogue entry of the recognised class.
+- **Perception.** The robot does not know where anything is. It moves the arm to its home pose, out of the overhead camera's view of the table, and `nora_perception` (YOLOX on the colour image, position from the depth image) reports what is on the table. Before grasping it looks again. After lifting it returns to the home pose and looks once more: if the object is still on the table, it reports `Grasp failed`.
+- **Limits.** The objects are the six of the web simulator (mug, glass, tennis ball, apple, can, notebook), placed by `nora_gazebo/worlds/tabletop.world`. The gripper always closes along X and opens 85 mm, so the notebook and the mug (handle along X) are refused as too wide. Sizes (how wide to close the gripper) come from the catalogue entry of the recognised class.
 
-Objects, their aliases ("water" means the water glass) and the tray and user zones are in `ros2_ws/src/nora_bringup/config/gazebo_scene.json`. Direct commands that skip the NLU node: `home`, `open`, `close`, `scan`, `pick <class>`, `place <tray|user|table>`.
+What the commander knows about each object class, the aliases ("water" means the glass) and the tray and user zones are in `ros2_ws/src/nora_bringup/config/gazebo_scene.json`. Direct commands that skip the NLU node: `home`, `open`, `close`, `scan`, `pick <class>`, `place <tray|user|table>`.
 
 To use a real arm, replace the hardware plugin in `nora_description/urdf/ros2_control.xacro` with the arm's ros2_control driver and start `ros2_control_node` instead of Gazebo. The controllers, MoveIt and the commander stay the same; the URDF must be replaced with the real arm's.
 
 ---
 
-## ROS 2 stack (work in progress)
+## ROS 2 stack
 
 ROS 2 Humble packages exist for NLU, orchestration, skills, MoveIt 2 config, ros2_control and Gazebo, plus an Isaac Sim stub. Treat them as scaffolding:
 
-- The affordance node's scorers are placeholders: collision `0.85`, reachability `0.9`, object state `0.95`, and a mocked usefulness scorer. The real kinematic and collision checks currently live in the web simulator, not in ROS.
+- The affordance node scores each skill against the world model (`/nora/world_model/state`) and the arm URDF: reachability is a numerical IK solve for a top-down grasp above the target, collision is the clearance of that vertical approach from taller neighbouring objects (object sizes are assumed, not sensed), and object state follows the world model's state and confidence. Usefulness is a fixed action-to-skill relevance table scaled by the NLU confidence, with no language model. A component whose input is missing scores `0.5` and says so in `breakdown_json`. This has unit tests but has not been run on a ROS machine.
 - The affordance node publishes `/nora/affordance_score` (Float32) so Foxglove or `rqt_plot` can chart it. The web app publishes `/nora/task_affordance` and `/nora/affordance_score` as well when it is connected to a rosbridge.
-- The ROS arm description does not yet match the web simulator's UR5e-style model, and there is no point-cloud publisher. Gazebo and Isaac Sim integration are in progress.
+- The ROS arm description (nora_description) is the web simulator's arm. There is no point-cloud publisher. Gazebo and Isaac Sim integration are in progress.
+
+### Behavior-tree executor, replanning and world model
+
+None of this has been built or run yet: it was written on a machine without ROS 2.
+
+```
+/nora/intent -> nora_orchestrator (plan) -> /nora/execute_plan -> nora_bt_executor -> /nora/skills/<skill>
+                      ^   ^                                            |      |
+                      |   +------ failure report + world state --------+      | pick/place results
+                      +---------------- nora_world_model <--------------------+
+                                             ^
+                                 /nora/perception/detections
+```
+
+- **`nora_bt_executor`** (C++, BehaviorTree.CPP 4). Turns the orchestrator's skill list into a tree: a `Sequence` of steps, each skill an asynchronous `ExecuteSkill` action inside `RetryUntilSuccessful`. When the world model has objects, a pick becomes `Fallback(already held, Sequence(object known, pick))` and a place is guarded by "object is held". The tree is ticked from a timer, so nothing blocks. Status (`IDLE`, `RUNNING`, `SUCCESS`, `FAILURE`) is on `/nora/bt_executor/status`.
+- **Failure report.** A failed plan returns the step index, skill, a code (`SKILL_ABORTED`, `GOAL_REJECTED`, `TIMEOUT`, `PRECONDITION`, `SERVER_UNAVAILABLE`, `INTERNAL_ERROR`, `INVALID_PLAN`, `ESTOP`, `CANCELED`), the reason, whether it is recoverable, and the world state.
+- **Replanning.** For a recoverable failure the orchestrator builds a revised plan (retreat to home, pick the object again if it is no longer held, resume from the approach before the failed step) and runs it without a new command. It stops after `max_replanning_attempts` (default 3), when the same precondition fails twice, or on a critical failure.
+- **Emergency stop.** Publishing `true` on `/emergency_stop` (`std_msgs/Bool`, the topic the web app's E-stop button uses) halts the tree, cancels the running skill goal and rejects new plans until `false` is published. A cancelled skill calls `MoveGroupInterface::stop()` and skips its remaining steps.
+- **`nora_world_model`** (Python). Scene graph of objects with pose in `base_link`, state (`detected`, `grasped`, `moved`, `placed`, `missing`, `unknown`), `visible` flag, last-seen time and a confidence that halves every `confidence_half_life_sec` once the object is out of view. Input is `vision_msgs/Detection3DArray` on `/nora/perception/detections`, one message per camera frame, published by `nora_perception`. Objects that leave the view are kept as remembered, and become `unknown` after `stale_after_sec`. The graph is saved to `$NORA_WORLD_MODEL_PATH` (default `~/.ros/nora_world_model.json`) and reloaded on start. It publishes `/nora/world_model/state` and the TF frames `nora/objects/<id>` that the pick skill looks up.
+- **`nora_perception`** (Python). Detects objects with YOLOX-Tiny trained on COCO (Apache-2.0, run with `onnxruntime`; install it with `pip install onnxruntime`, the model downloads to `~/.ros/nora/` on first start), so cups, bottles, apples, books, balls and other COCO tabletop classes are recognised by shape and appearance. Each box is located in 3D from the aligned depth image, and objects keep stable ids (`cup`, `cup_2`) between frames. Plain primitives that COCO has no class for are still found by colour: it finds the largest blob of each configured colour in the RGB image (`/camera/color/image_raw`), takes its median depth from the aligned depth image, deprojects it with the camera intrinsics and publishes the position in `base_link`. Objects are keyed by hue range in `config/perception.yaml`, so a new object needs a new entry and two objects of the same colour cannot be told apart. The Gazebo tabletop holds mesh models of the web simulator objects (mug, glass, tennis ball, apple, can, notebook, exported with `npm run export:gazebo` in `frontend/`); each has a COCO class, so no colours are configured, and `class_aliases` in the same file renames the COCO classes to those object names (`cup` to `mug`, `wine glass` to `glass`, `sports ball` to `tennis_ball`, `bottle` to `can`, `book` to `notebook`). The position is the visible surface, not the object centre. The Gazebo world has an RGB-D camera looking down at the table at 55 degrees that publishes these topics; a RealSense with aligned depth uses the same names.
+- **Questions.** A command starting with "where" or "what" is answered from the world model on `/nora/response`, e.g. "cup is not currently visible. It was last seen 42 s ago at (0.40, 0.00, 0.10) in base_link (remembered, confidence 0.55)."
+
+```bash
+ros2 launch nora_bringup nora.launch.py
+ros2 service call /nora/parse_command nora_interfaces/srv/ParseCommand "{raw_text: 'pick up the cup'}"
+ros2 service call /nora/world_model/query nora_interfaces/srv/QueryWorld "{query: object, object_id: cup}"
+
+# Replanning check: fail every pick attempt of the first plan, then let the revised plan run
+ros2 run nora_bt_executor bt_executor_node --ros-args -p inject_failure_skill:=pick -p inject_failure_count:=3
+
+# Unit tests of the scene graph, the replanner and the detector
+colcon test --packages-select nora_world_model nora_orchestrator nora_perception
+```
 
 ### MoveIt 2: where it is used
 

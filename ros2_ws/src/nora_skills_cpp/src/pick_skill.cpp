@@ -2,9 +2,30 @@
 #include <regex>
 #include <chrono>
 #include <thread>
+#include <cmath>
 
 namespace nora_skills_cpp
 {
+
+namespace
+{
+// Top-down grasp like the web arm: tcp z axis straight down in base_link, jaw (tcp x) along yaw.
+geometry_msgs::msg::Quaternion top_down_orientation(double yaw)
+{
+  yaw = std::remainder(yaw, M_PI);  // the jaw is symmetric
+  geometry_msgs::msg::Quaternion q;
+  q.x = std::cos(yaw / 2.0);
+  q.y = std::sin(yaw / 2.0);
+  q.z = 0.0;
+  q.w = 0.0;
+  return q;
+}
+
+double yaw_of(const geometry_msgs::msg::Quaternion & q)
+{
+  return std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+}
+}  // namespace
 
 PickSkill::PickSkill(
   const rclcpp::Node::SharedPtr & node,
@@ -21,6 +42,22 @@ PickSkill::PickSkill(
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 }
 
+void PickSkill::stop()
+{
+  BaseSkill::stop();
+  if (move_to_pose_skill_) {move_to_pose_skill_->stop();}
+  if (open_gripper_skill_) {open_gripper_skill_->stop();}
+  if (close_gripper_skill_) {close_gripper_skill_->stop();}
+}
+
+void PickSkill::clear_stop()
+{
+  BaseSkill::clear_stop();
+  if (move_to_pose_skill_) {move_to_pose_skill_->clear_stop();}
+  if (open_gripper_skill_) {open_gripper_skill_->clear_stop();}
+  if (close_gripper_skill_) {close_gripper_skill_->clear_stop();}
+}
+
 bool PickSkill::parse_object_pose(
   const std::string & json_str,
   geometry_msgs::msg::Pose & out_pose)
@@ -29,7 +66,7 @@ bool PickSkill::parse_object_pose(
   out_pose.position.x = 0.4;
   out_pose.position.y = 0.0;
   out_pose.position.z = 0.15;
-  out_pose.orientation.w = 1.0;
+  out_pose.orientation = top_down_orientation(0.0);
 
   if (json_str.empty()) {
     return true;
@@ -46,7 +83,7 @@ bool PickSkill::parse_object_pose(
         out_pose.position.x = tf.transform.translation.x;
         out_pose.position.y = tf.transform.translation.y;
         out_pose.position.z = tf.transform.translation.z;
-        out_pose.orientation = tf.transform.rotation;
+        out_pose.orientation = top_down_orientation(yaw_of(tf.transform.rotation));
         RCLCPP_INFO(node_->get_logger(), "[PickSkill] Found TF pose for '%s'", obj_frame.c_str());
         return true;
       }
@@ -88,6 +125,9 @@ bool PickSkill::execute(const std::shared_ptr<GoalHandleExecuteSkill> goal_handl
   if (open_gripper_skill_) {
     open_gripper_skill_->actuate(true);
   }
+  if (stop_requested_) {
+    return false;
+  }
 
   // 2. Pre-grasp approach (10 cm above object)
   publish_feedback(goal_handle, "APPROACHING_PRE_GRASP");
@@ -113,6 +153,9 @@ bool PickSkill::execute(const std::shared_ptr<GoalHandleExecuteSkill> goal_handl
   publish_feedback(goal_handle, "CLOSING_GRIPPER");
   if (close_gripper_skill_) {
     close_gripper_skill_->actuate(false);
+  }
+  if (stop_requested_) {
+    return false;
   }
 
   // 5. Vertical lift retreat (15 cm above)

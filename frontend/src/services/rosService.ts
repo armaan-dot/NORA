@@ -5255,6 +5255,18 @@ class RosBridgeService {
     this.stateListeners.forEach((cb) => cb('IDLE'));
     this.eStopListeners.forEach((cb) => cb(false));
     this.notifyPipeline({ stage: 'DONE' });
+
+    if (this.ros && this.connected) {
+      try {
+        new ROSLIB.Topic({
+          ros: this.ros,
+          name: '/emergency_stop',
+          messageType: 'std_msgs/msg/Bool'
+        }).publish({ data: false });
+      } catch (err) {
+        // ignore
+      }
+    }
   }
 
   public onEStopChange(cb: (isStopped: boolean) => void): () => void {

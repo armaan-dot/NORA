@@ -20,6 +20,7 @@ MoveToPoseSkill::MoveToPoseSkill(
 #if NORA_HAVE_MOVEIT
   try {
     move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(node_, planning_group_);
+    move_group_->setEndEffectorLink("tcp");
     move_group_->setMaxVelocityScalingFactor(velocity_scaling_);
     move_group_->setMaxAccelerationScalingFactor(acceleration_scaling_);
     RCLCPP_INFO(node_->get_logger(), "[MoveToPoseSkill] MoveGroupInterface initialized for group '%s'", planning_group_.c_str());
@@ -38,7 +39,11 @@ bool MoveToPoseSkill::parse_pose_from_json(
   out_pose.position.x = 0.3;
   out_pose.position.y = 0.0;
   out_pose.position.z = 0.4;
-  out_pose.orientation.w = 1.0;
+  // Default: tool pointing straight down, jaw along base_link x (same convention as pick/place)
+  out_pose.orientation.x = 1.0;
+  out_pose.orientation.y = 0.0;
+  out_pose.orientation.z = 0.0;
+  out_pose.orientation.w = 0.0;
 
   if (json_str.empty()) {
     return true;
@@ -58,13 +63,18 @@ bool MoveToPoseSkill::parse_pose_from_json(
   extract_number("x", out_pose.position.x);
   extract_number("y", out_pose.position.y);
   extract_number("z", out_pose.position.z);
-  extract_number("qx", out_pose.orientation.x);
-  extract_number("qy", out_pose.orientation.y);
-  extract_number("qz", out_pose.orientation.z);
-  extract_number("qw", out_pose.orientation.w);
+  geometry_msgs::msg::Quaternion q;
+  q.x = q.y = q.z = q.w = 0.0;
+  bool has_q = extract_number("qx", q.x);
+  has_q = extract_number("qy", q.y) || has_q;
+  has_q = extract_number("qz", q.z) || has_q;
+  has_q = extract_number("qw", q.w) || has_q;
+  if (has_q) {
+    out_pose.orientation = q;
+  }
 
   // Check if target object label is specified, e.g. "object": "red_cube"
-  std::regex obj_reg(R"foo("object"\s*:\s*"([^"]+)")foo");
+  std::regex obj_reg(R"foo("(?:object|target)"\s*:\s*"([^"]+)")foo");
   std::smatch obj_match;
   if (std::regex_search(json_str, obj_match, obj_reg) && obj_match.size() > 1) {
     std::string obj_frame = std::string("nora/objects/") + obj_match.str(1);
@@ -73,8 +83,8 @@ bool MoveToPoseSkill::parse_pose_from_json(
         auto tf = tf_buffer_->lookupTransform("base_link", obj_frame, tf2::TimePointZero);
         out_pose.position.x = tf.transform.translation.x;
         out_pose.position.y = tf.transform.translation.y;
-        out_pose.position.z = tf.transform.translation.z;
-        out_pose.orientation = tf.transform.rotation;
+        // Hover above the object with the tool down; pick/place do the descent.
+        out_pose.position.z = tf.transform.translation.z + 0.10;
         RCLCPP_INFO(node_->get_logger(), "[MoveToPoseSkill] Resolved pose for '%s' via TF", obj_frame.c_str());
       }
     } catch (const tf2::TransformException & ex) {
@@ -85,8 +95,22 @@ bool MoveToPoseSkill::parse_pose_from_json(
   return true;
 }
 
+void MoveToPoseSkill::stop()
+{
+  BaseSkill::stop();
+#if NORA_HAVE_MOVEIT
+  if (move_group_) {
+    move_group_->stop();
+  }
+#endif
+}
+
 bool MoveToPoseSkill::moveToTargetPose(const geometry_msgs::msg::Pose & target_pose)
 {
+  if (stop_requested_) {
+    return false;
+  }
+
 #if NORA_HAVE_MOVEIT
   if (move_group_) {
     move_group_->setPoseTarget(target_pose);
@@ -94,6 +118,9 @@ bool MoveToPoseSkill::moveToTargetPose(const geometry_msgs::msg::Pose & target_p
     bool success = (move_group_->plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
     if (!success) {
       RCLCPP_ERROR(node_->get_logger(), "[MoveToPoseSkill] MoveIt 2 motion planning failed for target pose");
+      return false;
+    }
+    if (stop_requested_) {
       return false;
     }
     auto exec_code = move_group_->execute(plan);

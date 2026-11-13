@@ -27,3 +27,6 @@ public/nora_nlu_model.json
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# downloaded by scripts/fetch-yolox.mjs
+public/models/

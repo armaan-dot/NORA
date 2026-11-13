@@ -6,13 +6,13 @@ Starts:
   2. ros2_control inside Gazebo: joint_state_broadcaster, arm_controller (FollowJointTrajectory),
      gripper_controller (GripperCommand).
   3. MoveIt move_group (OMPL + Cartesian paths), which sends trajectories to arm_controller.
-  4. camera_perception: finds the objects on the table from the wrist RGB-D camera.
-  5. arm_commander: takes /nora/command (English), spawns the scene objects, publishes markers for Foxglove.
+  4. nora_perception: finds the objects on the table from the overhead RGB-D camera of the world.
+  5. arm_commander: takes /nora/command (English), moves the arm, publishes markers for Foxglove.
   6. NLU node (English -> intent) and foxglove_bridge (port 8765).
 
   ros2 launch nora_bringup sim_gazebo.launch.py
   ros2 launch nora_bringup sim_gazebo.launch.py gui:=true          # also open the Gazebo window
-  ros2 launch nora_bringup sim_gazebo.launch.py camera:=false perception:=ground_truth   # no rendering (test only)
+  ros2 launch nora_bringup sim_gazebo.launch.py perception:=ground_truth   # object poses from Gazebo, not the camera (test only)
   ros2 launch nora_bringup sim_gazebo.launch.py scene:=/path/to/scene.json
 
 For a real arm: replace the hardware plugin in nora_description/urdf/ros2_control.xacro with the arm's
@@ -21,19 +21,18 @@ ros2_control driver and start ros2_control_node instead of Gazebo. Controllers, 
 
 import os
 import re
-import sys
 
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
-from launch.conditions import IfCondition
+from launch.actions import AppendEnvironmentVariable, DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
+from launch.conditions import IfCondition, LaunchConfigurationEquals
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-ARM_JOINTS = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+ARM_JOINTS = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -42,9 +41,7 @@ def generate_launch_description() -> LaunchDescription:
     gazebo_pkg = get_package_share_directory("nora_gazebo")
     moveit_pkg = get_package_share_directory("nora_moveit_config")
 
-    urdf = xacro.process_file(
-        os.path.join(description_pkg, "urdf", "nora_arm.urdf.xacro"), mappings={"sim_gazebo": "true", "sim_camera": "false" if "camera:=false" in sys.argv else "true"}
-    ).toxml()
+    urdf = xacro.process_file(os.path.join(description_pkg, "urdf", "nora_arm.urdf.xacro"), mappings={"use_gazebo": "true"}).toxml()
     # gazebo_ros2_control on Humble passes the URDF as a command-line parameter; XML comments can break that.
     urdf = re.sub(r"<!--.*?-->", "", urdf, flags=re.DOTALL)
     description = {"robot_description": urdf}
@@ -132,6 +129,15 @@ def generate_launch_description() -> LaunchDescription:
             output="screen",
         )
 
+    def static_tf(parent, child, xyz, rpy):
+        return Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            arguments=["--x", xyz[0], "--y", xyz[1], "--z", xyz[2], "--roll", rpy[0], "--pitch", rpy[1], "--yaw", rpy[2],
+                       "--frame-id", parent, "--child-frame-id", child],
+            parameters=[sim_time],
+        )
+
     joint_states = spawner("joint_state_broadcaster")
     # The controller manager lives inside Gazebo, so it only exists once the arm has been spawned.
     after_spawn = RegisterEventHandler(OnProcessExit(target_action=spawn_arm, on_exit=[joint_states]))
@@ -142,11 +148,10 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             DeclareLaunchArgument("gui", default_value="false", description="Open the Gazebo window"),
-            DeclareLaunchArgument("camera", default_value="true", description="Render the wrist RGB-D camera (needs OpenGL)"),
             DeclareLaunchArgument(
                 "perception",
                 default_value="camera",
-                description="camera, or ground_truth (test only: object poses from Gazebo, for machines that cannot render)",
+                description="camera (YOLOX on the overhead camera, needs OpenGL), or ground_truth (test only: object poses from Gazebo)",
             ),
             DeclareLaunchArgument("nlu", default_value="true", description="Start the NLU node for English commands"),
             DeclareLaunchArgument(
@@ -158,9 +163,14 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "scene",
                 default_value=os.path.join(bringup, "config", "gazebo_scene.json"),
-                description="Scene JSON: objects on the table and named place locations",
+                description="Scene JSON: what the commander knows about each object class, and the named place locations",
             ),
+            # tabletop.world includes the object models of nora_gazebo/models
+            AppendEnvironmentVariable("GAZEBO_MODEL_PATH", os.path.join(gazebo_pkg, "models")),
             gazebo,
+            # Pose of overhead_camera in tabletop.world (same values as nora_gazebo/launch/gazebo.launch.py)
+            static_tf("world", "camera_link", ("0.981", "-0.05", "1.351"), ("0", "0.9599", "3.1416")),
+            static_tf("camera_link", "camera_color_optical_frame", ("0", "0", "0"), ("-1.5708", "0", "-1.5708")),
             Node(
                 package="robot_state_publisher",
                 executable="robot_state_publisher",
@@ -183,10 +193,18 @@ def generate_launch_description() -> LaunchDescription:
                 parameters=[{"scene_file": LaunchConfiguration("scene")}, sim_time],
             ),
             Node(
-                package="nora_bringup",
-                executable="camera_perception.py",
+                package="nora_perception",
+                executable="nora_perception",
                 output="screen",
-                parameters=[{"scene_file": LaunchConfiguration("scene"), "source": LaunchConfiguration("perception")}, sim_time],
+                parameters=[os.path.join(get_package_share_directory("nora_perception"), "config", "perception.yaml"), sim_time],
+                condition=LaunchConfigurationEquals("perception", "camera"),
+            ),
+            Node(
+                package="nora_bringup",
+                executable="ground_truth_perception.py",
+                output="screen",
+                parameters=[{"scene_file": LaunchConfiguration("scene")}, sim_time],
+                condition=LaunchConfigurationEquals("perception", "ground_truth"),
             ),
             Node(
                 package="nora_nlu_node",

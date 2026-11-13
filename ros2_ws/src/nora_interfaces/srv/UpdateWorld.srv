@@ -1,0 +1,10 @@
+# UpdateWorld.srv — record the outcome of a manipulation action
+# Request
+string object_id
+string state        # grasped | moved | placed | missing | unknown
+string location     # semantic location after the action; empty keeps the current one
+---
+# Response
+bool success
+string message
+nora_interfaces/WorldObject object
