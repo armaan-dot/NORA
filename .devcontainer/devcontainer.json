@@ -1,0 +1,20 @@
+{
+  "name": "NORA ROS 2 Humble (Foxglove)",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "root",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+  },
+  "postCreateCommand": "bash -c 'source /opt/ros/humble/setup.bash && cd ros2_ws && colcon build --packages-select nora_bringup && cd ../frontend && npm install'",
+  "forwardPorts": [9090, 8765, 5173],
+  "portsAttributes": {
+    "9090": { "label": "rosbridge (simulator <-> ROS)", "onAutoForward": "silent" },
+    "8765": { "label": "foxglove_bridge (Foxglove)", "onAutoForward": "silent" },
+    "5173": { "label": "simulator (npm run dev)", "onAutoForward": "notify" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "ms-iot.vscode-ros"]
+    }
+  }
+}
